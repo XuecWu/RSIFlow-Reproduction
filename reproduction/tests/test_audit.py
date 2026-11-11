@@ -12,7 +12,7 @@ SCRIPTS = ROOT / "scripts"
 
 class AuditTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(dir=ROOT)
         self.audit_root = Path(self.temp.name)
 
     def tearDown(self):
@@ -57,6 +57,23 @@ class AuditTests(unittest.TestCase):
         self.assertNotIn("sk-test-secret", raw)
         self.assertNotIn("secret-token", raw)
         self.assertIn("REDACTED", raw)
+
+    def test_concurrent_operation_records_have_unique_sequences(self):
+        processes = [
+            subprocess.Popen(
+                [sys.executable, str(SCRIPTS / "record_operation.py"), "--audit-root", str(self.audit_root),
+                 "--phase", "unit", "--tool-kind", "bash", "--action", f"concurrent_{index}", "--input", "test"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for index in range(8)
+        ]
+        results = [process.communicate(timeout=30) + (process.returncode,) for process in processes]
+        self.assertTrue(all(returncode == 0 for _, _, returncode in results), results)
+        rows = self.operations()
+        self.assertEqual(8, len(rows))
+        self.assertEqual(list(range(1, 9)), sorted(row["sequence"] for row in rows))
 
     def test_result_requires_evidence_and_records_hash(self):
         missing = self.run_script(

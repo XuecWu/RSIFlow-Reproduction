@@ -4,7 +4,7 @@
   "tab_id": "w1:t7",
   "agents": [
     {"name": "rsiflow-kimi", "pane_id": "w1:pS", "kind": "kimi", "model": "K3.1 Pro", "status": "probe_passed", "probe": "RSIFLOW_KIMI_A17F"},
-    {"name": "rsiflow-codex", "pane_id": "w1:pT", "kind": "codex", "model": "gpt-6-astra", "status": "blocked_repository_trust_user_confirmation_required", "probe": null},
+    {"name": "rsiflow-codex", "pane_id": "w1:pT", "kind": "codex", "model": "gpt-6-astra high Fast", "status": "probe_passed", "probe": "RSIFLOW_CODEX_OK"},
     {"name": "rsiflow-qwen", "pane_id": "w1:pV", "kind": "qwen", "model": "qwen3.8-max", "status": "probe_passed", "probe": "RSIFLOW_QWEN_B29Q"}
   ]
 }

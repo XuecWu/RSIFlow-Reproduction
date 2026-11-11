@@ -1,9 +1,10 @@
 import fcntl
 import hashlib
 import json
-import os
 import re
 import subprocess
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +15,21 @@ SECRET_PATTERNS = [
     re.compile(r"(?i)(cpolar\s+authtoken\s+)\S+"),
     re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~-]+"),
 ]
+
+
+@contextmanager
+def exclusive_lock(path, timeout_seconds=30):
+    with Path(path).open("a") as lock:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timed out acquiring audit lock: {path}")
+                time.sleep(0.05)
+        yield lock
 
 
 def utc_now():
@@ -30,8 +46,7 @@ def sanitize(value):
 def allocate_sequence(audit_root):
     root = Path(audit_root)
     root.mkdir(parents=True, exist_ok=True)
-    with (root / ".sequence.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with exclusive_lock(root / ".sequence.lock"):
         state = root / "sequence.state"
         current = int(state.read_text()) if state.exists() else 0
         operations = root / "operations.jsonl"
@@ -47,8 +62,7 @@ def allocate_sequence(audit_root):
 def append_jsonl(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.with_suffix(path.suffix + ".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with exclusive_lock(path.with_suffix(path.suffix + ".lock")):
         with path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(value, ensure_ascii=False) + "\n")
 

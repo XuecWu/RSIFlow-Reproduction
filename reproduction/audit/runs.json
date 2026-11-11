@@ -8,7 +8,7 @@
       "model": "gpt-6-astra",
       "protocol": "protocol_reconstruction",
       "evaluation": "694_of_744_ace_skipped",
-      "status": "model_only_diagnostic_r3_queued_full_run_blocked_landlock",
+      "status": "model_only_diagnostic_completed_full_run_blocked_landlock",
       "run_dir": null,
       "sco_job_id": "pt-ox3o5he2",
       "second_model_alias_failure_job_id": "pt-jnjtat52",

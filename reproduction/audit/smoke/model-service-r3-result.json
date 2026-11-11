@@ -1,0 +1,30 @@
+{
+  "status": "completed",
+  "checkpoint": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+  "replicas": [
+    {
+      "gpu": 0,
+      "base_url": "http://127.0.0.1:8271/v1"
+    },
+    {
+      "gpu": 1,
+      "base_url": "http://127.0.0.1:8272/v1"
+    },
+    {
+      "gpu": 2,
+      "base_url": "http://127.0.0.1:8273/v1"
+    },
+    {
+      "gpu": 3,
+      "base_url": "http://127.0.0.1:8274/v1"
+    }
+  ],
+  "answer": "RSIFLOW_SMOKE_OK",
+  "usage": {
+    "prompt_tokens": 22,
+    "completion_tokens": 8,
+    "total_tokens": 30
+  },
+  "services_stopped_and_training_memory_released": true,
+  "scope": "four_real_bf16_services_and_one_short_generation_not_a_benchmark"
+}

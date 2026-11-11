@@ -19,12 +19,13 @@
 5. 对账：`reproduction/audit/cohort-release-v4.json` 连接 source build、READY 和逐源数量；保留语义独立性未知、预训练暴露未知和隔离重建历史。
 6. Official spec：HumanEval+ 164、MBPP+ 178、HotpotQA 100、2Wiki 100 已从 v4 生成并验证。两类 QA 官方 v1 的单条金答案 smoke 均通过，EM=F1=0.01 是 1/100 固定分母结果，不是模型成绩。
 7. 审计：新操作带证据 SHA256；历史操作有独立 `evidence-hashes.json`；过程 JSON 标记生成时间和截至 sequence。
+8. 真实模型 smoke：`pt-ox3o5he2` 完成四卡 BF16 服务、checkpoint/weights 绑定和 `RSIFLOW_SMOKE_OK` 短生成（22+8 tokens），随后停止服务并释放显存；这不是 benchmark 分数。
 
 ## 当前阻断
 
 - **完整实验硬阻断于 Landlock**：`pt-texqw4a8` 在目标 SCO `Linux-4.18.0-425.3.1.el8` 上明确返回 errno 38 / `Function not implemented`，在模型加载前失败。
-- 本机也不支持 Landlock；上游最新全量测试为 163 passed、2 skipped、1 failed，不能宣称全绿。
-- 目标镜像也没有 bwrap：`pt-if57mo0b` 为 `bwrap: command not found`、exit 127。`pt-l379djx0` 仅做四卡模型诊断，替代隔离方案仍未验证。
+- 本机也不支持 Landlock；上游最新全量测试为 167 passed、2 skipped、1 failed，不能宣称全绿。
+- 目标镜像也没有 bwrap：`pt-if57mo0b` 为 `bwrap: command not found`、exit 127。四卡模型诊断虽已成功，替代隔离方案仍未验证。
 - `assets/private/credentials.sh` 尚未提供，真实 Meta `/models`、Responses/Chat 和 Codex dynamic tools 未验证。
 - BFCL、HumanEval+、MBPP+ 最小真实 benchmark smoke 尚未全部完成。
 - 8B 未准备、未运行；4B 审阅后才决定。

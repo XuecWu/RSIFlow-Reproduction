@@ -27,7 +27,7 @@
   },
   "current_execution": {
     "status": "blocked_landlock_unavailable",
-    "phase": "task5_gpu_diagnostic_only",
+    "phase": "task5_benchmark_smoke_and_isolation_blocked",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
@@ -101,9 +101,11 @@
     },
     {
       "id": "model_service_smoke",
-      "status": "queued",
-      "evidence": "reproduction/audit/runs.json",
-      "sco_job_id": "pt-b1r8t0uk",
+      "status": "completed_gpu_diagnostic_landlock_blocker_remains",
+      "evidence": "reproduction/audit/smoke/model-service-r3-result.json",
+      "sco_job_id": "pt-ox3o5he2",
+      "answer": "RSIFLOW_SMOKE_OK",
+      "usage": {"prompt_tokens": 22, "completion_tokens": 8},
       "scope": "gpu_diagnostic_only_not_full_experiment"
     },
     {

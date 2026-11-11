@@ -124,7 +124,7 @@ class WebsiteTests(unittest.TestCase):
         self.assertGreaterEqual(len(stages), 13)
         completed = {"conda_environment", "external_assets", "offline_tests", "launch_preflight"}
         self.assertEqual("landlock_unavailable_errno38", next(stage for stage in stages if stage["id"] == "sco_gpu_probe")["status"])
-        self.assertEqual("queued", next(stage for stage in stages if stage["id"] == "model_service_smoke")["status"])
+        self.assertEqual("completed_gpu_diagnostic_landlock_blocker_remains", next(stage for stage in stages if stage["id"] == "model_service_smoke")["status"])
         self.assertEqual("blocked_missing_credentials", next(stage for stage in stages if stage["id"] == "meta_api_smoke")["status"])
         frozen = next(stage for stage in stages if stage["id"] == "frozen_data")
         self.assertEqual("completed_protocol_reconstruction_with_caveats", frozen["status"])
@@ -138,7 +138,7 @@ class WebsiteTests(unittest.TestCase):
                 self.assertEqual(expected_status, stage["status"])
                 self.assertIsNotNone(stage["evidence"])
             elif stage["id"] not in {"frozen_data"}:
-                self.assertIn(stage["status"], {"not_run_pending_approval", "queued", "landlock_unavailable_errno38", "blocked_missing_credentials"})
+                self.assertIn(stage["status"], {"not_run_pending_approval", "completed_gpu_diagnostic_landlock_blocker_remains", "landlock_unavailable_errno38", "blocked_missing_credentials"})
         self.assertIn("主分区 8×A800", self.reproduction["current_execution"]["gpu_profile_display"])
         self.assertEqual("main_partition_8xA800_sequential_gpu_0_to_3", self.reproduction["current_execution"]["gpu_profile"])
 

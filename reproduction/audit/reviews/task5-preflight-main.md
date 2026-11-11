@@ -12,7 +12,8 @@
 - 第一次完整 CLI 导入在 649 秒暴露 `soundfile` 缺失；独立环境补装 `soundfile==0.14.0` 后，同一导入以 260.38 秒完成，`cli=True`。这证明 CLI 可导入，不等于 native isolation 或模型评分已通过。
 - 四卡 smoke 脚本测试通过：真实 start/verify/短生成/finally stop 的调用契约 2/2；GPU 实跑仍待 SCO。
 - 第一次真实服务在 600 秒内均未 ready，且日志为空；清理后为 `services_stopped`。新增 tokenizer/weights 阶段日志和 1800 秒冷启动上限。第二次 `pt-jnjtat52` 记录到 torch=8.84s、torch+fastapi=9.90s、transformers=38.25s；四个 BF16 服务在 843–846 秒后均 ready。
-- 第二次短生成因客户端 model=`Qwen3-4B`、服务仅注册完整 checkpoint 路径而 404。已补 checkpoint 目录名别名和基础别名淘汰保护；`test_service_startup.py` 4/4 通过，第三次 `pt-ox3o5he2` 正在验证。完整上游最新 167 passed、2 skipped、1 个已知 Landlock 失败。
+- 第二次短生成因客户端 model=`Qwen3-4B`、服务仅注册完整 checkpoint 路径而 404。已补 checkpoint 目录名别名和基础别名淘汰保护；`test_service_startup.py` 4/4 通过，完整上游最新 167 passed、2 skipped、1 个已知 Landlock 失败。
+- 第三次 `pt-ox3o5he2` 已 SUCCEEDED：四卡 BF16 服务、真实绑定、短生成 `RSIFLOW_SMOKE_OK`（22+8 tokens），随后正常停止并释放显存。证据归档于 `audit/smoke/model-service-r3-*`，不计为 benchmark 分数。
 
 ## 数据审计保留意见
 

@@ -21,12 +21,13 @@
 - 四类 official spec 已从 v4 重新生成：164/178/100/100；HotpotQA 与 2Wiki 官方 v1 单条金答案 smoke 均按 100 固定分母得到 EM=F1=0.01，只证明评测链路，不是模型分数。2Wiki 保持上游 v1，不擅自改用需要 aliases 的 v1.1。
 - skip-ACE 新 694/744 与旧 250/300 兼容修复，自定义 provider 配置覆盖，过程页已发布。
 - Qwen 独立审阅 `preflight-qwen-r1.md` 的 CHANGES 已处理：v4 证据链、694/744 公开口径、真实 release 测试、操作证据 SHA256、历史 sidecar、快照 sequence 与数据保留意见。
+- `pt-ox3o5he2` 四卡真实模型 smoke 已完成：四个 BF16 A800 服务、checkpoint/weights 绑定、`RSIFLOW_SMOKE_OK` 短生成（22 prompt + 8 completion tokens）、服务停止与显存释放。它是诊断，不是 benchmark 分数。
 
 ## 当前等待与阻断
 
 - **完整实验当前硬阻断于 Landlock**：`pt-texqw4a8` 在目标 `Linux-4.18.0-425.3.1.el8` 上明确返回 errno 38、`landlock_available=false`，在模型加载前失败。不能用无隔离回退继续五轮。
-- 本机与目标 SCO 均不支持 Landlock；上游最新完整测试为 163 passed、2 skipped、1 failed。目标镜像还没有 bwrap：`pt-if57mo0b` 明确为 `bwrap: command not found`、exit 127，未验证任何替代隔离。
-- `pt-l379djx0` 只做四卡模型加载和短生成诊断，完整实验仍阻断；驱动 stdout/stderr 写入共享盘。
+- 本机与目标 SCO 均不支持 Landlock；上游最新完整测试为 167 passed、2 skipped、1 failed。目标镜像还没有 bwrap：`pt-if57mo0b` 明确为 `bwrap: command not found`、exit 127，未验证任何替代隔离。
+- 四卡模型诊断已完成，但不能替代 Landlock、Meta 和五类 benchmark 门槛。
 - `assets/private/credentials.sh` 尚不存在，真实 Meta `/models`、Responses/Chat 和 Codex native tools 尚未验证。
 - BFCL、HumanEval+、MBPP+ 最小真实 benchmark smoke 尚未全部完成。
 - 尚未运行五轮实验、最终 694 评估或 8B；没有模型输出分数。

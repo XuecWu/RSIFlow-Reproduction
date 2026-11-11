@@ -27,7 +27,7 @@
   },
   "current_execution": {
     "status": "in_progress",
-    "phase": "task1_asset_preparation",
+    "phase": "task2_cohort_construction",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "protocol": "protocol_reconstruction",
@@ -40,6 +40,12 @@
       "focused_tests": "6/6",
       "source": "RSIFlow/validation_skip.py",
       "evidence": "reproduction/audit/reviews/skip-ace-codex-r1.md"
+    },
+    "landlock": {
+      "local_status": "unavailable_function_not_implemented",
+      "upstream_suite": "160 passed, 2 skipped, 1 failed",
+      "sco_probe_job": "pt-r6np9yvd",
+      "evidence": "reproduction/audit/reviews/environment-main.md"
     }
   },
   "experiment_stages": [

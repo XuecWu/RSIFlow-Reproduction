@@ -83,6 +83,15 @@ class WebsiteTests(unittest.TestCase):
         self.assertIn("本次未运行实验", visible_text)
         self.assertIn("RSI-Flow", visible_text)
 
+    def test_process_page_exposes_audit_visualization(self):
+        page = read_text("process.html")
+        for expected in ("process-summary", "process-timeline", "process-results", "process.js"):
+            self.assertIn(expected, page)
+        process = read_json("data/process.json")
+        self.assertGreaterEqual(process.get("operations_total", 0), 1)
+        self.assertIn("success", process.get("operation_counts", {}))
+        self.assertIn("timeline", process)
+
     def test_protocol_and_gpu_facts_match_source(self):
         protocol = self.repository.get("protocol", {})
         self.assertEqual(5, protocol.get("rounds"))

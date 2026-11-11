@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="RSI-Flow 复现过程、操作审计、关键结果与独立会审可视化。">
+  <title>RSI-Flow · 复现过程审计</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="process.css">
+  <script src="process.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <header class="site-header">
+    <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">RF</span><span><strong>RSI-Flow</strong><small>Process audit</small></span></a>
+    <nav class="top-nav" aria-label="页面导航"><a href="index.html#architecture">架构</a><a href="index.html#reproduction">复现路线</a><a class="active" href="process.html">过程审计</a><a href="RESULTS.md">交付结果</a></nav>
+    <a class="source-link" href="https://github.com/1HUAN1/RSI-Flow" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+  </header>
+  <main id="main">
+    <section class="process-hero page-shell">
+      <div class="eyebrow"><span class="pulse" aria-hidden="true"></span>LIVE EVIDENCE LEDGER</div>
+      <h1>复现过程审计</h1>
+      <p class="hero-lead">所有状态来自真实操作、结果文件与独立会审。没有发生的阶段不会被标记为完成。</p>
+      <div class="boundary-note"><strong>同协议重构 · 自定义 provider · ACE 跳过</strong><span>不是作者原始队列的精确复现</span></div>
+    </section>
+    <section class="page-shell process-section" id="process-summary">
+      <div class="summary-grid" id="summary-cards" aria-label="审计状态汇总"></div>
+      <div class="run-panel">
+        <div><span class="card-kicker">CURRENT RUN</span><h2 id="run-title">读取中</h2><p id="run-status" class="text-muted"></p></div>
+        <div class="run-meta"><span id="run-provider"></span><span id="run-sco"></span><span id="process-generated"></span></div>
+      </div>
+    </section>
+    <section class="page-shell process-section">
+      <div class="section-heading compact"><div><span class="section-index">01</span><span class="eyebrow">OPERATION TIMELINE</span></div><h2>操作与状态时间线</h2></div>
+        <div class="timeline" id="process-timeline" aria-live="polite"></div>
+    </section>
+    <section class="page-shell process-section">
+      <div class="section-heading compact"><div><span class="section-index">02</span><span class="eyebrow">VERIFIED RESULTS</span></div><h2>关键结果与证据</h2></div>
+      <div class="table-scroll"><table class="result-table" id="process-results"><thead><tr><th>阶段</th><th>指标</th><th>结果</th><th>复核状态</th><th>证据</th></tr></thead><tbody></tbody></table></div>
+    </section>
+  </main>
+  <footer class="site-footer page-shell"><div><strong>RSI-Flow process audit</strong><p>原始操作账本不公开凭据；公开页只展示脱敏摘要。</p></div><a href="data/process.json">process.json →</a></footer>
+</body>
+</html>

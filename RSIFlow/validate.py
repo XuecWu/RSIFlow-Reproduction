@@ -46,6 +46,8 @@ def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest
              **({'source_role':role,'purpose':'report_only','manifest_hash':selected_manifest['manifest_hash'],
                  'system_snapshot_sha256':sha(snapshot_path),'evaluation_config_sha256':sha(pipeline_path)} if selected_manifest else {})}
     immutable(out/'frozen_task.json',binding)
+    from validation_skip import reject_complete_cache_for_skip
+    reject_complete_cache_for_skip(out, skip_ace)
     if (out/'complete.json').exists():
         done=read(out/'complete.json')
         if done['state_hash']!=binding['state_hash']:raise ValueError('Completed validation state changed')
@@ -102,15 +104,9 @@ def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest
             metrics=publish(selected_manifest,snapshot,binding,results,out)
         if result.get('status')!='completed':raise RuntimeError('Validation incomplete: '+identifier)
     if skip_ace:
-        expected=['bfcl_v3','livecodebench','humaneval_plus','mbpp_plus','hotpotqa_dev','2wiki_dev']
-        if ([row['benchmark_id'] for row in results]!=expected or metrics['overall']['n_scored']!=250
-                or metrics['overall']['complete'] or (out/'scores/acebench/result.json').exists()):
-            raise RuntimeError('ACE-skipped validation must score exactly 250/300 without ACE')
-        partial={'status':'code_search_completed_ace_pending','source_role':role,
-                 'feedback_to_meta':False,'task_state_hash':binding['state_hash'],
-                 'benchmarks_completed':expected,'acebench_status':'incomplete_requires_audit',
-                 'officially_scored':250,'expected_total':300,
-                 'metrics_sha256':sha(out/'task_metrics.json')}
+        from validation_skip import ace_skip_summary
+        partial=ace_skip_summary(settings,selected_manifest,results,metrics,out,
+                                 source_role=role,task_state_hash=binding['state_hash'])
         immutable(out/'code_search_partial_complete.json',partial)
         return partial
     done={'status':'completed','round':snapshot['round'],'state_hash':binding['state_hash'],
@@ -152,7 +148,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--snapshot',required=True);p.add_argument('--pipeline-config',required=True);p.add_argument('--config',required=True)
     p.add_argument('--role',required=True,choices=['independent_validation','final_test']);p.add_argument('--manifest',required=True)
     p.add_argument('--execute',action='store_true')
-    p.add_argument('--skip-ace',action='store_true',help='Explicit partial independent validation; never a complete 300-task report')
+    p.add_argument('--skip-ace',action='store_true',help='Explicit partial independent validation; never a complete benchmark report')
     p.add_argument('--full-benchmark',action='store_true',help='Explicit reporting-only full manifest; never a round-loop default')
     a=p.parse_args()
     from evaluation_manifest import evaluation_budget

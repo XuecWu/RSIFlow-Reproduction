@@ -25,6 +25,23 @@
     ],
     "verified": false
   },
+  "current_execution": {
+    "status": "in_progress",
+    "phase": "task1_asset_preparation",
+    "backbone": "Qwen3-4B",
+    "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
+    "protocol": "protocol_reconstruction",
+    "meta_provider": "OpenAI/gpt-6-astra",
+    "ace_mode": "skipped_694_of_744"
+  },
+  "compatibility_fixes": {
+    "skip_ace_744": {
+      "status": "focused_tests_passed_full_suite_pending",
+      "focused_tests": "6/6",
+      "source": "RSIFlow/validation_skip.py",
+      "evidence": "reproduction/audit/reviews/skip-ace-codex-r1.md"
+    }
+  },
   "experiment_stages": [
     {"id": "conda_environment", "status": "not_run_pending_approval", "evidence": null},
     {"id": "external_assets", "status": "not_run_pending_approval", "evidence": null},

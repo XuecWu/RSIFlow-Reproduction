@@ -34,6 +34,8 @@ def validate_round(config, run_dir, number, record):
     path=out/'round_snapshot.json'
     if path.exists() and json.loads(path.read_text())!=binding:raise ValueError('Validation round snapshot changed')
     save_json(path,binding)
+    validation_settings=json.loads(Path(config.round_validation_config).read_text())
+    expected_benchmarks=list(validation_settings['benchmark_ids'])
     authorization_path=Path(run_dir)/'recovery/ace_skip_authorization.json'
     configured_skip=bool((getattr(config,'round_protocol',None) or {}).get('skip_acebench',False))
     partial_mode=configured_skip or authorization_path.exists()
@@ -41,18 +43,21 @@ def validate_round(config, run_dir, number, record):
         from rsiflow.task_meta.durable import load_task, task_hash
         authorization=json.loads(authorization_path.read_text()) if authorization_path.exists() else None
         manifest=Path(config.round_protocol['validation_manifest'])
+        manifest_value=json.loads(manifest.read_text())
+        expected_total=len(manifest_value['tasks'])
+        expected_scored=sum(row['source']!='acebench' for row in manifest_value['tasks'])
+        expected=[name for name in expected_benchmarks if name!='acebench']
         if authorization is not None and (authorization.get('schema_version')!='ace-skipped-round-validation-v1'
                 or authorization.get('run_name')!=Path(run_dir).name
                 or authorization.get('manifest_sha256')!=digest(manifest)
                 or authorization.get('validation_config_sha256')!=digest(Path(config.round_validation_config))
-                or authorization.get('expected_total')!=300
-                or authorization.get('scored_total')!=250):
+                or authorization.get('expected_total')!=expected_total
+                or authorization.get('scored_total')!=expected_scored):
             raise ValueError('ACE-skipped validation is not authorized for this run and manifest')
         def verify_partial():
             partial=out/'code_search_partial_complete.json'
             if not partial.exists():return False
             value=json.loads(partial.read_text())
-            expected=['bfcl_v3','livecodebench','humaneval_plus','mbpp_plus','hotpotqa_dev','2wiki_dev']
             state_hash=task_hash(load_task(record['task_after']))
             metrics_path=out/'task_metrics.json'
             metrics=json.loads(metrics_path.read_text())
@@ -61,13 +66,13 @@ def validate_round(config, run_dir, number, record):
                     or value.get('feedback_to_meta') is not False
                     or value.get('task_state_hash')!=state_hash
                     or value.get('benchmarks_completed')!=expected
-                    or value.get('officially_scored')!=250 or value.get('expected_total')!=300
+                    or value.get('officially_scored')!=expected_scored or value.get('expected_total')!=expected_total
                     or value.get('metrics_sha256')!=digest(metrics_path)
-                    or metrics['overall']['n_scored']!=250 or metrics['overall']['complete']
+                    or metrics['overall']['n_scored']!=expected_scored or metrics['overall']['complete']
                     or (out/'complete.json').exists()
                     or (out/'scores/acebench/result.json').exists()
                     or (authorization is not None and outer_number==1 and digest(partial)!=authorization.get('initial_partial_sha256'))):
-                raise ValueError('ACE-skipped validation receipt is not the authorized 250/300 report')
+                raise ValueError(f'ACE-skipped validation receipt is not the authorized {expected_scored}/{expected_total} report')
             for name in expected:
                 score=json.loads((out/'scores'/name/'result.json').read_text())
                 if (score.get('status')!='completed' or score.get('state_hash')!=state_hash
@@ -88,5 +93,5 @@ def validate_round(config, run_dir, number, record):
         if not verify_partial():raise RuntimeError('ACE-skipped independent validation is incomplete')
         return
     done=json.loads((out/'complete.json').read_text())
-    if done['benchmarks_completed']!=7 or done['feedback_to_meta'] is not False:
+    if done['benchmarks_completed']!=len(expected_benchmarks) or done['feedback_to_meta'] is not False:
         raise RuntimeError('Round validation is incomplete')

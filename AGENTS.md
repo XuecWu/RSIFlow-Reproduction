@@ -166,5 +166,6 @@ cpolar 只暴露 `web/`。公开前运行密钥扫描，不能把私有轨迹、
 - 不修改上游测试断言来掩盖环境或协议错误。
 - 修改控制流、有效配置、入口参数、数据协议或 GPU 映射时，同步更新本文件、复现手册和网页 JSON。
 - 文档中的命令与实际 argparse 不一致时以代码为准。已知例子：`META_SKILLS.md` 写 `--meta-skill-seed`，当前 `launch_meta.py` 实际参数是 `--skill-seed`。
+- 跳过 ACE 时必须使用 `validation_skip.py` 按 settings/manifest 计算 partial 计数，不能复用旧 250/300 硬编码；当前 744 协议为 694/744，已有完整缓存不能当作 skip-ACE 结果复用。
 - 区分离线测试、配置预检、真实 smoke、完整五轮实验和最终评估，任何前序成功都不能替代后序证据。
 - 不执行 git commit/push，除非用户后续明确要求。

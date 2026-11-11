@@ -195,6 +195,7 @@ bash RSIFlow/watch_meta.sh --run-dir "$PWD/Rollout_logs/runs/rsiflow-4b" --once
 - `task_results.jsonl` 每行都有明确 execution/scoring 状态；缺失值不能当失败或零分。
 - `task_metrics.json`/`task_metrics.csv` 的 overall complete 为真后才报告完整成功率。
 - `feedback_to_meta=false`，评估结果没有进入 SFT 或技能学习。
+- 跳过 ACE 时由 `RSIFlow/validation_skip.py` 按 settings/manifest 生成 partial 回执：当前为 694/744，旧 300 协议仍为 250/300；缺失指标文件或已有完整缓存都应拒绝。
 - 模型 checkpoint、Harness manifest、Artifacts、skills/context 和 snapshots 均保留。
 
 4B/8B 对比必须使用同一 frozen release、同一评估预算和兼容 API/评测器。只比较完整配对结果，不用部分任务或历史均值补齐。

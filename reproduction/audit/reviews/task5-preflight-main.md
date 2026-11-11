@@ -11,6 +11,7 @@
 - BFCL CLI 冷启动加载大量第三方模型类型，90 秒 preflight 不足；`check_native` 上限改为 900 秒，测试先失败后通过。真实评测 budget 未缩短。
 - 第一次完整 CLI 导入在 649 秒暴露 `soundfile` 缺失；独立环境补装 `soundfile==0.14.0` 后，同一导入以 260.38 秒完成，`cli=True`。这证明 CLI 可导入，不等于 native isolation 或模型评分已通过。
 - 四卡 smoke 脚本测试通过：真实 start/verify/短生成/finally stop 的调用契约 2/2；GPU 实跑仍待 SCO。
+- 第一次真实服务在 600 秒内均未 ready，且日志为空；清理后为 `services_stopped`。新增 tokenizer/weights 阶段日志和 1800 秒冷启动上限，对应 `test_service_startup.py` 2/2 通过。第二次 `pt-jnjtat52` 记录到 torch=8.84s、torch+fastapi=9.90s，随后 transformers 仍在导入，不能误判为 GPU 权重加载慢。
 
 ## 数据审计保留意见
 

@@ -30,7 +30,9 @@ log = logging.getLogger("task_meta_gpu")
 
 def load_model(model_ref, checkpoint):
     started = time.monotonic()
+    log.info("Loading tokenizer for %s", model_ref)
     tokenizer = AutoTokenizer.from_pretrained(checkpoint, local_files_only=True)
+    log.info("Loading weights for %s", model_ref)
     model = AutoModelForCausalLM.from_pretrained(
         checkpoint, dtype=torch.bfloat16, device_map=DEVICE,
         local_files_only=True, attn_implementation="sdpa",

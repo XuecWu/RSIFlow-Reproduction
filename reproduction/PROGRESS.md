@@ -25,7 +25,8 @@
 ## 当前等待与阻断
 
 - **完整实验当前硬阻断于 Landlock**：`pt-texqw4a8` 在目标 `Linux-4.18.0-425.3.1.el8` 上明确返回 errno 38、`landlock_available=false`，在模型加载前失败。不能用无隔离回退继续五轮。
-- 本机与目标 SCO 均不支持 Landlock；上游最新完整测试为 163 passed、2 skipped、1 failed。`pt-b1r8t0uk` 仅做 bwrap 和四卡 GPU 诊断，不代表替代隔离方案已通过。
+- 本机与目标 SCO 均不支持 Landlock；上游最新完整测试为 163 passed、2 skipped、1 failed。目标镜像还没有 bwrap：`pt-if57mo0b` 明确为 `bwrap: command not found`、exit 127，未验证任何替代隔离。
+- `pt-l379djx0` 只做四卡模型加载和短生成诊断，完整实验仍阻断；驱动 stdout/stderr 写入共享盘。
 - `assets/private/credentials.sh` 尚不存在，真实 Meta `/models`、Responses/Chat 和 Codex native tools 尚未验证。
 - BFCL、HumanEval+、MBPP+ 最小真实 benchmark smoke 尚未全部完成。
 - 尚未运行五轮实验、最终 694 评估或 8B；没有模型输出分数。

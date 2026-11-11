@@ -24,7 +24,7 @@
 
 - **完整实验硬阻断于 Landlock**：`pt-texqw4a8` 在目标 SCO `Linux-4.18.0-425.3.1.el8` 上明确返回 errno 38 / `Function not implemented`，在模型加载前失败。
 - 本机也不支持 Landlock；上游最新全量测试为 163 passed、2 skipped、1 failed，不能宣称全绿。
-- `pt-b1r8t0uk` 仅做 bwrap 和四卡 GPU 诊断；替代隔离方案必须单独审阅，不能把 bwrap 可用当成 Landlock 通过。
+- 目标镜像也没有 bwrap：`pt-if57mo0b` 为 `bwrap: command not found`、exit 127。`pt-l379djx0` 仅做四卡模型诊断，替代隔离方案仍未验证。
 - `assets/private/credentials.sh` 尚未提供，真实 Meta `/models`、Responses/Chat 和 Codex dynamic tools 未验证。
 - BFCL、HumanEval+、MBPP+ 最小真实 benchmark smoke 尚未全部完成。
 - 8B 未准备、未运行；4B 审阅后才决定。

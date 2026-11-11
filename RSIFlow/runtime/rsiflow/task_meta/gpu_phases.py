@@ -10,6 +10,7 @@ from urllib.request import ProxyHandler, build_opener
 from .storage import save_json
 
 ROOT = Path(__file__).resolve().parents[2]
+SERVICE_START_TIMEOUT_SECONDS = 1800
 
 def registry_path(config=None):
     configured = getattr(config, 'output_root', None) or os.environ.get('RSIFLOW_OUTPUT_ROOT')
@@ -112,7 +113,7 @@ def start_services(config, checkpoint):
     expected = {'checkpoint_path': str(Path(checkpoint).resolve()), 'weights': checkpoint_manifest(checkpoint)}
     pending = list(records)
     opener = build_opener(ProxyHandler({}))
-    deadline = time.monotonic() + 600
+    deadline = time.monotonic() + SERVICE_START_TIMEOUT_SECONDS
     while pending and time.monotonic() < deadline:
         for record in list(pending):
             if process_identity(record['pid']) != record['identity']:
@@ -128,7 +129,7 @@ def start_services(config, checkpoint):
             elif health.get('ready'):
                 raise RuntimeError('New service loaded an unexpected checkpoint or GPU')
         if pending: time.sleep(1)
-    if pending: raise TimeoutError('Four-GPU inference startup did not complete in 600 seconds')
+    if pending: raise TimeoutError(f'Four-GPU inference startup did not complete in {SERVICE_START_TIMEOUT_SECONDS} seconds')
     registry.update(phase='inference_ready', verified_at=time.time())
     save_json(registry_file, registry)
     return records

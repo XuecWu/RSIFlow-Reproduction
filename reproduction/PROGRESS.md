@@ -24,8 +24,8 @@
 
 ## 当前等待与阻断
 
-- 原 Landlock probe `pt-r6np9yvd` 已 SUCCEEDED，但结束容器 stdout 不可得，不能据此判断 Landlock。新 `pt-texqw4a8` 将先复查 Landlock，再执行四卡 BF16 服务与短生成，目前排队中。
-- 本机内核 Landlock 返回 `Function not implemented`，上游最新完整测试为 163 passed、2 skipped、1 failed；目标环境仍以 `pt-texqw4a8` 的共享盘结果为准。
+- **完整实验当前硬阻断于 Landlock**：`pt-texqw4a8` 在目标 `Linux-4.18.0-425.3.1.el8` 上明确返回 errno 38、`landlock_available=false`，在模型加载前失败。不能用无隔离回退继续五轮。
+- 本机与目标 SCO 均不支持 Landlock；上游最新完整测试为 163 passed、2 skipped、1 failed。`pt-b1r8t0uk` 仅做 bwrap 和四卡 GPU 诊断，不代表替代隔离方案已通过。
 - `assets/private/credentials.sh` 尚不存在，真实 Meta `/models`、Responses/Chat 和 Codex native tools 尚未验证。
 - BFCL、HumanEval+、MBPP+ 最小真实 benchmark smoke 尚未全部完成。
 - 尚未运行五轮实验、最终 694 评估或 8B；没有模型输出分数。

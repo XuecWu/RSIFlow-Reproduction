@@ -26,8 +26,8 @@
     "verified": false
   },
   "current_execution": {
-    "status": "in_progress",
-    "phase": "task5_model_smoke_queued",
+    "status": "blocked_landlock_unavailable",
+    "phase": "task5_gpu_diagnostic_only",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
@@ -94,15 +94,17 @@
     },
     {
       "id": "sco_gpu_probe",
-      "status": "succeeded_stdout_unavailable_recheck_queued",
-      "evidence": "reproduction/audit/reviews/environment-main.md",
-      "sco_job_id": "pt-r6np9yvd"
+      "status": "landlock_unavailable_errno38",
+      "evidence": "reproduction/logs/landlock-model-smoke.json",
+      "sco_job_id": "pt-texqw4a8",
+      "full_run_blocked": true
     },
     {
       "id": "model_service_smoke",
       "status": "queued",
       "evidence": "reproduction/audit/runs.json",
-      "sco_job_id": "pt-texqw4a8"
+      "sco_job_id": "pt-b1r8t0uk",
+      "scope": "gpu_diagnostic_only_not_full_experiment"
     },
     {
       "id": "meta_api_smoke",

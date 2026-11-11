@@ -8,11 +8,12 @@
       "model": "gpt-6-astra",
       "protocol": "protocol_reconstruction",
       "evaluation": "694_of_744_ace_skipped",
-      "status": "model_smoke_queued",
+      "status": "gpu_diagnostic_queued_full_run_blocked_landlock",
       "run_dir": null,
-      "sco_job_id": "pt-texqw4a8",
+      "sco_job_id": "pt-b1r8t0uk",
       "landlock_probe_job_id": "pt-r6np9yvd",
-      "landlock_probe_status": "succeeded_stdout_unavailable",
+      "landlock_probe_status": "unavailable_errno38",
+      "landlock_failed_job_id": "pt-texqw4a8",
       "started_at": null,
       "ended_at": null
     }

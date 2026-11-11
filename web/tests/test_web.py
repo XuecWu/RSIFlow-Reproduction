@@ -114,14 +114,19 @@ class WebsiteTests(unittest.TestCase):
         self.assertEqual(16384, sft.get("max_length"))
         self.assertEqual(4, sft.get("ddp_ranks"))
 
-    def test_all_experiment_stages_require_future_approval(self):
+    def test_experiment_status_tracks_real_evidence(self):
         stages = self.reproduction.get("experiment_stages", [])
         self.assertGreaterEqual(len(stages), 13)
-        self.assertEqual(
-            {"not_run_pending_approval"},
-            {stage.get("status") for stage in stages},
-        )
-        self.assertTrue(all(stage.get("evidence") is None for stage in stages))
+        completed = {"conda_environment", "external_assets", "offline_tests", "launch_preflight", "frozen_data"}
+        self.assertEqual("queued", next(stage for stage in stages if stage["id"] == "sco_gpu_probe")["status"])
+        self.assertEqual("blocked_missing_credentials", next(stage for stage in stages if stage["id"] == "meta_api_smoke")["status"])
+        for stage in stages:
+            if stage["id"] in completed:
+                expected_status = "completed_with_landlock_limitation" if stage["id"] == "offline_tests" else "completed"
+                self.assertEqual(expected_status, stage["status"])
+                self.assertIsNotNone(stage["evidence"])
+            else:
+                self.assertIn(stage["status"], {"not_run_pending_approval", "queued", "blocked_missing_credentials"})
 
     def test_local_assets_documents_and_anchors_resolve(self):
         missing = []

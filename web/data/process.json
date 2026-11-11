@@ -1,657 +1,664 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-11T14:57:33.979721Z",
-  "current_phase": "task6",
+  "generated_at": "2026-11-11T15:39:42.823731Z",
+  "current_phase": "task5",
   "operation_counts": {
-    "success": 195,
-    "failed": 51,
-    "blocked": 1
+    "success": 235,
+    "failed": 61,
+    "blocked": 1,
+    "timeout": 4
   },
-  "operations_total": 247,
-  "results_total": 15,
+  "operations_total": 301,
+  "results_total": 21,
   "timeline": [
     {
-      "sequence": 215,
-      "timestamp": "2026-11-11T14:18:51.290969Z",
-      "phase": "task2",
-      "action": "herdr",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000215-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000215-stderr.log"
-      ]
-    },
-    {
-      "sequence": 216,
-      "timestamp": "2026-11-11T14:19:13.631439Z",
-      "phase": "task2",
-      "action": "herdr",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000216-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000216-stderr.log"
-      ]
-    },
-    {
-      "sequence": 217,
-      "timestamp": "2026-11-11T14:20:26.443110Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000217-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000217-stderr.log"
-      ]
-    },
-    {
-      "sequence": 218,
-      "timestamp": "2026-11-11T14:20:53.071319Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000218-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000218-stderr.log"
-      ]
-    },
-    {
-      "sequence": 219,
-      "timestamp": "2026-11-11T14:21:31.879550Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000219-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000219-stderr.log"
-      ]
-    },
-    {
-      "sequence": 220,
-      "timestamp": "2026-11-11T14:21:42.727771Z",
-      "phase": "task1",
-      "action": "python3",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000220-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000220-stderr.log"
-      ]
-    },
-    {
-      "sequence": 221,
-      "timestamp": "2026-11-11T14:21:53.630131Z",
-      "phase": "task1",
-      "action": "python3",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000221-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000221-stderr.log"
-      ]
-    },
-    {
-      "sequence": 222,
-      "timestamp": "2026-11-11T14:22:09.846920Z",
-      "phase": "task1",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000222-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000222-stderr.log"
-      ]
-    },
-    {
-      "sequence": 223,
-      "timestamp": "2026-11-11T14:23:09.683291Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000223-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000223-stderr.log"
-      ]
-    },
-    {
-      "sequence": 224,
-      "timestamp": "2026-11-11T14:23:38.186567Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000224-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000224-stderr.log"
-      ]
-    },
-    {
-      "sequence": 225,
-      "timestamp": "2026-11-11T14:24:03.488553Z",
-      "phase": "task2",
-      "action": "record_cohort_codex_r2",
-      "tool_kind": "write",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/reviews/cohort-codex-r2.md"
-      ]
-    },
-    {
-      "sequence": 227,
-      "timestamp": "2026-11-11T14:24:05.265139Z",
-      "phase": "task2",
+      "sequence": 279,
+      "timestamp": "2026-11-11T15:00:15.472291Z",
+      "phase": "task6",
       "action": "git",
       "tool_kind": "bash",
       "status": "success",
       "error_type": null,
       "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000227-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000227-stderr.log"
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000279-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000279-stderr.log"
       ]
     },
     {
-      "sequence": 228,
-      "timestamp": "2026-11-11T14:24:08.618845Z",
-      "phase": "task2",
+      "sequence": 280,
+      "timestamp": "2026-11-11T15:00:19.438472Z",
+      "phase": "task6",
       "action": "git",
       "tool_kind": "bash",
       "status": "success",
       "error_type": null,
       "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000228-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000228-stderr.log"
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000280-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000280-stderr.log"
       ]
     },
     {
-      "sequence": 229,
-      "timestamp": "2026-11-11T14:25:55.673652Z",
-      "phase": "task1",
-      "action": "hf",
+      "sequence": 281,
+      "timestamp": "2026-11-11T15:01:01.223838Z",
+      "phase": "task5",
+      "action": "/root/.sco/bin/cnsh01/sco",
       "tool_kind": "bash",
       "status": "success",
       "error_type": null,
       "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000229-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000229-stderr.log"
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000281-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000281-stderr.log"
       ]
     },
     {
-      "sequence": 232,
-      "timestamp": "2026-11-11T14:27:14.793907Z",
-      "phase": "task1",
-      "action": "git",
+      "sequence": 282,
+      "timestamp": "2026-11-11T15:01:10.539157Z",
+      "phase": "task5",
+      "action": "/root/.sco/bin/cnsh01/sco",
       "tool_kind": "bash",
       "status": "success",
       "error_type": null,
       "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000232-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000232-stderr.log"
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000282-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000282-stderr.log"
       ]
     },
     {
-      "sequence": 234,
-      "timestamp": "2026-11-11T14:28:01.626267Z",
-      "phase": "task1",
-      "action": "git",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000234-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000234-stderr.log"
-      ]
-    },
-    {
-      "sequence": 235,
-      "timestamp": "2026-11-11T14:28:03.794916Z",
-      "phase": "task1",
-      "action": "git",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000235-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000235-stderr.log"
-      ]
-    },
-    {
-      "sequence": 236,
-      "timestamp": "2026-11-11T14:28:49.288101Z",
+      "sequence": 267,
+      "timestamp": "2026-11-11T15:01:53.940463Z",
       "phase": "task2",
-      "action": "python3",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000236-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000236-stderr.log"
-      ]
-    },
-    {
-      "sequence": 237,
-      "timestamp": "2026-11-11T14:29:17.771090Z",
-      "phase": "task3",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000237-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000237-stderr.log"
-      ]
-    },
-    {
-      "sequence": 230,
-      "timestamp": "2026-11-11T14:29:23.368331Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000230-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000230-stderr.log"
-      ]
-    },
-    {
-      "sequence": 238,
-      "timestamp": "2026-11-11T14:29:31.413282Z",
-      "phase": "task3",
-      "action": "python3",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000238-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000238-stderr.log"
-      ]
-    },
-    {
-      "sequence": 240,
-      "timestamp": "2026-11-11T14:33:35.175146Z",
-      "phase": "task3",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000240-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000240-stderr.log"
-      ]
-    },
-    {
-      "sequence": 241,
-      "timestamp": "2026-11-11T14:34:28.597018Z",
-      "phase": "task2",
-      "action": "python3",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000241-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000241-stderr.log"
-      ]
-    },
-    {
-      "sequence": 242,
-      "timestamp": "2026-11-11T14:36:38.793149Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000242-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000242-stderr.log"
-      ]
-    },
-    {
-      "sequence": 231,
-      "timestamp": "2026-11-11T14:37:27.408982Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000231-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000231-stderr.log"
-      ]
-    },
-    {
-      "sequence": 243,
-      "timestamp": "2026-11-11T14:37:28.484216Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000243-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000243-stderr.log"
-      ]
-    },
-    {
-      "sequence": 244,
-      "timestamp": "2026-11-11T14:38:10.483967Z",
-      "phase": "task1",
-      "action": "python3",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000244-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000244-stderr.log"
-      ]
-    },
-    {
-      "sequence": 245,
-      "timestamp": "2026-11-11T14:38:23.670930Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000245-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000245-stderr.log"
-      ]
-    },
-    {
-      "sequence": 246,
-      "timestamp": "2026-11-11T14:39:00.230947Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000246-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000246-stderr.log"
-      ]
-    },
-    {
-      "sequence": 247,
-      "timestamp": "2026-11-11T14:39:32.670660Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000247-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000247-stderr.log"
-      ]
-    },
-    {
-      "sequence": 248,
-      "timestamp": "2026-11-11T14:39:45.182483Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000248-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000248-stderr.log"
-      ]
-    },
-    {
-      "sequence": 252,
-      "timestamp": "2026-11-11T14:41:10.552052Z",
-      "phase": "task2",
-      "action": "git",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000252-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000252-stderr.log"
-      ]
-    },
-    {
-      "sequence": 253,
-      "timestamp": "2026-11-11T14:41:17.744881Z",
-      "phase": "task2",
-      "action": "git",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000253-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000253-stderr.log"
-      ]
-    },
-    {
-      "sequence": 250,
-      "timestamp": "2026-11-11T14:44:40.629322Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000250-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000250-stderr.log"
-      ]
-    },
-    {
-      "sequence": 257,
-      "timestamp": "2026-11-11T14:46:36.393801Z",
-      "phase": "task1",
-      "action": "diagnose_uv_nvidia_download_timeout",
-      "tool_kind": "read",
-      "status": "failed",
-      "error_type": "network_timeout",
-      "evidence_paths": []
-    },
-    {
-      "sequence": 258,
-      "timestamp": "2026-11-11T14:46:36.893170Z",
-      "phase": "task1",
-      "action": "retry_dependencies_with_extended_uv_timeout",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/daily/2026-11-11.md"
-      ]
-    },
-    {
-      "sequence": 256,
-      "timestamp": "2026-11-11T14:49:19.059732Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000256-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000256-stderr.log"
-      ]
-    },
-    {
-      "sequence": 259,
-      "timestamp": "2026-11-11T14:49:44.224383Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000259-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000259-stderr.log"
-      ]
-    },
-    {
-      "sequence": 260,
-      "timestamp": "2026-11-11T14:50:20.151457Z",
-      "phase": "task1",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000260-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000260-stderr.log"
-      ]
-    },
-    {
-      "sequence": 261,
-      "timestamp": "2026-11-11T14:50:20.427239Z",
-      "phase": "task2",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000261-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000261-stderr.log"
-      ]
-    },
-    {
-      "sequence": 262,
-      "timestamp": "2026-11-11T14:51:20.705478Z",
-      "phase": "task4",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000262-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000262-stderr.log"
-      ]
-    },
-    {
-      "sequence": 263,
-      "timestamp": "2026-11-11T14:51:58.945384Z",
-      "phase": "task4",
       "action": "/data/wuxuecheng/miniforge3/envs/rsiflow-offline/bin/python",
       "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
+      "status": "failed",
+      "error_type": "command_failed",
       "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000263-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000263-stderr.log"
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000267-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000267-stderr.log"
       ]
     },
     {
-      "sequence": 264,
-      "timestamp": "2026-11-11T14:52:42.747104Z",
-      "phase": "task5",
-      "action": "/root/.sco/bin/cnsh01/sco",
+      "sequence": 283,
+      "timestamp": "2026-11-11T15:02:36.634535Z",
+      "phase": "task2",
+      "action": "python3",
       "tool_kind": "bash",
       "status": "success",
       "error_type": null,
       "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000264-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000264-stderr.log"
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000283-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000283-stderr.log"
       ]
     },
     {
-      "sequence": 265,
-      "timestamp": "2026-11-11T14:52:56.415538Z",
-      "phase": "task5",
-      "action": "submit_landlock_probe",
-      "tool_kind": "sco",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/scripts/landlock_probe.py"
-      ]
-    },
-    {
-      "sequence": 266,
-      "timestamp": "2026-11-11T14:53:09.264873Z",
-      "phase": "task5",
-      "action": "/root/.sco/bin/cnsh01/sco",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000266-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000266-stderr.log"
-      ]
-    },
-    {
-      "sequence": 269,
-      "timestamp": "2026-11-11T14:54:53.337863Z",
-      "phase": "task4",
-      "action": "git",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000269-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000269-stderr.log"
-      ]
-    },
-    {
-      "sequence": 270,
-      "timestamp": "2026-11-11T14:54:59.319343Z",
-      "phase": "task4",
-      "action": "git",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000270-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000270-stderr.log"
-      ]
-    },
-    {
-      "sequence": 271,
-      "timestamp": "2026-11-11T14:56:04.733275Z",
-      "phase": "task5",
-      "action": "/root/.sco/bin/cnsh01/sco",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000271-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000271-stderr.log"
-      ]
-    },
-    {
-      "sequence": 272,
-      "timestamp": "2026-11-11T14:56:51.707857Z",
-      "phase": "task6",
+      "sequence": 284,
+      "timestamp": "2026-11-11T15:03:53.857014Z",
+      "phase": "task2",
       "action": "env",
       "tool_kind": "bash",
       "status": "failed",
       "error_type": "command_failed",
       "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000272-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000272-stderr.log"
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000284-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000284-stderr.log"
       ]
     },
     {
-      "sequence": 273,
-      "timestamp": "2026-11-11T14:57:24.607476Z",
-      "phase": "task6",
+      "sequence": 285,
+      "timestamp": "2026-11-11T15:05:18.840683Z",
+      "phase": "task2",
       "action": "env",
       "tool_kind": "bash",
       "status": "success",
       "error_type": null,
       "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000273-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000273-stderr.log"
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000285-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000285-stderr.log"
+      ]
+    },
+    {
+      "sequence": 288,
+      "timestamp": "2026-11-11T15:05:52.290081Z",
+      "phase": "task2",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000288-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000288-stderr.log"
+      ]
+    },
+    {
+      "sequence": 289,
+      "timestamp": "2026-11-11T15:05:58.874234Z",
+      "phase": "task2",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000289-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000289-stderr.log"
+      ]
+    },
+    {
+      "sequence": 290,
+      "timestamp": "2026-11-11T15:06:19.133394Z",
+      "phase": "task5",
+      "action": "/root/.sco/bin/cnsh01/sco",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000290-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000290-stderr.log"
+      ]
+    },
+    {
+      "sequence": 255,
+      "timestamp": "2026-11-11T15:07:54.077662Z",
+      "phase": "task1",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000255-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000255-stderr.log"
+      ]
+    },
+    {
+      "sequence": 292,
+      "timestamp": "2026-11-11T15:11:12.858868Z",
+      "phase": "task1",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000292-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000292-stderr.log"
+      ]
+    },
+    {
+      "sequence": 293,
+      "timestamp": "2026-11-11T15:11:43.544812Z",
+      "phase": "task1",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000293-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000293-stderr.log"
+      ]
+    },
+    {
+      "sequence": 295,
+      "timestamp": "2026-11-11T15:13:35.671556Z",
+      "phase": "task1",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000295-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000295-stderr.log"
+      ]
+    },
+    {
+      "sequence": 296,
+      "timestamp": "2026-11-11T15:13:41.708213Z",
+      "phase": "task1",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000296-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000296-stderr.log"
+      ]
+    },
+    {
+      "sequence": 297,
+      "timestamp": "2026-11-11T15:14:15.518318Z",
+      "phase": "task6",
+      "action": "python3",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000297-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000297-stderr.log"
+      ]
+    },
+    {
+      "sequence": 286,
+      "timestamp": "2026-11-11T15:14:47.518641Z",
+      "phase": "task2",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000286-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000286-stderr.log"
+      ]
+    },
+    {
+      "sequence": 298,
+      "timestamp": "2026-11-11T15:16:21.031064Z",
+      "phase": "task2",
+      "action": "python3",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000298-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000298-stderr.log"
+      ]
+    },
+    {
+      "sequence": 299,
+      "timestamp": "2026-11-11T15:16:33.853894Z",
+      "phase": "task2",
+      "action": "python3",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000299-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000299-stderr.log"
+      ]
+    },
+    {
+      "sequence": 300,
+      "timestamp": "2026-11-11T15:16:47.556743Z",
+      "phase": "task2",
+      "action": "python3",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000300-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000300-stderr.log"
+      ]
+    },
+    {
+      "sequence": 301,
+      "timestamp": "2026-11-11T15:17:07.152804Z",
+      "phase": "task2",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000301-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000301-stderr.log"
+      ]
+    },
+    {
+      "sequence": 302,
+      "timestamp": "2026-11-11T15:17:30.463644Z",
+      "phase": "task2",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000302-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000302-stderr.log"
+      ]
+    },
+    {
+      "sequence": 303,
+      "timestamp": "2026-11-11T15:17:47.254096Z",
+      "phase": "task2",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000303-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000303-stderr.log"
+      ]
+    },
+    {
+      "sequence": 304,
+      "timestamp": "2026-11-11T15:18:29.462092Z",
+      "phase": "task2",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000304-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000304-stderr.log"
+      ]
+    },
+    {
+      "sequence": 305,
+      "timestamp": "2026-11-11T15:18:42.601156Z",
+      "phase": "task2",
+      "action": "python3",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000305-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000305-stderr.log"
+      ]
+    },
+    {
+      "sequence": 307,
+      "timestamp": "2026-11-11T15:19:31.495890Z",
+      "phase": "task5",
+      "action": "/root/.sco/bin/cnsh01/sco",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000307-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000307-stderr.log"
+      ]
+    },
+    {
+      "sequence": 309,
+      "timestamp": "2026-11-11T15:19:47.464487Z",
+      "phase": "task2",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000309-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000309-stderr.log"
+      ]
+    },
+    {
+      "sequence": 310,
+      "timestamp": "2026-11-11T15:19:50.391713Z",
+      "phase": "task2",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000310-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000310-stderr.log"
+      ]
+    },
+    {
+      "sequence": 306,
+      "timestamp": "2026-11-11T15:21:36.273446Z",
+      "phase": "task2",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000306-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000306-stderr.log"
+      ]
+    },
+    {
+      "sequence": 311,
+      "timestamp": "2026-11-11T15:27:02.170893Z",
+      "phase": "task1",
+      "action": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
+      "tool_kind": "bash",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000311-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000311-stderr.log"
+      ]
+    },
+    {
+      "sequence": 312,
+      "timestamp": "2026-11-11T15:27:19.712609Z",
+      "phase": "task2",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000312-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000312-stderr.log"
+      ]
+    },
+    {
+      "sequence": 313,
+      "timestamp": "2026-11-11T15:28:12.178539Z",
+      "phase": "task1",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000313-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000313-stderr.log"
+      ]
+    },
+    {
+      "sequence": 314,
+      "timestamp": "2026-11-11T15:30:29.871458Z",
+      "phase": "task1",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000314-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000314-stderr.log"
+      ]
+    },
+    {
+      "sequence": 315,
+      "timestamp": "2026-11-11T15:32:12.817829Z",
+      "phase": "task1",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000315-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000315-stderr.log"
+      ]
+    },
+    {
+      "sequence": 316,
+      "timestamp": "2026-11-11T15:32:38.347889Z",
+      "phase": "task1",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000316-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000316-stderr.log"
+      ]
+    },
+    {
+      "sequence": 317,
+      "timestamp": "2026-11-11T15:34:50.796011Z",
+      "phase": "task1",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000317-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000317-stderr.log"
+      ]
+    },
+    {
+      "sequence": 318,
+      "timestamp": "2026-11-11T15:35:31.422733Z",
+      "phase": "task1",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000318-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000318-stderr.log"
+      ]
+    },
+    {
+      "sequence": 320,
+      "timestamp": "2026-11-11T15:36:00.864683Z",
+      "phase": "task2",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000320-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000320-stderr.log"
+      ]
+    },
+    {
+      "sequence": 321,
+      "timestamp": "2026-11-11T15:36:05.206340Z",
+      "phase": "task2",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000321-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000321-stderr.log"
+      ]
+    },
+    {
+      "sequence": 322,
+      "timestamp": "2026-11-11T15:36:15.452191Z",
+      "phase": "task5",
+      "action": "/root/.sco/bin/cnsh01/sco",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000322-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000322-stderr.log"
+      ]
+    },
+    {
+      "sequence": 324,
+      "timestamp": "2026-11-11T15:36:48.785767Z",
+      "phase": "task2",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000324-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000324-stderr.log"
+      ]
+    },
+    {
+      "sequence": 325,
+      "timestamp": "2026-11-11T15:37:01.239843Z",
+      "phase": "task2",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000325-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000325-stderr.log"
+      ]
+    },
+    {
+      "sequence": 327,
+      "timestamp": "2026-11-11T15:37:14.664917Z",
+      "phase": "task2",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000327-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000327-stderr.log"
+      ]
+    },
+    {
+      "sequence": 328,
+      "timestamp": "2026-11-11T15:37:17.215909Z",
+      "phase": "task2",
+      "action": "git",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000328-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000328-stderr.log"
+      ]
+    },
+    {
+      "sequence": 329,
+      "timestamp": "2026-11-11T15:37:25.972026Z",
+      "phase": "task5",
+      "action": "/root/.sco/bin/cnsh01/sco",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000329-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000329-stderr.log"
+      ]
+    },
+    {
+      "sequence": 330,
+      "timestamp": "2026-11-11T15:37:53.762074Z",
+      "phase": "task5",
+      "action": "python3",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000330-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000330-stderr.log"
+      ]
+    },
+    {
+      "sequence": 331,
+      "timestamp": "2026-11-11T15:38:26.582944Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000331-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000331-stderr.log"
+      ]
+    },
+    {
+      "sequence": 332,
+      "timestamp": "2026-11-11T15:38:54.676081Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000332-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000332-stderr.log"
+      ]
+    },
+    {
+      "sequence": 333,
+      "timestamp": "2026-11-11T15:39:32.654280Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000333-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000333-stderr.log"
       ]
     }
   ],
@@ -878,6 +885,96 @@
       ],
       "evidence_sha256": [
         "403f742de2e427728ac3016effe884cddc41184e2a4b25902fa3b1d3787388c2"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000278-process_visualization",
+      "timestamp": "2026-11-11T15:00:14.081760Z",
+      "phase": "task6",
+      "metric": "process_visualization",
+      "value": "process.html/process.js/process.css/process.json local and public HTTP 200; website 11/11",
+      "verification_command": "python3 -m unittest discover -s web/tests -v; node --check web/process.js; curl local and cpolar process resources",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/web/process.html"
+      ],
+      "evidence_sha256": [
+        "0ae1ade0c43a01f5ab19e89eff2ed47c12ffd47c81efa6593c03224eba3f0bba"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000287-cohort_dedup_tests",
+      "timestamp": "2026-11-11T15:05:49.666542Z",
+      "phase": "task2",
+      "metric": "cohort_dedup_tests",
+      "value": "13/13 passed; BFCL duplicate native variants first retained",
+      "verification_command": "PYTHONPATH=reproduction/scripts:RSIFlow:RSIFlow/runtime python3 -m unittest tests.test_build_cohort -v",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/tests/test_build_cohort.py"
+      ],
+      "evidence_sha256": [
+        "0c2bb20daa87f3ad371ea971287cd887feb0c08e5acf417967dbcc25507430a4"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000294-production_environment",
+      "timestamp": "2026-11-11T15:13:33.369173Z",
+      "phase": "task1",
+      "metric": "production_environment",
+      "value": "torch/transformers/peft/pytest/pyarrow installed; full suite 160 passed, 2 skipped, 1 failed (local Landlock unavailable)",
+      "verification_command": "production pytest and dependency import checks",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/web/rsiflow-requirements.lock.txt"
+      ],
+      "evidence_sha256": [
+        "9563959d13e8cb71cd1a3c9d4a28d54d9cda7b0241218a528232cd95a2d1b382"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000308-validation_select_specs",
+      "timestamp": "2026-11-11T15:19:46.428648Z",
+      "phase": "task2",
+      "metric": "validation_select_specs",
+      "value": "744 tasks; official specs 2wiki/hotpot/humaneval/mbpp resolved",
+      "verification_command": "evaluation_manifest.select_specs(validation_744.json, validation_744/manifest.json, independent_validation)",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/validation_744/manifest.json"
+      ],
+      "evidence_sha256": [
+        "7c080fe391e40fa6a6e2ea8182ae7d4da9a29badac01a3f831d1ffa1b6e1319d"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000319-frozen_cohort_v2",
+      "timestamp": "2026-11-11T15:35:59.588994Z",
+      "phase": "task2",
+      "metric": "frozen_cohort_v2",
+      "value": "3000=5x600; validation 744; code 600 stdio/400 function; retrieval index and select_specs verified",
+      "verification_command": "prepare_600_744 READY.json and evaluation_manifest.select_specs on validation_744_v2",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v2/READY.json"
+      ],
+      "evidence_sha256": [
+        "dc7e9d509eb587555ef6d6880f6ab10d4dd02ccc939d3d17031c927066bb34f5"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000326-round_store_and_retrieval",
+      "timestamp": "2026-11-11T15:37:13.713713Z",
+      "phase": "task2",
+      "metric": "round_store_and_retrieval",
+      "value": "five rounds 600 each; code 120 stdio/80 function each; retrieval returns result",
+      "verification_command": "RoundStore B1-B5 and FrozenSearchIndex.search(Maheen Khan)",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/retrieval-v2/search.sqlite.manifest.json"
+      ],
+      "evidence_sha256": [
+        "7c3d8be7f479fa49b866adbf058afa656bb0fbd8747ec466f6f37d624339e8ce"
       ],
       "review_status": "main_verified"
     }

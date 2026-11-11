@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "research_status": "completed_documentation_only",
-  "experiment_status": "not_run_pending_approval",
+  "experiment_status": "in_progress",
   "source_commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
   "user_boundary": "本次只调研和展示，不安装实验环境、不下载资产、不提交 SCO、不运行 GPU/API 实验",
   "recommended_execution": {
@@ -27,7 +27,7 @@
   },
   "current_execution": {
     "status": "in_progress",
-    "phase": "task2_cohort_construction",
+    "phase": "task5_sco_probe",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "protocol": "protocol_reconstruction",
@@ -49,19 +49,71 @@
     }
   },
   "experiment_stages": [
-    {"id": "conda_environment", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "external_assets", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "offline_tests", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "launch_preflight", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "frozen_data", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "sco_gpu_probe", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "model_service_smoke", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "meta_api_smoke", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "benchmark_smoke", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "run_4b_five_rounds", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "evaluate_4b_744", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "run_8b_five_rounds", "status": "not_run_pending_approval", "evidence": null},
-    {"id": "evaluate_8b_744", "status": "not_run_pending_approval", "evidence": null}
+    {
+      "id": "conda_environment",
+      "status": "completed",
+      "evidence": "web/rsiflow-requirements.lock.txt"
+    },
+    {
+      "id": "external_assets",
+      "status": "completed",
+      "evidence": "reproduction/audit/assets.json"
+    },
+    {
+      "id": "offline_tests",
+      "status": "completed_with_landlock_limitation",
+      "evidence": "reproduction/audit/reviews/environment-main.md"
+    },
+    {
+      "id": "launch_preflight",
+      "status": "completed",
+      "evidence": "reproduction/audit/reviews/custom-provider-main.md"
+    },
+    {
+      "id": "frozen_data",
+      "status": "completed",
+      "evidence": "RSIFlow/runtime/data/rounds_3000_5x600_v2/READY.json"
+    },
+    {
+      "id": "sco_gpu_probe",
+      "status": "queued",
+      "evidence": null
+    },
+    {
+      "id": "model_service_smoke",
+      "status": "not_run_pending_approval",
+      "evidence": null
+    },
+    {
+      "id": "meta_api_smoke",
+      "status": "blocked_missing_credentials",
+      "evidence": null
+    },
+    {
+      "id": "benchmark_smoke",
+      "status": "not_run_pending_approval",
+      "evidence": null
+    },
+    {
+      "id": "run_4b_five_rounds",
+      "status": "not_run_pending_approval",
+      "evidence": null
+    },
+    {
+      "id": "evaluate_4b_744",
+      "status": "not_run_pending_approval",
+      "evidence": null
+    },
+    {
+      "id": "run_8b_five_rounds",
+      "status": "not_run_pending_approval",
+      "evidence": null
+    },
+    {
+      "id": "evaluate_8b_744",
+      "status": "not_run_pending_approval",
+      "evidence": null
+    }
   ],
   "blocking_decisions": [
     "original_3000_744_source_manifests_availability",

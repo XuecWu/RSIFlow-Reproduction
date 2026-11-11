@@ -90,7 +90,7 @@ def normalize_rows(source, rows):
             raise ValueError("EnvScaler row lacks official checklist_with_func")
         if source in {"hotpotqa", "2wiki"} and "context" not in row:
             raise ValueError(f"{source} row lacks context")
-        if source in {"hotpotqa", "2wiki"} and "_id" not in row and "id" in row:
+        if source in {"hotpotqa", "hotpotqa_dev", "2wiki", "2wiki_dev"} and "_id" not in row and "id" in row:
             row = {**row, "_id": row["id"]}
         normalized.append(row)
     return normalized

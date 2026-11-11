@@ -34,6 +34,10 @@ class BuildCohortTests(unittest.TestCase):
         self.assertEqual("native-1", rows[0]["_id"])
         self.assertEqual("native-1", rows[0]["id"])
 
+    def test_hotpot_dev_rows_expose_official_underscore_id(self):
+        rows = normalize_rows("hotpotqa_dev", [{"id": "dev-1", "question": "q", "context": {"title": [], "sentences": []}}])
+        self.assertEqual("dev-1", rows[0]["_id"])
+
     def test_duplicate_native_ids_keep_only_first_variant(self):
         rows, dropped = deduplicate_native_ids("bfcl_v3", [
             {"id": "same", "question": "first"},

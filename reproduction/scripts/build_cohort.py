@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "RSIFlow"), str(ROOT / "RSIFlow/runtime"), str(ROOT)]
 
-from data_protocol import allocate, balanced_sample, public_text, scan, text_hash
+from data_protocol import allocate, balanced_sample, materialize, public_text, scan, text_hash
 from evolution_protocol import file_hash, freeze, make_manifest
 from prepare_600_744 import prepare
 from rsiflow.task_meta.data import TaskRecord, sha256_file
@@ -115,9 +115,26 @@ def record_from_item(item):
                       item["source_sha256"], item["content_hash"])
 
 
+def pack_allocated_manifests(training_manifests, validation_manifest, destination):
+    destination = Path(destination)
+    packed_training = [materialize(manifest, destination / f"B{index}") for index, manifest in enumerate(training_manifests, 1)]
+    packed_validation = materialize(validation_manifest, destination / "validation")
+    all_training = [dict(row, round_id=1) for manifest in packed_training for row in manifest["tasks"]]
+    source_training = make_manifest("train_evolution", 1, all_training, split_seed=42, reconstruction="public_protocol_v1")
+    return source_training, packed_validation
+
+
 def inspect_source(path):
+    path = Path(path)
     rows = list(read_rows(path))
-    result = {"path": str(path), "records": len(rows), "sha256": sha256_file(path), "keys": sorted(rows[0]) if rows else []}
+    if path.is_dir():
+        files = sorted(p for p in path.rglob("*") if p.is_file() and p.suffix in {".json", ".jsonl", ".parquet"} and ".cache" not in p.parts)
+    else:
+        files = [path]
+    result = {"path": str(path), "records": len(rows), "keys": sorted(rows[0]) if rows else [],
+              "files": [{"path": str(file), "sha256": sha256_file(file)} for file in files]}
+    if path.is_file():
+        result["sha256"] = sha256_file(path)
     if rows and "checklist_with_func" in rows[0]:
         result["checklist_records"] = sum("checklist_with_func" in row for row in rows)
     if rows and "tests" in rows[0]:
@@ -208,15 +225,13 @@ def main():
     training_manifests = manifests[:5]
     if len(training_manifests) != 5:
         raise ValueError("Expected five training manifests")
-    all_training = [dict(row, round_id=1) for manifest in training_manifests for row in manifest["tasks"]]
+    source_training, source_validation = pack_allocated_manifests(training_manifests, manifests[5], output / "allocated")
+    all_training = source_training["tasks"]
     if len(all_training) != 3000:
         raise ValueError(f"Expected 3000 training tasks, got {len(all_training)}")
-    source_training = make_manifest("train_evolution", 1, all_training, split_seed=config["split_seed"], reconstruction="public_protocol_v1")
-    source_validation = manifests[5]
     freeze(output / "train_source_manifest.json", source_training)
     freeze(output / "validation_source_manifest.json", source_validation)
-    by_id = {row["task_id"]: row for row in selected_items}
-    search_tasks = [record_from_item(row) for row in all_training if row["domain"] == "searchqa"]
+    search_tasks = [record_from_item(row) for manifest in training_manifests for row in manifest["tasks"] if row["domain"] == "searchqa"]
     build_search_index(search_tasks, args.retrieval, data_manifest_hash=source_training["manifest_hash"])
     config["retrieval_index"] = str(args.retrieval.resolve())
     config["source_training_manifest"] = str(output / "train_source_manifest.json")

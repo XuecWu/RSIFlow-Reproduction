@@ -39,9 +39,12 @@ def load_model(model_ref, checkpoint):
     ).eval()
     if next(model.parameters()).device.type != "cuda":
         raise RuntimeError("GPU endpoint refuses CPU inference")
-    state[model_ref] = (tokenizer, model)
-    bindings[model_ref] = {"checkpoint_path": str(Path(checkpoint).resolve()),
-                           "weights": checkpoint_manifest(checkpoint)}
+    selected = (tokenizer, model)
+    binding = {"checkpoint_path": str(Path(checkpoint).resolve()),
+               "weights": checkpoint_manifest(checkpoint)}
+    for name in {model_ref, Path(checkpoint).name}:
+        state[name] = selected
+        bindings[name] = binding
     log.info("Loaded %s on %s (%s) in %.2fs", model_ref, DEVICE,
              torch.cuda.get_device_name(), time.monotonic() - started)
 
@@ -101,7 +104,7 @@ def register_checkpoint(request: CheckpointRequest):
         if request.model_ref not in state:
             # Bound GPU memory: retain the immutable base plus the newest trained model.
             for name in list(state):
-                if name != BASE_MODEL:
+                if name not in {BASE_MODEL, Path(BASE_MODEL).name}:
                     del state[name]
                     bindings.pop(name, None)
             torch.cuda.empty_cache()

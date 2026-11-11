@@ -44,7 +44,7 @@
     },
     "landlock": {
       "local_status": "unavailable_function_not_implemented",
-      "upstream_suite": "163 passed, 2 skipped, 1 failed (latest); Landlock Function not implemented",
+      "upstream_suite": "167 passed, 2 skipped, 1 failed (latest); Landlock Function not implemented",
       "sco_probe_job": "pt-r6np9yvd",
       "evidence": "reproduction/audit/reviews/environment-main.md"
     }

@@ -8,9 +8,11 @@
       "model": "gpt-6-astra",
       "protocol": "protocol_reconstruction",
       "evaluation": "694_of_744_ace_skipped",
-      "status": "probe_queued",
+      "status": "model_smoke_queued",
       "run_dir": null,
-      "sco_job_id": "pt-r6np9yvd",
+      "sco_job_id": "pt-texqw4a8",
+      "landlock_probe_job_id": "pt-r6np9yvd",
+      "landlock_probe_status": "succeeded_stdout_unavailable",
       "started_at": null,
       "ended_at": null
     }

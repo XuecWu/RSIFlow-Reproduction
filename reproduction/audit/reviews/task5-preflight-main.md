@@ -18,7 +18,7 @@
 
 ## 仍阻断
 
-- SCO `pt-r6np9yvd` 仍排队，Landlock 和四卡真实服务未验证。
+- 原 SCO `pt-r6np9yvd` 已 SUCCEEDED，但容器 stdout 不可得；Landlock 未验证。新 `pt-texqw4a8` 将复查 Landlock 并执行四卡真实服务，目前排队中。
 - 本机 `check_native` 明确失败为 `Native benchmark isolation unavailable`，不做无隔离回退。
 - `assets/private/credentials.sh` 不存在；真实 `/models`、Responses/Chat 和 Codex native dynamic tools 未执行。
 - BFCL CLI 完整冷启动已通过；五类最小真实 benchmark smoke 尚待完成，没有模型 benchmark 分数。

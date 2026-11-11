@@ -27,7 +27,7 @@
   },
   "current_execution": {
     "status": "in_progress",
-    "phase": "task5_offline_smokes_and_sco_queue",
+    "phase": "task5_model_smoke_queued",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
@@ -94,14 +94,15 @@
     },
     {
       "id": "sco_gpu_probe",
-      "status": "queued_starting",
+      "status": "succeeded_stdout_unavailable_recheck_queued",
       "evidence": "reproduction/audit/reviews/environment-main.md",
       "sco_job_id": "pt-r6np9yvd"
     },
     {
       "id": "model_service_smoke",
-      "status": "not_run_pending_approval",
-      "evidence": null
+      "status": "queued",
+      "evidence": "reproduction/audit/runs.json",
+      "sco_job_id": "pt-texqw4a8"
     },
     {
       "id": "meta_api_smoke",

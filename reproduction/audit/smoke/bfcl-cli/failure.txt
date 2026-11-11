@@ -1,0 +1,25 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl-ea13468/gorilla-ea13468e4423454d0c213704fb87cf7cb3990433/berkeley-function-call-leaderboard/bfcl_eval/__main__.py", line 9, in <module>
+    from bfcl_eval._llm_response_generation import main as generation_main
+  File "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl-ea13468/gorilla-ea13468e4423454d0c213704fb87cf7cb3990433/berkeley-function-call-leaderboard/bfcl_eval/_llm_response_generation.py", line 19, in <module>
+    from bfcl_eval.eval_checker.eval_runner_helper import load_file
+  File "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl-ea13468/gorilla-ea13468e4423454d0c213704fb87cf7cb3990433/berkeley-function-call-leaderboard/bfcl_eval/eval_checker/eval_runner_helper.py", line 11, in <module>
+    from bfcl_eval.constants.model_config import MODEL_CONFIG_MAPPING
+  File "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl-ea13468/gorilla-ea13468e4423454d0c213704fb87cf7cb3990433/berkeley-function-call-leaderboard/bfcl_eval/constants/model_config.py", line 27, in <module>
+    from bfcl_eval.model_handler.api_inference.qwen import (
+  File "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl-ea13468/gorilla-ea13468e4423454d0c213704fb87cf7cb3990433/berkeley-function-call-leaderboard/bfcl_eval/model_handler/api_inference/qwen.py", line 8, in <module>
+    from qwen_agent.llm import get_chat_model
+  File "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/lib/python3.11/site-packages/qwen_agent/__init__.py", line 16, in <module>
+    from .agent import Agent
+  File "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/lib/python3.11/site-packages/qwen_agent/agent.py", line 21, in <module>
+    from qwen_agent.llm import get_chat_model
+  File "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/lib/python3.11/site-packages/qwen_agent/llm/__init__.py", line 18, in <module>
+    from .azure import TextChatAtAzure
+  File "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/lib/python3.11/site-packages/qwen_agent/llm/azure.py", line 20, in <module>
+    from qwen_agent.llm.base import register_llm
+  File "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/lib/python3.11/site-packages/qwen_agent/llm/base.py", line 29, in <module>
+    from qwen_agent.utils.utils import (extract_text_from_message, format_as_multimodal_message, format_as_text_message,
+  File "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/lib/python3.11/site-packages/qwen_agent/utils/utils.py", line 34, in <module>
+    import soundfile as sf
+ModuleNotFoundError: No module named 'soundfile'

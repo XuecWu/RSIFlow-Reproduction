@@ -57,3 +57,17 @@ id_ed25519
 **/.aws/
 **/.ssh/
 **/.codex/
+
+# Reproduction private inputs and large external assets
+assets/private/
+assets/models/
+assets/raw/
+assets/cohort/
+assets/evaluators/
+assets/retrieval/
+assets/codex/
+reproduction/audit/sequence.state
+
+# Track the public reproduction status data
+!web/data/
+!web/data/*.json

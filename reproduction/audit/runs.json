@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "runs": [
+    {
+      "run_id": "rsiflow-4b-pending",
+      "backbone": "Qwen3-4B",
+      "provider": "OpenAI",
+      "model": "gpt-6-astra",
+      "protocol": "protocol_reconstruction",
+      "evaluation": "694_of_744_ace_skipped",
+      "status": "pending_setup",
+      "run_dir": null,
+      "sco_job_id": null,
+      "started_at": null,
+      "ended_at": null
+    }
+  ]
+}

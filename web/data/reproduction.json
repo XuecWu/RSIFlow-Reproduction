@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "research_status": "completed_documentation_only",
+  "experiment_status": "not_run_pending_approval",
+  "source_commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
+  "user_boundary": "本次只调研和展示，不安装实验环境、不下载资产、不提交 SCO、不运行 GPU/API 实验",
+  "recommended_execution": {
+    "mode": "dev_four_gpu_sequential",
+    "workspace": "sensebot-a100-a800-liujianbo",
+    "aec2": "sensebot-a800-dev-liujianbo",
+    "worker_spec": "N3lS.Ii.I60.4",
+    "gpu": "4xA800-80GB",
+    "verified": false
+  },
+  "conditional_execution": {
+    "mode": "main_eight_gpu_dual_pipeline",
+    "worker_spec": "N3lS.Ii.I60.8",
+    "gpu": "8xA800-80GB",
+    "requires_code_changes": true,
+    "requirements": [
+      "configurable_physical_gpu_mapping",
+      "independent_ports_and_sockets",
+      "independent_output_roots_and_service_registries",
+      "dual_pipeline_probe_and_recovery_tests"
+    ],
+    "verified": false
+  },
+  "experiment_stages": [
+    {"id": "conda_environment", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "external_assets", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "offline_tests", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "launch_preflight", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "frozen_data", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "sco_gpu_probe", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "model_service_smoke", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "meta_api_smoke", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "benchmark_smoke", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "run_4b_five_rounds", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "evaluate_4b_744", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "run_8b_five_rounds", "status": "not_run_pending_approval", "evidence": null},
+    {"id": "evaluate_8b_744", "status": "not_run_pending_approval", "evidence": null}
+  ],
+  "blocking_decisions": [
+    "original_3000_744_source_manifests_availability",
+    "exact_reproduction_or_protocol_reconstruction",
+    "gpu_execution_profile_and_mapping_changes",
+    "secure_api_injection_and_budget",
+    "long_run_and_output_storage_approval"
+  ]
+}

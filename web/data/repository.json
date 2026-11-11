@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "name": "RSI-Flow",
+  "full_name": "1HUAN1/RSI-Flow",
+  "url": "https://github.com/1HUAN1/RSI-Flow",
+  "commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
+  "branch": "main",
+  "runtime_package_version": "0.6.0",
+  "release_variant": "skill-based persistent Meta agent",
+  "summary": "通过持久化 Meta agent，在相同任务上比较父代与单个候选，迭代改进 Task 的模型、Harness 或 Artifacts，并把每次尝试沉淀为技能记忆。",
+  "backbones": [
+    {"name": "Qwen3-4B", "launcher": "RSIFlow_4B/launch.py", "experiment_config": "RSIFlow/configs/train_4b.json", "base_config": "RSIFlow/runtime/configs/base_4b.json"},
+    {"name": "Qwen3-8B", "launcher": "RSIFlow_8B/launch.py", "experiment_config": "RSIFlow/configs/train_8b.json", "base_config": "RSIFlow/runtime/configs/base_8b.json"}
+  ],
+  "protocol": {
+    "rounds": 5,
+    "training_tasks_per_round": 600,
+    "allocated_tasks": 3000,
+    "validation_tasks": 744,
+    "seed": 42,
+    "evaluation_schedule": "final_only",
+    "training_breakdown": {"envscaler": 200, "deepcoder_taco": 200, "hotpotqa": 100, "2wiki": 100},
+    "code_interface_split": {"stdio": 120, "function": 80},
+    "validation_breakdown": {"bfcl_v3": 152, "acebench": 50, "humaneval_plus": 164, "mbpp_plus": 178, "hotpotqa_dev": 100, "2wiki_dev": 100},
+    "meta_evidence_excerpts_per_round": 48
+  },
+  "gpu": {
+    "required_count": 4,
+    "logical_devices": [0, 1, 2, 3],
+    "inference_min_free_mib": 20000,
+    "sft_min_free_mib": 40000,
+    "dtype": "bfloat16",
+    "default_ports": [8271, 8272, 8273, 8274],
+    "cpu_fallback": false,
+    "child_process_rewrites_cuda_visible_devices": true
+  },
+  "effective_sft": {
+    "num_train_epochs": 1,
+    "max_steps": -1,
+    "learning_rate": 0.000002,
+    "lora_rank": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0.05,
+    "lora_target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    "batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "max_length": 16384,
+    "ddp_ranks": 4,
+    "source": "RSIFlow/evolution_protocol.py:SFT_PRESET via RSIFlow/task_adapter.py"
+  },
+  "components": [
+    {"id": "HARNESS", "summary": "定位模块、确定方向、生成完整 bundle，最多三次可执行验证。"},
+    {"id": "MODEL", "summary": "只用已验证成功的父代轨迹进行一轮 positive-only LoRA SFT。"},
+    {"id": "ARTIFACTS", "summary": "修改已有 submissions，当前采用 direct_submission 重评分。"}
+  ],
+  "skill_memory": {
+    "ledger": "meta/skills.jsonl",
+    "rebuildable_index": "meta/skills_index.json",
+    "record_types": ["case", "rule", "incident", "rule_update", "procedure", "skill_maintenance"],
+    "default_context_chars": 24000,
+    "default_per_category": 1
+  },
+  "modules": [
+    {"path": "RSIFlow/launcher.py", "role": "backbone 选择、数据准备与启动分发"},
+    {"path": "RSIFlow/launch_meta.py", "role": "实验入口、配置检查、目录与恢复"},
+    {"path": "RSIFlow/persistent_meta.py", "role": "持久 Codex app-server、动态工具与 jobs"},
+    {"path": "RSIFlow/controller_tools.py", "role": "工具分发和事实回执，不做接受策略"},
+    {"path": "RSIFlow/task_adapter.py", "role": "有效配置合并与阶段执行"},
+    {"path": "RSIFlow/runtime/rsiflow/task_meta/", "role": "Task engine、GPU、训练、检索和报告"},
+    {"path": "RSIFlow/seed_harness/", "role": "初始 Harness bundle"},
+    {"path": "RSIFlow/upstream/RSIFlow_task/", "role": "Task 组件与生产模板"},
+    {"path": "RSIFlow/tests/", "role": "17 个离线测试文件"},
+    {"path": "third_party/", "role": "评测工具与 Codex provenance"}
+  ],
+  "source_evidence": {
+    "protocol": ["RSIFlow/configs/train_4b.json", "RSIFlow/tests/test_600_744_protocol.py"],
+    "backbone_equality": ["RSIFlow/tests/test_backbone_profiles.py"],
+    "gpu_thresholds": ["RSIFlow/runtime/scripts/start_multidomain_service.py", "RSIFlow/runtime/rsiflow/task_meta/gpu_phases.py"],
+    "sft_override": ["RSIFlow/task_adapter.py", "RSIFlow/evolution_protocol.py"],
+    "data_repack": ["RSIFlow/prepare_600_744.py"],
+    "skill_memory": ["RSIFlow/META_SKILLS.md", "RSIFlow/skill_memory.py"]
+  },
+  "known_differences": [
+    "base JSON 的 LoRA rank 16 / LR 2e-5 会被有效 SFT_PRESET 覆盖为 rank 8 / LR 2e-6",
+    "META_SKILLS.md 的 --meta-skill-seed 与当前 argparse 的 --skill-seed 不一致",
+    "4B/8B 默认 ports 相同，未修改源码时不应直接并行"
+  ]
+}

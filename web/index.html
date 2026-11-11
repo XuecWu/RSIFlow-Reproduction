@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="RSI-Flow 源码架构、实验协议、GPU 要求与后续复现方案调研。当前未运行实验。">
+  <title>RSI-Flow · 源码调研与复现蓝图</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <header class="site-header">
+    <a class="brand" href="#overview" aria-label="RSI-Flow 首页">
+      <span class="brand-mark" aria-hidden="true">RF</span>
+      <span><strong>RSI-Flow</strong><small>Research atlas</small></span>
+    </a>
+    <nav class="top-nav" aria-label="页面导航">
+      <a href="#architecture">架构</a>
+      <a href="#workflow">演化闭环</a>
+      <a href="#benchmarks">任务协议</a>
+      <a href="#resources">GPU / SCO</a>
+      <a href="#reproduction">复现路线</a>
+      <a href="#verification">验证状态</a>
+    </nav>
+    <a class="source-link" href="https://github.com/1HUAN1/RSI-Flow" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="overview">
+      <div class="hero-grid page-shell">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="pulse" aria-hidden="true"></span>SOURCE REVIEW · 496d3cf</div>
+          <h1>让 Agent 的每次尝试，<br><span>都成为下一次判断的证据。</span></h1>
+          <p class="hero-lead">RSI-Flow 用持久化 Meta agent 改进 Task agent 的模型、Harness 与 Artifacts。这里呈现调用链、技能记忆、五轮协议和可执行的后续复现蓝图。</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#architecture">进入源码架构</a>
+            <a class="button secondary" href="REPRODUCTION.md">阅读完整复现手册</a>
+          </div>
+          <div class="boundary-note"><strong>本次未运行实验</strong><span>未安装环境 · 未下载资产 · 未提交 SCO · 未调用 GPU/API</span></div>
+        </div>
+        <aside class="readiness-card" aria-label="复现准备状态">
+          <div class="card-kicker">REPRODUCTION READINESS</div>
+          <div class="readiness-status"><span class="status-dot pending"></span>等待后续审批</div>
+          <div class="readiness-number">13<span>个阶段</span></div>
+          <p>环境、资产、预检、probe、4B/8B 与最终评估均保持未执行状态。</p>
+          <ol class="readiness-list">
+            <li><span>01</span>原始 3000/744 manifests</li>
+            <li><span>02</span>四卡执行与隔离方案</li>
+            <li><span>03</span>API 注入与运行预算</li>
+          </ol>
+          <a href="data/reproduction.json">查看机器可读状态 →</a>
+        </aside>
+      </div>
+      <div class="metric-strip page-shell" aria-label="核心协议数字">
+        <div><strong>5 × 600</strong><span>五轮冻结训练任务</span></div>
+        <div><strong>3,000</strong><span>不同训练任务</span></div>
+        <div><strong>744</strong><span>最终独立评估</span></div>
+        <div><strong>4 GPU</strong><span>BF16 / 4-rank DDP</span></div>
+      </div>
+    </section>
+
+    <section class="section page-shell" id="architecture">
+      <div class="section-heading">
+        <div><span class="section-index">01</span><span class="eyebrow">CONTROL PLANE</span></div>
+        <h2>策略属于 Meta，<br>控制器只执行与记录。</h2>
+        <p>薄入口最终汇聚到同一个持久 Codex app-server。工具回执提供事实，候选接受与否始终由 Meta 显式决定。</p>
+      </div>
+      <div class="architecture-layout">
+        <div class="diagram-card">
+          <div class="diagram-label">ACTUAL CALL CHAIN</div>
+          <svg class="architecture-svg" viewBox="0 0 900 470" role="img" aria-labelledby="arch-title arch-desc">
+            <title id="arch-title">RSI-Flow 实际控制链</title>
+            <desc id="arch-desc">4B 和 8B 入口经过 launcher、持久 Meta、控制工具和 Task Adapter，连接 Task 状态、候选和技能记忆。</desc>
+            <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4f7c73"/></marker></defs>
+            <g class="svg-node"><rect x="30" y="28" width="180" height="66" rx="12"/><text x="120" y="56">RSIFlow_4B / 8B</text><text class="sub" x="120" y="78">thin launch entries</text></g>
+            <g class="svg-node"><rect x="275" y="28" width="160" height="66" rx="12"/><text x="355" y="56">launcher.py</text><text class="sub" x="355" y="78">backbone + prepare</text></g>
+            <g class="svg-node emphasis"><rect x="500" y="28" width="170" height="66" rx="12"/><text x="585" y="56">Persistent Meta</text><text class="sub" x="585" y="78">one Codex thread</text></g>
+            <g class="svg-node"><rect x="735" y="28" width="135" height="66" rx="12"/><text x="802" y="56">Skill memory</text><text class="sub" x="802" y="78">append-only</text></g>
+            <g class="svg-node"><rect x="500" y="190" width="170" height="66" rx="12"/><text x="585" y="218">Controller tools</text><text class="sub" x="585" y="240">facts, not policy</text></g>
+            <g class="svg-node"><rect x="500" y="350" width="170" height="66" rx="12"/><text x="585" y="378">Task adapter</text><text class="sub" x="585" y="400">effective config</text></g>
+            <g class="svg-node task"><rect x="90" y="190" width="240" height="94" rx="12"/><text x="210" y="220">Task state</text><text class="sub" x="210" y="244">checkpoint + Harness</text><text class="sub" x="210" y="264">+ Artifacts</text></g>
+            <g class="svg-node candidate"><rect x="90" y="350" width="240" height="66" rx="12"/><text x="210" y="378">One candidate</text><text class="sub" x="210" y="400">same-round paired eval</text></g>
+            <g class="svg-lines"><path d="M210 61 H275"/><path d="M435 61 H500"/><path d="M670 61 H735"/><path d="M585 94 V190"/><path d="M585 256 V350"/><path d="M500 223 H330"/><path d="M210 284 V350"/><path d="M330 383 H500"/></g>
+          </svg>
+        </div>
+        <div class="architecture-notes">
+          <article><span>01</span><h3>持久会话</h3><p>同一 Codex thread 跨工具调用和轮次恢复，jobs、turns 与进度落盘，崩溃后先审计，不盲目重跑。</p></article>
+          <article><span>02</span><h3>显式工具</h3><p><code>compare_scores</code> 只给数字；只有 Meta 请求 <code>activate_task</code> 才改变 active Task。</p></article>
+          <article><span>03</span><h3>经验闭环</h3><p>case、rule、incident、procedure 等写入 JSONL，索引可重建，快照保留技能版本。</p></article>
+        </div>
+      </div>
+      <details class="code-disclosure">
+        <summary>展开源码调用路径与目录地图</summary>
+        <pre>RSIFlow_4B/launch.py 或 RSIFlow_8B/launch.py
+  → RSIFlow/launcher.py
+  → RSIFlow/launch_meta.py
+  → PersistentMeta + Codex app-server
+  → NativeExperimentTools / SubprocessToolExecutor
+  → controller_tools.ControllerTools
+  → task_adapter.TaskAdapter
+  → runtime/rsiflow/task_meta + runtime/scripts</pre>
+        <div class="link-row"><a href="data/repository.json">完整模块 JSON</a><a href="ASSETS.md">外部资产清单</a></div>
+      </details>
+    </section>
+
+    <section class="section tinted" id="workflow">
+      <div class="page-shell">
+        <div class="section-heading compact">
+          <div><span class="section-index">02</span><span class="eyebrow">EVOLUTION LOOP</span></div>
+          <h2>一轮一个冻结批次，<br>一次尝试一个候选。</h2>
+        </div>
+        <ol class="workflow-grid">
+          <li><span class="step-number">01</span><h3>收集反馈</h3><p>运行完整父代 B_r，保留分数、成本与轨迹；抽取最多 48 条代表性证据。</p><small>PARENT ROLLOUT</small></li>
+          <li><span class="step-number">02</span><h3>形成判断</h3><p>检索技能、反例和上轮 context，冻结 decision 与 skill_use。</p><small>EVIDENCE-BOUND</small></li>
+          <li><span class="step-number">03</span><h3>构造候选</h3><p>只选 HARNESS、MODEL 或 ARTIFACTS 之一，写入新的 attempt 目录。</p><small>ONE COMPONENT</small></li>
+          <li><span class="step-number">04</span><h3>配对比较</h3><p>在同一 B_r 上重跑候选，比较完整分数、净新增成功与回归。</p><small>STRICT POSITIVE GAIN</small></li>
+          <li><span class="step-number">05</span><h3>保存与前行</h3><p>接受才激活；每次尝试都记录经验。拒绝则留在本轮重新选择。</p><small>SNAPSHOT + SKILLS</small></li>
+        </ol>
+        <div class="component-grid">
+          <article><div class="component-tag">HARNESS</div><h3>从诊断到完整 bundle</h3><p>模块定位 → 改进方向 → 完整生成 → 可执行验证。同一候选最多三次检查。</p></article>
+          <article><div class="component-tag">MODEL</div><h3>只用成功父代轨迹</h3><p>一轮 positive-only LoRA SFT，合并新 checkpoint；训练失败恢复最后有效模型。</p></article>
+          <article><div class="component-tag">ARTIFACTS</div><h3>修改已有 submissions</h3><p>当前采用 direct_submission 重评分，保留 payload、baseline hash 与任务身份。</p></article>
+        </div>
+        <div class="effective-config">
+          <div><span class="eyebrow">EFFECTIVE SFT · AFTER CONFIG OVERRIDE</span><h3>有效训练参数不是 base JSON 的表面值</h3></div>
+          <dl><div><dt>LoRA</dt><dd>rank 8 · alpha 16</dd></div><div><dt>Learning rate</dt><dd>2e-6</dd></div><div><dt>Sequence</dt><dd>16,384 tokens</dd></div><div><dt>DDP</dt><dd>4 ranks · BF16</dd></div></dl>
+          <p><code>SFT_PRESET</code> 将 base 的 rank 16 / LR 2e-5 覆盖为 rank 8 / LR 2e-6，目标是 q/k/v/o/gate/up/down projections。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section page-shell" id="benchmarks">
+      <div class="section-heading">
+        <div><span class="section-index">03</span><span class="eyebrow">FROZEN PROTOCOL</span></div>
+        <h2>训练与评估之间，<br>有一条明确的数据边界。</h2>
+        <p>每轮任务不重复，最终评估只报告。`prepare_600_744.py` 重打包既有 manifests，不负责从原始数据重新抽样。</p>
+      </div>
+      <div class="protocol-grid">
+        <article class="protocol-card training-card">
+          <div class="card-kicker">TRAIN · B1—B5</div><h3>每轮 600，五轮 3,000</h3>
+          <div class="bar-segments" aria-label="每轮任务组成"><span style="--size:33.333%">200</span><span style="--size:33.333%">200</span><span style="--size:16.667%">100</span><span style="--size:16.667%">100</span></div>
+          <ul class="data-list"><li><span>EnvScaler</span><strong>200 / 轮</strong></li><li><span>DeepCoder / TACO</span><strong>200 / 轮</strong></li><li><span>HotpotQA</span><strong>100 / 轮</strong></li><li><span>2WikiMultiHopQA</span><strong>100 / 轮</strong></li></ul>
+          <p class="card-footnote">代码接口：120 STDIO + 80 function / 轮 · seed 42</p>
+        </article>
+        <article class="protocol-card validation-card">
+          <div class="card-kicker">REPORT ONLY · AFTER B5</div><h3>六类任务，共 744</h3>
+          <ul class="data-list"><li><span>BFCL-v3</span><strong>152</strong></li><li><span>ACEBench</span><strong>50</strong></li><li><span>HumanEval+</span><strong>164</strong></li><li><span>MBPP+</span><strong>178</strong></li><li><span>HotpotQA-dev</span><strong>100</strong></li><li><span>2Wiki-dev</span><strong>100</strong></li></ul>
+          <p class="card-footnote">feedback_to_meta = false · 当前不含 LiveCodeBench</p>
+        </article>
+      </div>
+      <div class="warning-band"><strong>精确复现的关键缺口</strong><p>原始 source training / validation manifests 未随仓库发布。若无法取得，后续只能经批准进行“同协议重构”，不能冒充原始队列。</p><a href="ASSETS.md">查看资产缺口 →</a></div>
+    </section>
+
+    <section class="section dark-section" id="resources">
+      <div class="page-shell">
+        <div class="section-heading compact">
+          <div><span class="section-index">04</span><span class="eyebrow">COMPUTE & ISOLATION</span></div>
+          <h2>四卡是代码约束，<br>不是一句硬件建议。</h2>
+        </div>
+        <div class="gpu-table-wrap">
+          <table class="gpu-table">
+            <thead><tr><th>阶段</th><th>GPU / 显存门槛</th><th>执行事实</th></tr></thead>
+            <tbody>
+              <tr><td>Task rollout</td><td>逻辑 0–3 · 每卡 ≥20,000 MiB 空闲</td><td>四个 BF16 服务，校验 checkpoint 与 weights manifest</td></tr>
+              <tr><td>MODEL SFT</td><td>同一四卡 · 每卡 ≥40,000 MiB 空闲</td><td>停止推理后运行 4-rank DDP，再恢复选中 checkpoint</td></tr>
+              <tr><td>Meta / ACE API</td><td>无需额外本地 GPU</td><td>仍需外部 Codex / DeepSeek / 用户模拟凭据</td></tr>
+              <tr><td>最终评估</td><td>选中 Task 的推理服务</td><td>六类官方评测器 + official specs</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="deployment-grid">
+          <article class="deployment recommended"><div class="card-kicker">LOWER-RISK PROPOSAL · UNVERIFIED</div><h3>Dev 四卡顺序</h3><p class="deployment-spec">N3lS.Ii.I60.4 · 4×A800 80GB</p><ul><li>不修改上游 GPU 映射</li><li>4B / 8B 独立 ACP job 与 run dir</li><li>先 probe，再顺序运行</li></ul></article>
+          <article class="deployment conditional"><div class="card-kicker">CONDITIONAL · REQUIRES CODE CHANGES</div><h3>主分区八卡双流水线</h3><p class="deployment-spec">N3lS.Ii.I60.8 · 8×A800 80GB</p><ul><li>子进程会重写 CUDA_VISIBLE_DEVICES</li><li>需 GPU 映射、端口、socket、registry 隔离</li><li>未验证前不能直接并行</li></ul></article>
+        </div>
+        <p class="resource-note">本次未提交任何 SCO 作业。集群规格来自操作手册，执行前仍需实时查询与短时 probe。</p>
+      </div>
+    </section>
+
+    <section class="section page-shell" id="reproduction">
+      <div class="section-heading">
+        <div><span class="section-index">05</span><span class="eyebrow">REPRODUCTION BLUEPRINT</span></div>
+        <h2>把复现拆成可停止、<br>可验证的九道门。</h2>
+        <p>每一道门都有独立证据。前序成功不能替代后序结果，失败不会被改写成通过。</p>
+      </div>
+      <div class="repro-layout">
+        <ol class="repro-steps">
+          <li><span>01</span><div><h3>资产与原始队列</h3><p>模型、manifests、检索、评测器、Codex 与许可证。</p></div></li>
+          <li><span>02</span><div><h3>Conda / Python 3.11</h3><p>torch 2.8.0+cu128、runtime[dev,pipeline]、Task requirements。</p></div></li>
+          <li><span>03</span><div><h3>离线测试与 --check</h3><p>分别记录 pytest、路径和外部资产状态。</p></div></li>
+          <li><span>04</span><div><h3>冻结 3000 / 744</h3><p>READY、disjoint、hash 与第二 backbone 复用证据。</p></div></li>
+          <li><span>05</span><div><h3>SCO 四卡 probe</h3><p>A800、BF16、显存、共享盘、模型加载和端口。</p></div></li>
+          <li><span>06</span><div><h3>API 与 benchmark smoke</h3><p>真实小额请求，区分基础设施失败与任务失败。</p></div></li>
+          <li><span>07</span><div><h3>4B 五轮与 744</h3><p>前台控制器、独立 run dir、最终快照与官方结果。</p></div></li>
+          <li><span>08</span><div><h3>8B 五轮与 744</h3><p>同一 frozen release，完成并释放 4B 后顺序执行。</p></div></li>
+          <li><span>09</span><div><h3>结果审计</h3><p>complete.json、task_metrics、state hash 和反馈隔离。</p></div></li>
+        </ol>
+        <aside class="command-card">
+          <div class="card-kicker">DOCUMENTED · NOT EXECUTED</div>
+          <h3>基础环境命令</h3>
+          <div class="code-wrap"><button class="copy-button" data-copy-target="conda-command" type="button">复制</button><pre id="conda-command">conda create -n rsiflow python=3.11 -y
+conda activate rsiflow
+python -m pip install -U pip setuptools wheel
+python -m pip install torch==2.8.0 \
+  --index-url https://download.pytorch.org/whl/cu128
+cd RSIFlow
+python -m pip install -e './runtime[dev,pipeline]'
+python -m pip install -r upstream/RSIFlow_task/requirements.txt</pre></div>
+          <div class="document-links"><a href="REPRODUCTION.md">完整复现手册</a><a href="ENVIRONMENT.md">环境调研</a><a href="ASSETS.md">资产清单</a></div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section tinted" id="verification">
+      <div class="page-shell">
+        <div class="section-heading compact">
+          <div><span class="section-index">06</span><span class="eyebrow">EVIDENCE, NOT CLAIMS</span></div>
+          <h2>当前交付的是调研，<br>不是实验分数。</h2>
+        </div>
+        <div class="verification-grid">
+          <article class="verification-card"><span class="status-dot done"></span><h3>源码调研</h3><p>固定 commit，核对控制链、有效配置、GPU 门槛、数据协议与文档差异。</p><a href="RESULTS.md">交付结果</a></article>
+          <article class="verification-card"><span class="status-dot done"></span><h3>网站验证</h3><p>事实 JSON、链接、锚点、无第三方资产依赖、执行边界与凭据扫描。</p><a href="OPERATIONS.md">操作日志</a></article>
+          <article class="verification-card pending-card"><span class="status-dot pending"></span><h3>实验复现</h3><p>13 个实验阶段全部等待后续批准；没有 SCO job ID、模型输出或 benchmark 分数。</p><a href="data/reproduction.json">阶段状态</a></article>
+        </div>
+        <div class="pending-register">
+          <span>CONDA</span><span>ASSETS</span><span>PYTEST</span><span>PREFLIGHT</span><span>FROZEN DATA</span><span>GPU PROBE</span><span>MODEL SMOKE</span><span>API SMOKE</span><span>BENCH SMOKE</span><span>4B RUN</span><span>4B EVAL</span><span>8B RUN</span><span>8B EVAL</span>
+        </div>
+        <div class="final-links"><a class="button primary" href="RESULTS.md">查看本次实际结果</a><a class="button secondary" href="README.md">网站运维说明</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer page-shell">
+    <div><strong>RSI-Flow research atlas</strong><p>Source commit 496d3cfb9ff39997d107d0ff29e746b07e638180</p></div>
+    <p>中文调研 · 无外部前端依赖 · 本次未运行实验</p>
+  </footer>
+</body>
+</html>

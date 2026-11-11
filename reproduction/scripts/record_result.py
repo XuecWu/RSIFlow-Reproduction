@@ -5,6 +5,9 @@ from pathlib import Path
 from auditlib import allocate_sequence, append_jsonl, sanitize, sha256_file, utc_now
 
 
+REVIEW_STATUSES = {"unreviewed", "agent_reported", "main_verified", "changes_required", "not_verified"}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--audit-root", required=True, type=Path)
@@ -13,13 +16,15 @@ def main():
     parser.add_argument("--value", required=True)
     parser.add_argument("--verification-command", required=True)
     parser.add_argument("--evidence", action="append", required=True)
-    parser.add_argument("--review-status", default="main_verified")
+    parser.add_argument("--review-status", default="unreviewed", choices=sorted(REVIEW_STATUSES))
     args = parser.parse_args()
     hashes = []
+    evidence_paths = []
     for name in args.evidence:
-        path = Path(name)
+        path = Path(name).resolve()
         if not path.is_file():
             parser.error(f"evidence file does not exist: {path}")
+        evidence_paths.append(str(path))
         hashes.append(sha256_file(path))
     sequence = allocate_sequence(args.audit_root)
     slug = re.sub(r"[^a-zA-Z0-9_.-]+", "-", args.metric).strip("-")
@@ -30,7 +35,7 @@ def main():
         "metric": args.metric,
         "value": args.value,
         "verification_command": sanitize(args.verification_command),
-        "evidence_paths": args.evidence,
+        "evidence_paths": evidence_paths,
         "evidence_sha256": hashes,
         "review_status": args.review_status,
     }

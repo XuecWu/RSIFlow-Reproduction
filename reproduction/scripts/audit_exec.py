@@ -8,12 +8,21 @@ from pathlib import Path
 from auditlib import allocate_sequence, operation_record, sanitize, utc_now
 
 
+def output_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--audit-root", required=True, type=Path)
     parser.add_argument("--actor", default="main-kimi")
     parser.add_argument("--phase", required=True)
     parser.add_argument("--cwd", default=str(Path.cwd()))
+    parser.add_argument("--timeout-seconds", type=float)
     parser.add_argument("--sco-job-id")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -23,29 +32,43 @@ def main():
     if not command:
         parser.error("a command is required after --")
     args.audit_root.mkdir(parents=True, exist_ok=True)
-    logs = args.audit_root / "logs"
-    logs.mkdir(exist_ok=True)
+    evidence = args.audit_root / "evidence"
+    evidence.mkdir(exist_ok=True)
     sequence = allocate_sequence(args.audit_root)
     started_at = utc_now()
     started = time.monotonic()
     error_type = None
+    status = None
     try:
-        result = subprocess.run(command, cwd=args.cwd, capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            command,
+            cwd=args.cwd,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+            timeout=args.timeout_seconds,
+        )
         returncode = result.returncode
         stdout, stderr = result.stdout, result.stderr
-    except OSError as exc:
-        returncode = 127
+    except subprocess.TimeoutExpired as exc:
+        returncode = 124
+        status = "timeout"
+        stdout, stderr = output_text(exc.stdout), output_text(exc.stderr)
+        error_type = type(exc).__name__
+    except Exception as exc:
+        returncode = 1
         stdout, stderr = "", f"{type(exc).__name__}: {exc}"
         error_type = type(exc).__name__
-    stdout_path = logs / f"{sequence:08d}-stdout.log"
-    stderr_path = logs / f"{sequence:08d}-stderr.log"
-    stdout_path.write_text(sanitize(stdout), encoding="utf-8")
-    stderr_path.write_text(sanitize(stderr), encoding="utf-8")
+    stdout_path = evidence / f"{sequence:08d}-stdout.log"
+    stderr_path = evidence / f"{sequence:08d}-stderr.log"
+    stdout_path.write_text(sanitize(output_text(stdout)), encoding="utf-8")
+    stderr_path.write_text(sanitize(output_text(stderr)), encoding="utf-8")
     if stdout:
-        print(sanitize(stdout), end="")
+        print(sanitize(output_text(stdout)), end="")
     if stderr:
-        print(sanitize(stderr), end="", file=sys.stderr)
-    status = "success" if returncode == 0 else "failed"
+        print(sanitize(output_text(stderr)), end="", file=sys.stderr)
+    status = status or ("success" if returncode == 0 else "failed")
     operation_record(
         args.audit_root,
         sequence=sequence,

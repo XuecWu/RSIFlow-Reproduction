@@ -16,7 +16,7 @@
 - `evidence_paths`：原始输出或报告路径；原始日志不进入公开 web 根目录。
 - `git_commit` / `sco_job_id`：对应版本和集群作业，没有则为 null。
 
-shell 命令由 `audit_exec.py` 包装。无法经 wrapper 的 Read/Write/Edit/Grep/Glob、Herdr 等操作由主 agent 立即用 `record_operation.py` 追加。不得事后只凭记忆补写。
+shell 命令由 `audit_exec.py` 包装，原始 stdout/stderr 脱敏后写入 `audit/evidence/`。无法经 wrapper 的 Read/Write/Edit/Grep/Glob、Herdr 等操作由主 agent 立即用 `record_operation.py` 追加。不得事后只凭记忆补写。证据路径使用绝对路径；命令支持超时记录和非 UTF-8 输出替换。
 
 ## 关键结果
 
@@ -24,7 +24,7 @@ shell 命令由 `audit_exec.py` 包装。无法经 wrapper 的 Read/Write/Edit/G
 
 - `result_id`、`timestamp`、`phase`、`metric`、`value`。
 - `verification_command`、`evidence_paths`、`evidence_sha256`。
-- `review_status`：`unreviewed`、`agent_reported`、`main_verified`、`changes_required`、`not_verified`。
+- `review_status`：`unreviewed`、`agent_reported`、`main_verified`、`changes_required`、`not_verified`；默认 `unreviewed`，只有主 agent 明确复核后才写 `main_verified`，非法状态拒绝写入。
 
 模型或审计 agent 的返回值与主 agent 复算分行记录。没有实际输出、证据文件或可复现命令时，不得写成功结果。
 

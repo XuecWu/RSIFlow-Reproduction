@@ -11,7 +11,8 @@ from pathlib import Path
 
 SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
-    re.compile(r"(?i)(?:api[_-]?key|access[_-]?key[_-]?secret|authtoken|authorization|password)\s*[=:]\s*(?:'[^']*'|\"[^\"]*\"|\S+)"),
+    re.compile(r"(?i)(--(?:api[-_]?key|access[-_]?key[-_]?secret|authtoken|password)\s+)\S+"),
+    re.compile(r"(?i)([\"']?(?:api[_-]?key|access[_-]?key[_-]?secret|authtoken|authorization|password)[\"']?\s*[=:]\s*)(?:'[^']*'|\"[^\"]*\"|\S+)"),
     re.compile(r"(?i)(cpolar\s+authtoken\s+)\S+"),
     re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~-]+"),
 ]
@@ -41,6 +42,16 @@ def sanitize(value):
     for pattern in SECRET_PATTERNS:
         text = pattern.sub(lambda match: (match.group(1) if match.lastindex else "") + "REDACTED", text)
     return text
+
+
+def sanitize_value(value):
+    if isinstance(value, str):
+        return sanitize(value)
+    if isinstance(value, list):
+        return [sanitize_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: sanitize_value(item) for key, item in value.items()}
+    return value
 
 
 def allocate_sequence(audit_root):
@@ -82,6 +93,7 @@ def operation_record(audit_root, **values):
     sequence = values.pop("sequence", None) or allocate_sequence(audit_root)
     now = utc_now()
     cwd = values.pop("cwd", None) or str(Path.cwd())
+    evidence_paths = values.pop("evidence_paths", [])
     record = {
         "sequence": sequence,
         "start_timestamp": values.pop("start_timestamp", now),
@@ -96,10 +108,10 @@ def operation_record(audit_root, **values):
         "exit_code": values.pop("exit_code", 0),
         "duration_seconds": values.pop("duration_seconds", None),
         "error_type": values.pop("error_type", None),
-        "evidence_paths": values.pop("evidence_paths", []),
+        "evidence_paths": [str(Path(path).resolve()) for path in evidence_paths],
         "git_commit": values.pop("git_commit", None) or current_git_commit(cwd),
         "sco_job_id": values.pop("sco_job_id", None),
-        **values,
+        **sanitize_value(values),
     }
     append_jsonl(Path(audit_root) / "operations.jsonl", record)
     return record

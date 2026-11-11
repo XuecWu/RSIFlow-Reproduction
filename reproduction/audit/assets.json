@@ -1,5 +1,26 @@
 {
   "schema_version": 1,
   "upstream_commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
-  "assets": []
+  "assets": [
+    {
+      "name": "Qwen3-4B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-4B",
+      "revision": "hf_default_branch_download",
+      "license": "Apache-2.0",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+      "manifest": "reproduction/audit/model-manifest.json",
+      "files": 13,
+      "bytes": 8060926626,
+      "status": "verified_files_and_hashes"
+    },
+    {
+      "name": "codex-cli",
+      "source_url": "https://github.com/openai/codex/releases/tag/rust-v0.153.4",
+      "revision": "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
+      "license": "Apache-2.0",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/codex/codex-x86_64-unknown-linux-musl",
+      "sha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da",
+      "status": "verified_version_0.153.4"
+    }
+  ]
 }

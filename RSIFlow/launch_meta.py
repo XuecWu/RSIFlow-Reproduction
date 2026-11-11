@@ -95,30 +95,36 @@ def prepare_meta_storage(run_dir: Path, meta_logs_root: Path | None = None) -> P
     return central
 
 
-def _autodl_key() -> str:
-    """Prefer the environment; optionally reuse the local 4B secret file."""
-    value = os.environ.get("AUTODL_API_KEY", "").strip()
+def _autodl_key(env_name="AUTODL_API_KEY") -> str:
+    """Prefer the selected provider environment; optionally reuse the local AutoDL secret file."""
+    value = os.environ.get(env_name, "").strip()
     if value:
         return value
-    for path in (PROJECT_ROOT / "API_key.md",):
-        if not path.is_file():
-            continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            for marker in (f"{KEY_LABEL}：", f"{KEY_LABEL}:"):
-                if line.startswith(marker):
-                    value = line[len(marker):].strip()
-                    if value:
-                        return value
-    raise RuntimeError("AUTODL_API_KEY is unset and no local autodl.art key was found")
+    if env_name == "AUTODL_API_KEY":
+        for path in (PROJECT_ROOT / "API_key.md",):
+            if not path.is_file():
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                for marker in (f"{KEY_LABEL}：", f"{KEY_LABEL}:"):
+                    if line.startswith(marker):
+                        value = line[len(marker):].strip()
+                        if value:
+                            return value
+    raise RuntimeError(f"{env_name} is unset and no compatible provider key was found")
 
 
-def prepare_codex_home(run_dir: Path) -> Path:
+def prepare_codex_home(run_dir: Path, *, host_path=None, catalog_path=None) -> Path:
     """Put Codex config and resumable thread state on the data disk."""
     codex_home = run_dir / "meta_session/codex_home"
     codex_home.mkdir(parents=True, exist_ok=True)
-    template = (PROJECT_ROOT / "configs/codex_host.toml").read_text(encoding="utf-8")
-    catalog = (PROJECT_ROOT / "configs/codex-deepseek-v4.1-flash.json").resolve()
-    config = template.replace("__MODEL_CATALOG_JSON__", str(catalog))
+    host = Path(host_path) if host_path else PROJECT_ROOT / "configs/codex_host.toml"
+    if not host.is_absolute():
+        host = PROJECT_ROOT / host
+    catalog = Path(catalog_path) if catalog_path else PROJECT_ROOT / "configs/codex-deepseek-v4.1-flash.json"
+    if not catalog.is_absolute():
+        catalog = PROJECT_ROOT / catalog
+    template = host.read_text(encoding="utf-8")
+    config = template.replace("__MODEL_CATALOG_JSON__", str(catalog.resolve()))
     config_path = codex_home / "config.toml"
     if not config_path.exists():
         config_path.write_text(config, encoding="utf-8")
@@ -186,7 +192,7 @@ class SubprocessToolExecutor:
                 completed = subprocess.run(
                     argv, input=json.dumps(request, ensure_ascii=False), text=True,
                     stdout=stdout, stderr=stderr, cwd=self.project_root, check=False,
-                    env={k: v for k, v in os.environ.items() if k != "AUTODL_API_KEY"},
+                    env={k: v for k, v in os.environ.items() if k not in {"AUTODL_API_KEY", "OPENAI_API_KEY"}},
                 )
         except OSError as exc:
             return {"operation": request.get("operation"), "status": "tool_process_error",
@@ -402,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
                  "checkpoint_path": checkpoint,
                  "checkpoint_exists": bool(checkpoint and Path(checkpoint).is_dir()),
                  "frozen_data_exists": bool(frozen_data and Path(frozen_data).is_dir()),
-                 "catalog_exists": (PROJECT_ROOT / "configs/codex-deepseek-v4.1-flash.json").is_file(),
+                 "catalog_exists": (PROJECT_ROOT / config.get("codex_model_catalog", "configs/codex-deepseek-v4.1-flash.json")).is_file(),
                  "rounds": config.get("rounds"),
                  "training_tasks_per_round": config.get("training_tasks_per_pass"),
                  "meta_skill_seed_path": str(seed_path) if seed_path else None,
@@ -446,10 +452,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.wait_for_gpus:
         wait_for_idle_gpus(session_dir)
-    os.environ["AUTODL_API_KEY"] = _autodl_key()
+    base_path = PROJECT_ROOT / config.get("runtime_source", "runtime") / config.get("base_config", "configs/base.json")
+    base = json.loads(base_path.read_text(encoding="utf-8"))
+    key_env = base.get("meta", {}).get("api_key_env", "AUTODL_API_KEY")
+    os.environ[key_env] = _autodl_key(key_env)
     prepare_skills_path(run_dir, seed_path)
     prepare_context_path(run_dir)
-    codex_home = prepare_codex_home(run_dir)
+    codex_home = prepare_codex_home(
+        run_dir,
+        host_path=config.get("codex_host_config"),
+        catalog_path=config.get("codex_model_catalog"),
+    )
     tools = SubprocessToolExecutor(project_root=PROJECT_ROOT, run_dir=run_dir)
     loop = PersistentMeta(project=PROJECT_ROOT, run=run_dir, codex_home=codex_home,
                           executor=tools, rounds=int(config.get("rounds", 3)))

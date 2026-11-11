@@ -112,7 +112,7 @@
       "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl-ea13468/gorilla-ea13468e4423454d0c213704fb87cf7cb3990433/berkeley-function-call-leaderboard",
       "archive_sha256": "c6c3b8ff8708eb93ed1fe236d55b5edf1e817530af53cdd6b958d04d8f486f21",
       "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/bin/python",
-      "status": "installed_basic_import_verified_cli_cold_start_pending"
+      "status": "installed_and_cli_import_verified_260_seconds_native_isolation_pending"
     },
     {
       "name": "Codex source checkout",

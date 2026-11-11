@@ -9,6 +9,7 @@
 - 4B launcher `--check` 通过，run name 改为 `eval694` 后 `prepare_600_744.py` 返回 `already_prepared`，v4 未改写。
 - BFCL 使用固定 `ea13468e4423454d0c213704fb87cf7cb3990433` 和独立 `rsiflow-bfcl` 环境；基础包导入成功、NumPy=1.26.4、VERSION_PREFIX=BFCL_v3。生产环境依赖未降级。
 - BFCL CLI 冷启动加载大量第三方模型类型，90 秒 preflight 不足；`check_native` 上限改为 900 秒，测试先失败后通过。真实评测 budget 未缩短。
+- 第一次完整 CLI 导入在 649 秒暴露 `soundfile` 缺失；独立环境补装 `soundfile==0.14.0` 后，同一导入以 260.38 秒完成，`cli=True`。这证明 CLI 可导入，不等于 native isolation 或模型评分已通过。
 - 四卡 smoke 脚本测试通过：真实 start/verify/短生成/finally stop 的调用契约 2/2；GPU 实跑仍待 SCO。
 
 ## 数据审计保留意见
@@ -20,4 +21,4 @@
 - SCO `pt-r6np9yvd` 仍排队，Landlock 和四卡真实服务未验证。
 - 本机 `check_native` 明确失败为 `Native benchmark isolation unavailable`，不做无隔离回退。
 - `assets/private/credentials.sh` 不存在；真实 `/models`、Responses/Chat 和 Codex native dynamic tools 未执行。
-- BFCL CLI 完整冷启动、五类最小真实 benchmark smoke 尚待完成；没有模型 benchmark 分数。
+- BFCL CLI 完整冷启动已通过；五类最小真实 benchmark smoke 尚待完成，没有模型 benchmark 分数。

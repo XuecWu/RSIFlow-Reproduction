@@ -8,9 +8,9 @@
       "model": "gpt-6-astra",
       "protocol": "protocol_reconstruction",
       "evaluation": "694_of_744_ace_skipped",
-      "status": "pending_setup",
+      "status": "probe_queued",
       "run_dir": null,
-      "sco_job_id": null,
+      "sco_job_id": "pt-r6np9yvd",
       "started_at": null,
       "ended_at": null
     }

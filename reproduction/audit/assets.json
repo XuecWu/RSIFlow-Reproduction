@@ -103,6 +103,25 @@
       "alias_sha256": "f08ffcb6c2cefca9bdbe86b4248d6ad7a7743762d3f7264c14ff0bae85726fb6",
       "alias_records": 203297,
       "current_protocol": "official_2wiki_original_v1"
+    },
+    {
+      "name": "BFCL evaluator pinned v1.3",
+      "source_url": "https://github.com/ShishirPatil/gorilla/tree/ea13468e4423454d0c213704fb87cf7cb3990433",
+      "revision": "ea13468e4423454d0c213704fb87cf7cb3990433",
+      "license": "Apache-2.0",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl-ea13468/gorilla-ea13468e4423454d0c213704fb87cf7cb3990433/berkeley-function-call-leaderboard",
+      "archive_sha256": "c6c3b8ff8708eb93ed1fe236d55b5edf1e817530af53cdd6b958d04d8f486f21",
+      "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/bin/python",
+      "status": "installed_basic_import_verified_cli_cold_start_pending"
+    },
+    {
+      "name": "Codex source checkout",
+      "source_url": "https://github.com/openai/codex",
+      "revision": "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
+      "license": "Apache-2.0",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/codex/source",
+      "schema_sha256": "692da7699367f6f4fbbd46c0021278c1311440bcebf0bcb9b836690c05e56196",
+      "status": "verified_clean_checkout_and_offline_backend"
     }
   ]
 }

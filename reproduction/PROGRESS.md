@@ -13,9 +13,10 @@
 
 - 本地复现分支 `reproduction/4b-main8`、阶段 commit、追加式操作/关键结果账本、每日审计和 Herdr 三方通道。
 - Python 3.11 生产与离线环境、依赖 lock、Qwen3-4B 13 文件/3 分片/hash、Codex 0.153.4 provenance hash。
-- 冻结 release `rounds_3000_5x600_v4`：3000 个训练任务（五轮各 600），744 个验证任务；Code 每轮 120 STDIO + 80 function。真实 release 测试 2/2 通过，没有依赖上游占位配置中的 skip。
+- 冻结 release `rounds_3000_5x600_v4`：3000 个训练任务（五轮各 600），744 个验证任务；Code 每轮 120 STDIO + 80 function。真实 release 与机器配置测试 4/4 通过，没有依赖上游占位配置中的 skip。
 - v4 READY 自带 `evaluation_scope`：744 frozen、694 scored、50 pending；config hash `22305bf10342e11f76aab19df033ce6fedacee033ef4acbd043249b5c3caa231`。
 - `reproduction/audit/cohort-release-v4.json` 连接 source build、READY 和逐源对账；保留 `clean_independence_audited=false`、`exposure_unknown` 和两次隔离重建历史。
+- 只读泄漏审计：Code train/dev overlap=0、final exact matches=0；EnvScaler train/heldout 共享 191 个环境定义，上游总状态 `failed_overlap`。该复用是本次重构的明确保留差异，不能宣称完整独立性审计通过。
 - 检索索引、`RoundStore`、`select_specs()`、ACE 多轮记录与 record offsets/hash 已验证。
 - 四类 official spec 已从 v4 重新生成：164/178/100/100；HotpotQA 与 2Wiki 官方 v1 单条金答案 smoke 均按 100 固定分母得到 EM=F1=0.01，只证明评测链路，不是模型分数。2Wiki 保持上游 v1，不擅自改用需要 aliases 的 v1.1。
 - skip-ACE 新 694/744 与旧 250/300 兼容修复，自定义 provider 配置覆盖，过程页已发布。

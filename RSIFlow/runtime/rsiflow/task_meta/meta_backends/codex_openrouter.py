@@ -317,6 +317,7 @@ class CodexOpenRouterBackend:
             "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", {
                 "deepseek/deepseek-v4-flash-0731", "deepseek/deepseek-v4.1-flash", "openai/gpt-5.6-sol:batch", "openai/gpt-5.6-sol"}),
             "autodl": ("https://www.autodl.art/api/v1", "AUTODL_API_KEY", {"DeepSeek-V4.1-Flash", "DeepSeek-V4-Flash", "DeepSeek-V4-Flash-0731", "gpt-5.6-sol", "gpt-6-astra"}),
+            "OpenAI": ("http://token.acerobotics.com/v1", "OPENAI_API_KEY", {"gpt-6-astra"}),
         }
         endpoint, credential_env, models = endpoints[c.provider]
         if c.base_url != endpoint or c.api_key_env != credential_env or c.model not in models:

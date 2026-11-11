@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from launch_meta import SubprocessToolExecutor, _autodl_key, prepare_codex_home
 
@@ -51,6 +51,31 @@ class CustomProviderTests(unittest.TestCase):
             with patch.dict(os.environ, {"OPENAI_API_KEY": "secret"}, clear=True), patch("launch_meta.subprocess.run", side_effect=fake_run):
                 self.assertEqual({"status": "fact"}, adapter.execute({"operation": "compare_scores"}))
             self.assertNotIn("OPENAI_API_KEY", received)
+
+    def test_backend_accepts_registered_custom_endpoint_offline(self):
+        from types import SimpleNamespace
+        from task_adapter import TaskAdapter
+        from rsiflow.task_meta.meta_backends.codex_openrouter import CodexOpenRouterBackend
+
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            adapter = TaskAdapter(root / "RSIFlow", Path(directory) / "receipts")
+            config = adapter._config({"config_path": str(root / "reproduction/configs/train_4b.json")})
+            backend = CodexOpenRouterBackend.__new__(CodexOpenRouterBackend)
+            backend.config = config.meta
+            backend.bundle_manager = Mock()
+            backend.bundle_manager.active.return_value.hash = "bundle"
+            prepared = SimpleNamespace(
+                directory=Path(directory),
+                bundle=Mock(),
+                request=SimpleNamespace(meta_harness_hash="bundle"),
+            )
+            with (
+                patch.dict(os.environ, {"OPENAI_API_KEY": "offline-fixture"}),
+                patch("rsiflow.task_meta.meta_backends.local_execution.validate_local", return_value={"status": "fixture"}),
+            ):
+                backend.validate(prepared)
+            prepared.bundle.verify.assert_called_once()
 
 
 if __name__ == "__main__":

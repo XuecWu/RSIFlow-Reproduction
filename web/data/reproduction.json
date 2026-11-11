@@ -27,7 +27,7 @@
   },
   "current_execution": {
     "status": "in_progress",
-    "phase": "task2r_evidence_remediation",
+    "phase": "task5_offline_smokes_and_sco_queue",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
@@ -44,7 +44,7 @@
     },
     "landlock": {
       "local_status": "unavailable_function_not_implemented",
-      "upstream_suite": "161 passed, 2 skipped, 1 failed (latest); Landlock Function not implemented",
+      "upstream_suite": "163 passed, 2 skipped, 1 failed (latest); Landlock Function not implemented",
       "sco_probe_job": "pt-r6np9yvd",
       "evidence": "reproduction/audit/reviews/environment-main.md"
     }
@@ -78,6 +78,10 @@
       "version": "reconstructed-v1",
       "clean_independence_audited": false,
       "exposure": "exposure_unknown",
+      "data_audit": "reproduction/audit/data-audit-v4.json",
+      "environment_train_heldout_overlap": 191,
+      "code_train_dev_overlap": 0,
+      "exact_final_training_matches": 0,
       "limitations": [
         "No semantic paraphrase guarantee",
         "Unlabeled variants may remain undetected",

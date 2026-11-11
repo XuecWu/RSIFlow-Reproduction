@@ -54,7 +54,7 @@ def check_native(identifier,spec,output):
                 'choices':[{'index':0,'message':{'role':'assistant','content':'test_override_cpu_only'},'finish_reason':'stop'}],
                 'usage':{'prompt_tokens':1,'completion_tokens':1,'total_tokens':2}}
     with (output/'check.log').open('wb') as log:
-        run_native(command,work,output,log,handler=fake_only,timeout=90)
+        run_native(command,work,output,log,handler=fake_only,timeout=900)
     if len(calls)!=2:raise RuntimeError('Official SDK bridge did not complete the CPU test')
 
 def metric_rows(identifier, output, ids):

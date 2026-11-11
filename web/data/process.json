@@ -1,581 +1,20 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-11T16:30:01.649982Z",
-  "current_phase": "task2r",
+  "generated_at": "2026-11-11T17:09:28.331178Z",
+  "current_phase": "task5",
   "operation_counts": {
-    "success": 308,
-    "failed": 84,
+    "success": 326,
+    "failed": 95,
     "blocked": 1,
-    "timeout": 4,
+    "timeout": 10,
     "failure": 2
   },
-  "operations_total": 399,
-  "results_total": 27,
-  "as_of_sequence": 437,
+  "operations_total": 434,
+  "results_total": 31,
+  "as_of_sequence": 481,
   "is_snapshot": true,
   "snapshot_note": "静态快照；截至 sequence 与 generated_at，之后操作需重新生成",
   "timeline": [
-    {
-      "sequence": 386,
-      "timestamp": "2026-11-11T15:54:45.589660Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000386-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000386-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "da8b37eec52458014d5a198732bd24fb411cee6dcb8c1bfe2fda43e01bc34c28"
-      ]
-    },
-    {
-      "sequence": 387,
-      "timestamp": "2026-11-11T15:55:01.269317Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000387-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000387-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "6aad8152961c7e8de0ad02743b7f62417fd3cf6771ef8c6c7c40f7100325160a"
-      ]
-    },
-    {
-      "sequence": 388,
-      "timestamp": "2026-11-11T15:55:13.905224Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000388-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000388-stderr.log"
-      ],
-      "evidence_sha256": [
-        "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 390,
-      "timestamp": "2026-11-11T15:55:52.545376Z",
-      "phase": "task5",
-      "action": "/root/.sco/bin/cnsh01/sco",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000390-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000390-stderr.log"
-      ],
-      "evidence_sha256": [
-        "24fc75fb3dfbc2b37987170a3e7ac2818132dfecab377023b8398195c7bdf9bf",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 382,
-      "timestamp": "2026-11-11T15:56:33.516145Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000382-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000382-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "7bb60586d8d633cc86fcc01bc853aab3c170a8bdf026376d80d4888aa5ea4d26"
-      ]
-    },
-    {
-      "sequence": 391,
-      "timestamp": "2026-11-11T15:57:03.666971Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000391-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000391-stderr.log"
-      ],
-      "evidence_sha256": [
-        "db27412fcaf580df75a9bebd8a9454279b21902b1496c618fa3dbb6ac42a61de",
-        "7ae7267f848b4fc910d2900399e408ccfdaae20d72c46bdaf3b6185c7fe76209"
-      ]
-    },
-    {
-      "sequence": 392,
-      "timestamp": "2026-11-11T15:57:14.447954Z",
-      "phase": "task5",
-      "action": "/root/.sco/bin/cnsh01/sco",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000392-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000392-stderr.log"
-      ],
-      "evidence_sha256": [
-        "24fc75fb3dfbc2b37987170a3e7ac2818132dfecab377023b8398195c7bdf9bf",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 393,
-      "timestamp": "2026-11-11T15:57:43.537753Z",
-      "phase": "task5",
-      "action": "herdr",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000393-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000393-stderr.log"
-      ],
-      "evidence_sha256": [
-        "c855acc53eca0a2cfa2c3a6d0843715405df818a377518bc3cc23b7406d8c89a",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 389,
-      "timestamp": "2026-11-11T15:57:53.634858Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000389-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000389-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "afabd1fdd5505b4dadba6b0fbd6ed3ce6b1f9f45fed9b98afc20c386d1518b07"
-      ]
-    },
-    {
-      "sequence": 394,
-      "timestamp": "2026-11-11T15:57:57.483672Z",
-      "phase": "task5",
-      "action": "herdr",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000394-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000394-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 395,
-      "timestamp": "2026-11-11T15:57:57.950466Z",
-      "phase": "task5",
-      "action": "herdr",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000395-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000395-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 396,
-      "timestamp": "2026-11-11T15:57:58.512200Z",
-      "phase": "task5",
-      "action": "herdr",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000396-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000396-stderr.log"
-      ],
-      "evidence_sha256": [
-        "15cb29863dff4dac741f58877252bcedb6d4268ee19c6143ec14af824876a927",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 397,
-      "timestamp": "2026-11-11T16:01:19.937292Z",
-      "phase": "task5",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000397-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000397-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "ce5efd4bf35cff227d6914d6d5cde57fb39069b52e9ac48ee7a889a4cb0a7024"
-      ]
-    },
-    {
-      "sequence": 398,
-      "timestamp": "2026-11-11T16:01:51.687600Z",
-      "phase": "task5",
-      "action": "read_qwen_preflight_report",
-      "tool_kind": "read",
-      "status": "failure",
-      "error_type": "FileNotFoundError",
-      "evidence_paths": [],
-      "evidence_sha256": []
-    },
-    {
-      "sequence": 399,
-      "timestamp": "2026-11-11T16:01:52.174437Z",
-      "phase": "task5",
-      "action": "read_qwen_lost_agent",
-      "tool_kind": "herdr",
-      "status": "failure",
-      "error_type": "agent_not_found",
-      "evidence_paths": [],
-      "evidence_sha256": []
-    },
-    {
-      "sequence": 400,
-      "timestamp": "2026-11-11T16:01:52.636184Z",
-      "phase": "task5",
-      "action": "inspect_qwen_pane",
-      "tool_kind": "herdr",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [],
-      "evidence_sha256": []
-    },
-    {
-      "sequence": 401,
-      "timestamp": "2026-11-11T16:01:53.095643Z",
-      "phase": "task5",
-      "action": "inspect_2wiki_evaluator_and_official_readme",
-      "tool_kind": "read",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [],
-      "evidence_sha256": []
-    },
-    {
-      "sequence": 402,
-      "timestamp": "2026-11-11T16:03:36.791208Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000402-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000402-stderr.log"
-      ],
-      "evidence_sha256": [
-        "844be050b595c2439244d95fd71eca4dd1d56c6c464d7b62924c1361f3b14053",
-        "57cb80dc8cc96aeebd36a1aff88376f1804a8e2eaf4a11d919167c567b36dc2a"
-      ]
-    },
-    {
-      "sequence": 403,
-      "timestamp": "2026-11-11T16:05:32.457831Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000403-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000403-stderr.log"
-      ],
-      "evidence_sha256": [
-        "ab2217127e410bcf83538f5d30bf8214ea51db58d989635dfe0a4cd0235be9a3",
-        "ba534889fbaf3c25db58cc86bf3915ebca38bf27cb1b9b0b43cb64ee58080549"
-      ]
-    },
-    {
-      "sequence": 404,
-      "timestamp": "2026-11-11T16:05:32.887474Z",
-      "phase": "task2r",
-      "action": "qwen_preflight_report_received",
-      "tool_kind": "read",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/reviews/preflight-qwen-r1.md"
-      ],
-      "evidence_sha256": [
-        "3cba5e07c88f98341f2e06e3e19c89613d0423e15498542deef26e7de2d86f9d"
-      ]
-    },
-    {
-      "sequence": 405,
-      "timestamp": "2026-11-11T16:05:33.276519Z",
-      "phase": "task2r",
-      "action": "confirm_existing_reproduction_branch",
-      "tool_kind": "git",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [],
-      "evidence_sha256": []
-    },
-    {
-      "sequence": 406,
-      "timestamp": "2026-11-11T16:05:56.102284Z",
-      "phase": "task1",
-      "action": "bash",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000406-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000406-stderr.log"
-      ],
-      "evidence_sha256": [
-        "2496fcb64a2b2f5df3e8f01d26fc714787466762acf600e07fdcab8ee57de2c0",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 407,
-      "timestamp": "2026-11-11T16:09:38.939575Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000407-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000407-stderr.log"
-      ],
-      "evidence_sha256": [
-        "da605fb5bd76ef01d7dbd667f4a1e346faa5473aeedf45bfe9ed02881e9ad22d",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 408,
-      "timestamp": "2026-11-11T16:09:46.743208Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000408-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000408-stderr.log"
-      ],
-      "evidence_sha256": [
-        "509629caa45e68a66a94a9720423c7aa04f86c55ed33124d2c288411d9153fa1",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 409,
-      "timestamp": "2026-11-11T16:09:47.791029Z",
-      "phase": "task2r",
-      "action": "python3",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000409-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000409-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "e24143f588196fec9f112a923bbaa284bd0a39ffca915a87fa6f379ed23a6cec"
-      ]
-    },
-    {
-      "sequence": 410,
-      "timestamp": "2026-11-11T16:10:09.390856Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000410-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000410-stderr.log"
-      ],
-      "evidence_sha256": [
-        "ba6b8125f6b594c61b90997fbdae88ba4ad025f12a1e36d932f373af1629b89a",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 411,
-      "timestamp": "2026-11-11T16:10:09.928199Z",
-      "phase": "task2r",
-      "action": "official_2wiki_v1_aliases_downloaded",
-      "tool_kind": "web",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000406-stdout.log"
-      ],
-      "evidence_sha256": [
-        "2496fcb64a2b2f5df3e8f01d26fc714787466762acf600e07fdcab8ee57de2c0"
-      ]
-    },
-    {
-      "sequence": 412,
-      "timestamp": "2026-11-11T16:12:39.938609Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000412-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000412-stderr.log"
-      ],
-      "evidence_sha256": [
-        "40434a19d6a338e3777be6b4d3b457508ee681dd9b20265db8ed7d2bedd615ea",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 413,
-      "timestamp": "2026-11-11T16:13:21.381078Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000413-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000413-stderr.log"
-      ],
-      "evidence_sha256": [
-        "168eb6cdcfb2d128c70daed59335ec5f33040cba7283cfe7f09dfa95eb3ad2a5",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 414,
-      "timestamp": "2026-11-11T16:13:22.094984Z",
-      "phase": "task5",
-      "action": "/root/.sco/bin/cnsh01/sco",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000414-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000414-stderr.log"
-      ],
-      "evidence_sha256": [
-        "24fc75fb3dfbc2b37987170a3e7ac2818132dfecab377023b8398195c7bdf9bf",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 415,
-      "timestamp": "2026-11-11T16:13:52.029292Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000415-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000415-stderr.log"
-      ],
-      "evidence_sha256": [
-        "638e93e542079c2dc4d4384ff3ab61309bfb54a7af8d6f2be7f46fa3321a0a09",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 416,
-      "timestamp": "2026-11-11T16:14:47.236226Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000416-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000416-stderr.log"
-      ],
-      "evidence_sha256": [
-        "ef91cfdd05dd1f7d3afffd66dcd3cfdb6407fa4a624df3389d8d49927518e081",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 417,
-      "timestamp": "2026-11-11T16:16:12.230625Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000417-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000417-stderr.log"
-      ],
-      "evidence_sha256": [
-        "2183b3366a18f815fb7166f7cd87001c8abc706f8921a6e4cc0d0a47e8ad7d15",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 418,
-      "timestamp": "2026-11-11T16:16:54.686147Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "success",
-      "error_type": null,
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000418-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000418-stderr.log"
-      ],
-      "evidence_sha256": [
-        "e4efad60d624827716eb8be67c2c1d83b3e69e549dbf49545de523f5976ab77b",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
-    {
-      "sequence": 419,
-      "timestamp": "2026-11-11T16:16:58.511613Z",
-      "phase": "task2r",
-      "action": "env",
-      "tool_kind": "bash",
-      "status": "failed",
-      "error_type": "command_failed",
-      "evidence_paths": [
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000419-stdout.log",
-        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000419-stderr.log"
-      ],
-      "evidence_sha256": [
-        "c958aeea2fbba5c0417c891984856dedc29095844451940576254f57f0db9d02",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      ]
-    },
     {
       "sequence": 420,
       "timestamp": "2026-11-11T16:18:19.757655Z",
@@ -827,6 +266,584 @@
       ],
       "evidence_sha256": [
         "27952a8dd7ba48e995773dc12a811d7ada338e49afdf61e13cca4bc24804dfd5"
+      ]
+    },
+    {
+      "sequence": 439,
+      "timestamp": "2026-11-11T16:30:06.591053Z",
+      "phase": "task2r",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000439-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000439-stderr.log"
+      ],
+      "evidence_sha256": [
+        "1061d42551b1397f2b488df33af755608364191fa45c9b76cf8ac5bfb31a90fa",
+        "c33f52cc8655465a612eb507702fc853ea20286565990c2ae439c61b49db1abb"
+      ]
+    },
+    {
+      "sequence": 440,
+      "timestamp": "2026-11-11T16:30:22.644552Z",
+      "phase": "task2r",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000440-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000440-stderr.log"
+      ],
+      "evidence_sha256": [
+        "f9a4a12adb9eb75afa74bfab42f804c10304c14535f46a4a1ac4482cff328faa",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 441,
+      "timestamp": "2026-11-11T16:31:18.434181Z",
+      "phase": "task5",
+      "action": "/root/.sco/bin/cnsh01/sco",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000441-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000441-stderr.log"
+      ],
+      "evidence_sha256": [
+        "fd7b0cdfea3a67623b25f030e0d3b839a85f73ce3106425c6d4f3ff0a2726cfb",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 442,
+      "timestamp": "2026-11-11T16:31:19.481650Z",
+      "phase": "task5",
+      "action": "/root/.sco/bin/cnsh01/sco",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000442-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000442-stderr.log"
+      ],
+      "evidence_sha256": [
+        "28e033419d140a1bdd44ed4e65ab1f2314bc2d9663202c64d32d8022efb0dccf",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 443,
+      "timestamp": "2026-11-11T16:33:14.474367Z",
+      "phase": "task5",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000443-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000443-stderr.log"
+      ],
+      "evidence_sha256": [
+        "db75a18f9ffc36732244fc5f3d40fd5ed4aa33041189b8c22fade079baea0963",
+        "6b575fcfb578214f09942879da478f2a0101f3009a10388e1dbeeb63907d77d8"
+      ]
+    },
+    {
+      "sequence": 445,
+      "timestamp": "2026-11-11T16:33:52.260304Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000445-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000445-stderr.log"
+      ],
+      "evidence_sha256": [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "64c80e01302c459b02482368c9a756d4241d82033d3541325d73f557b3a4fa9b"
+      ]
+    },
+    {
+      "sequence": 447,
+      "timestamp": "2026-11-11T16:35:25.820287Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000447-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000447-stderr.log"
+      ],
+      "evidence_sha256": [
+        "96ab6f3f96450005486ef65a476c8fe5037811a266c6de1ab531d2cf37252acd",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 446,
+      "timestamp": "2026-11-11T16:35:53.078684Z",
+      "phase": "task5",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000446-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000446-stderr.log"
+      ],
+      "evidence_sha256": [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "7048d631645ebdcc2f106c1f8556d3c08a8ff1a19033e6413e1b0dcffcf2899a"
+      ]
+    },
+    {
+      "sequence": 448,
+      "timestamp": "2026-11-11T16:35:53.726112Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000448-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000448-stderr.log"
+      ],
+      "evidence_sha256": [
+        "c6dfde3f9bcc0d41df6a577e59abe1633603cb8f3e01b81b8a9ad8e61bb6442c",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 323,
+      "timestamp": "2026-11-11T16:37:05.512439Z",
+      "phase": "task5",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000323-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000323-stderr.log"
+      ],
+      "evidence_sha256": []
+    },
+    {
+      "sequence": 450,
+      "timestamp": "2026-11-11T16:38:03.740246Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000450-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000450-stderr.log"
+      ],
+      "evidence_sha256": [
+        "ed8561583ab1cb217f40a7c20eae32774bd8db6d7b61df35d06ef7fb5d6ad707",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 451,
+      "timestamp": "2026-11-11T16:39:24.797918Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000451-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000451-stderr.log"
+      ],
+      "evidence_sha256": [
+        "54e71b98532110291c11ae2bad8c9d9b83f00607eff0f6b5670983092e5c6af1",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 453,
+      "timestamp": "2026-11-11T16:39:25.499941Z",
+      "phase": "task5",
+      "action": "previous_sco_monitor_timeout",
+      "tool_kind": "monitor",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [],
+      "evidence_sha256": []
+    },
+    {
+      "sequence": 454,
+      "timestamp": "2026-11-11T16:40:14.870875Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000454-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000454-stderr.log"
+      ],
+      "evidence_sha256": [
+        "89b825e8489ebacc09a5cda55e506559e1d0e00f909ef6a49c7de7f506c610df",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 456,
+      "timestamp": "2026-11-11T16:42:33.951887Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000456-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000456-stderr.log"
+      ],
+      "evidence_sha256": [
+        "def49e56538268817ddc3ce3b19524cf76f4ae38e6b9d04b3db4512a5165b796",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 457,
+      "timestamp": "2026-11-11T16:43:02.217767Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000457-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000457-stderr.log"
+      ],
+      "evidence_sha256": [
+        "ffcd049f3e4a96812492fe6f3ab372708319adec75fd1a7c84ccc7180f0672eb",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 460,
+      "timestamp": "2026-11-11T16:44:59.920298Z",
+      "phase": "task5",
+      "action": "second_sco_monitor_outer_timeout",
+      "tool_kind": "monitor",
+      "status": "timeout",
+      "error_type": "ToolTimeout",
+      "evidence_paths": [],
+      "evidence_sha256": []
+    },
+    {
+      "sequence": 461,
+      "timestamp": "2026-11-11T16:45:45.811389Z",
+      "phase": "task5",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000461-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000461-stderr.log"
+      ],
+      "evidence_sha256": [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 462,
+      "timestamp": "2026-11-11T16:46:27.859696Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000462-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000462-stderr.log"
+      ],
+      "evidence_sha256": [
+        "817dc254421b89d84bb7dee2de1b4db53a51c6d4af83d79a79da4aa42f13d10d",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 458,
+      "timestamp": "2026-11-11T16:47:10.462099Z",
+      "phase": "task5",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000458-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000458-stderr.log"
+      ],
+      "evidence_sha256": [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 464,
+      "timestamp": "2026-11-11T16:49:11.676300Z",
+      "phase": "task5",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000464-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000464-stderr.log"
+      ],
+      "evidence_sha256": [
+        "9b263de7f6113b544b5de90c39c82141eeb08f4ff566a87b674fe1fc01cd273b",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 465,
+      "timestamp": "2026-11-11T16:50:07.934468Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000465-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000465-stderr.log"
+      ],
+      "evidence_sha256": [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 466,
+      "timestamp": "2026-11-11T16:50:08.577127Z",
+      "phase": "task5",
+      "action": "bfcl_dependency_install_completed",
+      "tool_kind": "background",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/logs/bfcl-install.log"
+      ],
+      "evidence_sha256": [
+        "52f6c4894ef6cc93970007be5ed365b9406fbccd39a260ee1d038dc18c228edc"
+      ]
+    },
+    {
+      "sequence": 467,
+      "timestamp": "2026-11-11T16:50:37.611491Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000467-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000467-stderr.log"
+      ],
+      "evidence_sha256": [
+        "99f05b6ce4a7b6750c78c78365c181232ea7a8ef17244625b090c05f3c448486",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 468,
+      "timestamp": "2026-11-11T16:54:38.835752Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000468-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000468-stderr.log"
+      ],
+      "evidence_sha256": [
+        "33a6c51e1550440d256a22ba8fb1a007985b5bffdde13507f1cf66aa2fce9f26",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 469,
+      "timestamp": "2026-11-11T16:55:54.446866Z",
+      "phase": "task5",
+      "action": "bash",
+      "tool_kind": "bash",
+      "status": "timeout",
+      "error_type": "TimeoutExpired",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000469-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000469-stderr.log"
+      ],
+      "evidence_sha256": [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 470,
+      "timestamp": "2026-11-11T16:57:31.878991Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000470-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000470-stderr.log"
+      ],
+      "evidence_sha256": [
+        "61e3e92a2738cdee12a871177ba122c7402dc94a5bfde84575dd935ad055d696",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 471,
+      "timestamp": "2026-11-11T16:58:12.736402Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000471-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000471-stderr.log"
+      ],
+      "evidence_sha256": [
+        "877276a264fd3456874b29161cb7cb426a1f58cba74f3c376fdab8cc25911290",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 472,
+      "timestamp": "2026-11-11T16:58:42.575581Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000472-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000472-stderr.log"
+      ],
+      "evidence_sha256": [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "3f3bb567ceadbe1db807d574eb0f37a6ae565756ab20e5dd2ddd633a09e8b224"
+      ]
+    },
+    {
+      "sequence": 473,
+      "timestamp": "2026-11-11T16:59:48.975983Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000473-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000473-stderr.log"
+      ],
+      "evidence_sha256": [
+        "7cc592bf4b8c100699ae88b4deddc1c6bed407eec30b45c211d8fa0cd16ec382",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 474,
+      "timestamp": "2026-11-11T17:02:18.269318Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000474-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000474-stderr.log"
+      ],
+      "evidence_sha256": [
+        "460170badd877f43606eca3f9dbddbfa5837b07dd8e5ee05835f4a88d9134985",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 475,
+      "timestamp": "2026-11-11T17:02:47.821582Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000475-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000475-stderr.log"
+      ],
+      "evidence_sha256": [
+        "9d31da107ab4c1f25e80c41faaa58e0c3fe39260c60ac9b9499d72ad06faf9d9",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 476,
+      "timestamp": "2026-11-11T17:04:15.520525Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000476-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000476-stderr.log"
+      ],
+      "evidence_sha256": [
+        "6731f4c68b23f841c3a63ea68db1bbd4a21f2cea816395335a1b8e833209e9d5",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 477,
+      "timestamp": "2026-11-11T17:04:55.904130Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "success",
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000477-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000477-stderr.log"
+      ],
+      "evidence_sha256": [
+        "25dda6a913c59ed1294b638f187f80389d2b0a336946702a52582c469300f732",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
+    },
+    {
+      "sequence": 481,
+      "timestamp": "2026-11-11T17:08:33.962001Z",
+      "phase": "task5",
+      "action": "env",
+      "tool_kind": "bash",
+      "status": "failed",
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000481-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00000481-stderr.log"
+      ],
+      "evidence_sha256": [
+        "acbd8555548340ae08ebedf118f169b61ed1b6eee5e0aa7169be44c1205b6ebe",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       ]
     }
   ],
@@ -1239,6 +1256,66 @@
       ],
       "evidence_sha256": [
         "27952a8dd7ba48e995773dc12a811d7ada338e49afdf61e13cca4bc24804dfd5"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000444-sco_probe_scheduling",
+      "timestamp": "2026-11-11T16:32:36.321083Z",
+      "phase": "task5",
+      "metric": "sco_probe_scheduling",
+      "value": "pt-r6np9yvd STARTING; worker Pending; 1 idle GPU but 8 required; no Host/POD IP",
+      "verification_command": "sco jobs get-workers pt-r6np9yvd; sco aec2 clusters usage --name=sensebot-a100-a800-liujianbo",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/reviews/environment-main.md"
+      ],
+      "evidence_sha256": [
+        "27952a8dd7ba48e995773dc12a811d7ada338e49afdf61e13cca4bc24804dfd5"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000463-reconstructed_data_leakage_audit",
+      "timestamp": "2026-11-11T16:46:59.015316Z",
+      "phase": "task5",
+      "metric": "reconstructed_data_leakage_audit",
+      "value": "failed_overlap: 191 shared EnvScaler environment definitions; code train/dev overlap=0; exact final matches=0",
+      "verification_command": "audit_code_tool_leakage(assets/cohort/dataset_manifest.json)",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/data-audit-v4.json"
+      ],
+      "evidence_sha256": [
+        "e9a8086a1f56a12640a8d6bfcd02f7c6665b0eb374a76cb602e853ddf3ded77e"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000479-custom_provider_offline_backend",
+      "timestamp": "2026-11-11T17:06:01.002248Z",
+      "phase": "task5",
+      "metric": "custom_provider_offline_backend",
+      "value": "4/4 tests: TaskAdapter and Codex backend accept fixed OpenAI endpoint/model/source/schema/catalog; no API call",
+      "verification_command": "PYTHONPATH=RSIFlow:RSIFlow/runtime python -m pytest -q RSIFlow/tests/test_custom_provider.py",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/reviews/task5-preflight-main.md"
+      ],
+      "evidence_sha256": [
+        "8d30e3c6d66eb0b50738e911c0b4c41b2660e1d8d8b3b0a49bc4368c5106c44b"
+      ],
+      "review_status": "main_verified"
+    },
+    {
+      "result_id": "00000480-bfcl_native_local_isolation",
+      "timestamp": "2026-11-11T17:06:01.456897Z",
+      "phase": "task5",
+      "metric": "bfcl_native_local_isolation",
+      "value": "blocked: Native benchmark isolation unavailable on local host; no fallback",
+      "verification_command": "check_native(bfcl_v3, pinned_spec)",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/reviews/task5-preflight-main.md"
+      ],
+      "evidence_sha256": [
+        "8d30e3c6d66eb0b50738e911c0b4c41b2660e1d8d8b3b0a49bc4368c5106c44b"
       ],
       "review_status": "main_verified"
     }

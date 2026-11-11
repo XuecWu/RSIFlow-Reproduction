@@ -89,7 +89,7 @@
   "max_wall_seconds": 2592000,
   "validation_config": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/validation_744.json",
   "output_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/Rollout_logs",
-  "run_name": "rsiflow_skill_4b_600x5_eval744",
+  "run_name": "rsiflow_skill_4b_600x5_eval694",
   "skip_acebench": true,
   "meta_worker_socket": "/tmp/rsiflow_4b_meta_worker.sock",
   "meta_relay_socket": "/tmp/rsiflow_4b_meta_relay.sock",

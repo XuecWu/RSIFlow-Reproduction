@@ -30,10 +30,10 @@ class MetaBudget(BaseModel):
 class MetaBackendConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     backend: Literal["codex_openrouter"] = "codex_openrouter"
-    provider: Literal["openrouter", "autodl"] = "openrouter"
+    provider: Literal["openrouter", "autodl", "OpenAI"] = "openrouter"
     model: str = "deepseek/deepseek-v4-flash-0731"
     base_url: str = "https://openrouter.ai/api/v1"
-    api_key_env: Literal["OPENROUTER_API_KEY", "AUTODL_API_KEY"] = "OPENROUTER_API_KEY"
+    api_key_env: Literal["OPENROUTER_API_KEY", "AUTODL_API_KEY", "OPENAI_API_KEY"] = "OPENROUTER_API_KEY"
     wire_api: Literal["responses"] = "responses"
     response_delivery: Literal["stream", "buffered_json"] = "stream"
     response_timeout_seconds: int = Field(default=300, ge=1, le=3600)

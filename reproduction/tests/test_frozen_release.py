@@ -18,6 +18,30 @@ def test_machine_config_names_actual_release_and_backbone_sockets():
     assert Path(config["validation_manifest"]).parent.name == "validation_744_v4"
     assert "4b" in Path(config["meta_worker_socket"]).name
     assert "4b" in Path(config["meta_relay_socket"]).name
+    assert config["run_name"].endswith("eval694")
+
+
+def test_effective_runtime_config_accepts_custom_provider(tmp_path):
+    from task_adapter import TaskAdapter
+
+    adapter = TaskAdapter(ROOT / "RSIFlow", tmp_path / "receipts")
+    runtime = adapter._config({"config_path": str(CONFIG)})
+    assert runtime.meta.provider == "OpenAI"
+    assert runtime.meta.api_key_env == "OPENAI_API_KEY"
+    assert runtime.meta.model == "gpt-6-astra"
+    assert runtime.meta.base_url == "http://token.acerobotics.com/v1"
+    assert Path(runtime.data_dir) == Path(read(CONFIG)["frozen_data_dir"])
+    assert [row["base_url"] for row in runtime.task_replicas] == [f"http://127.0.0.1:{port}/v1" for port in (8271, 8272, 8273, 8274)]
+    assert not any("/path/to/" in value for value in (runtime.trainer_python, runtime.task_checkpoint, runtime.meta.codex_executable))
+
+
+def test_bfcl_evaluator_uses_pinned_source_and_isolated_python():
+    settings = read(ROOT / "reproduction/configs/validation_744.json")
+    spec = settings["tool_benchmarks"]["bfcl_v3"]
+    assert spec["official_commit"] == "ea13468e4423454d0c213704fb87cf7cb3990433"
+    assert "bfcl-ea13468" in spec["repository_root"]
+    assert spec["python_executable"].endswith("rsiflow-bfcl/bin/python")
+    assert spec["evaluator_archive_sha256"] == "c6c3b8ff8708eb93ed1fe236d55b5edf1e817530af53cdd6b958d04d8f486f21"
 
 
 def test_real_frozen_release_has_complete_counts_and_partial_scope(tmp_path):

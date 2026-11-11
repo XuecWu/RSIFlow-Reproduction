@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from build_cohort import ROOT, inspect_source, normalize_deepcoder, normalize_rows, pack_allocated_manifests, read_rows, record_from_item
+from build_cohort import ROOT, deduplicate_native_ids, inspect_source, normalize_deepcoder, normalize_rows, pack_allocated_manifests, read_rows, record_from_item
 from data_protocol import native_index, text_hash
 from evolution_protocol import file_hash, make_manifest
 from prepare_600_744 import repack
@@ -33,6 +33,17 @@ class BuildCohortTests(unittest.TestCase):
         rows = normalize_rows("hotpotqa", [{"id": "native-1", "question": "q", "context": {"title": [], "sentences": []}}])
         self.assertEqual("native-1", rows[0]["_id"])
         self.assertEqual("native-1", rows[0]["id"])
+
+    def test_duplicate_native_ids_keep_only_first_variant(self):
+        rows, dropped = deduplicate_native_ids("bfcl_v3", [
+            {"id": "same", "question": "first"},
+            {"id": "same", "question": "second"},
+            {"id": "other", "question": "third"},
+        ])
+        self.assertEqual(2, len(rows))
+        self.assertEqual("first", rows[0]["question"])
+        self.assertEqual(1, len(dropped))
+        self.assertEqual("second", dropped[0]["question"])
 
     def test_envscaler_checklist_is_required(self):
         with self.assertRaises(ValueError):

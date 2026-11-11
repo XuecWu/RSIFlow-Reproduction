@@ -96,6 +96,21 @@ def normalize_rows(source, rows):
     return normalized
 
 
+def deduplicate_native_ids(source, rows):
+    seen = set()
+    unique = []
+    dropped = []
+    for row in rows:
+        identity = row.get("task_id", row.get("id", row.get("_id")))
+        if identity is not None and identity in seen:
+            dropped.append(row)
+            continue
+        if identity is not None:
+            seen.add(identity)
+        unique.append(row)
+    return unique, dropped
+
+
 def source_spec(source, kind, path, original_split):
     domains = {"envscaler": "tool_use", "deepcoder_taco": "code", "bfcl_v3": "tool_use", "acebench": "tool_use",
                "humaneval_plus": "code", "mbpp_plus": "code", "hotpotqa": "searchqa", "2wiki": "searchqa",
@@ -211,8 +226,11 @@ def main():
         "hotpotqa_dev": args.hotpot_dev,
         "2wiki_dev": args.twowiki_dev,
     }
+    duplicate_variants = {}
     for source, destination in {**training_paths, **validation_paths}.items():
         rows = normalize_rows(source, read_rows(source_rows[source]))
+        rows, dropped = deduplicate_native_ids(source, rows)
+        duplicate_variants[source] = dropped
         if not rows:
             raise ValueError(f"No records for {source}")
         write_jsonl(destination, rows)
@@ -254,6 +272,7 @@ def main():
         "ready": ready,
         "quarantine_records": len(quarantine),
         "code_interface": {"stdio": len(stdio), "function": len(function)},
+        "duplicate_variants_dropped": {source: len(rows) for source, rows in duplicate_variants.items()},
         "retrieval_index": str(args.retrieval.resolve()),
         "source_training_manifest": str(output / "train_source_manifest.json"),
         "source_validation_manifest": str(output / "validation_source_manifest.json"),

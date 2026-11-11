@@ -141,7 +141,7 @@
     "hotpotqa_dev": 1000,
     "2wiki_dev": 1000
   },
-  "retrieval_index": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/retrieval/search.sqlite",
+  "retrieval_index": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/retrieval-v2/search.sqlite",
   "validation_vault": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/evaluation_vault/reconstructed",
   "rollout_collection_policy": "meta_one_component_one_candidate_strict_positive_gain",
   "training_rollouts_per_round": {

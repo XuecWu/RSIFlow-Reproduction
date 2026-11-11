@@ -27,7 +27,7 @@
       "categories": "all_v3",
       "data_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/cohort/bfcl_v3/test.jsonl",
       "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
-      "repository_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl_v3",
+      "repository_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl_v3_zip/gorilla-main/berkeley-function-call-leaderboard",
       "version_prefix": "BFCL_v3"
     }
   },

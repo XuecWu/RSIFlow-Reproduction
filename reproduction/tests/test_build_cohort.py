@@ -3,13 +3,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from build_cohort import inspect_source, normalize_deepcoder, normalize_rows, pack_allocated_manifests, record_from_item
+from build_cohort import ROOT, inspect_source, normalize_deepcoder, normalize_rows, pack_allocated_manifests, record_from_item
 from data_protocol import native_index, text_hash
 from evolution_protocol import file_hash, make_manifest
 from prepare_600_744 import repack
 
 
 class BuildCohortTests(unittest.TestCase):
+    def test_repository_root_contains_rsiflow(self):
+        self.assertTrue((ROOT / "RSIFlow").is_dir())
+
     def test_deepcoder_function_interface_and_entrypoint(self):
         row = {
             "problem": "add",
@@ -25,6 +28,11 @@ class BuildCohortTests(unittest.TestCase):
     def test_deepcoder_stdio_interface(self):
         row = {"problem": "echo", "tests": json.dumps({"inputs": ["1\n"], "outputs": ["1\n"]})}
         self.assertEqual("stdio", normalize_deepcoder(row, 4)["interface"])
+
+    def test_qa_rows_expose_official_underscore_id(self):
+        rows = normalize_rows("hotpotqa", [{"id": "native-1", "question": "q", "context": {"title": [], "sentences": []}}])
+        self.assertEqual("native-1", rows[0]["_id"])
+        self.assertEqual("native-1", rows[0]["id"])
 
     def test_envscaler_checklist_is_required(self):
         with self.assertRaises(ValueError):

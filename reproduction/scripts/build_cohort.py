@@ -3,7 +3,7 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "RSIFlow"), str(ROOT / "RSIFlow/runtime"), str(ROOT)]
 
 from data_protocol import allocate, balanced_sample, materialize, public_text, scan, text_hash
@@ -82,6 +82,8 @@ def normalize_rows(source, rows):
             raise ValueError("EnvScaler row lacks official checklist_with_func")
         if source in {"hotpotqa", "2wiki"} and "context" not in row:
             raise ValueError(f"{source} row lacks context")
+        if source in {"hotpotqa", "2wiki"} and "_id" not in row and "id" in row:
+            row = {**row, "_id": row["id"]}
         normalized.append(row)
     return normalized
 

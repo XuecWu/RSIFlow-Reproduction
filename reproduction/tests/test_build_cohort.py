@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from build_cohort import ROOT, inspect_source, normalize_deepcoder, normalize_rows, pack_allocated_manifests, record_from_item
+from build_cohort import ROOT, inspect_source, normalize_deepcoder, normalize_rows, pack_allocated_manifests, read_rows, record_from_item
 from data_protocol import native_index, text_hash
 from evolution_protocol import file_hash, make_manifest
 from prepare_600_744 import repack
@@ -80,6 +80,24 @@ class BuildCohortTests(unittest.TestCase):
             report = inspect_source(root)
             self.assertEqual(2, report["records"])
             self.assertEqual(2, len(report["files"]))
+
+    def test_json_suffix_supports_jsonl_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "BFCL_v3_simple.json"
+            path.write_text(json.dumps({"id": "a"}) + "\n" + json.dumps({"id": "b"}) + "\n")
+            self.assertEqual(2, len(list(read_rows(path))))
+
+    def test_bfcl_reader_excludes_possible_answers_and_function_docs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "bfcl_v3"
+            (root / "possible_answer").mkdir(parents=True)
+            (root / "multi_turn_func_doc").mkdir()
+            (root / "BFCL_v3_simple.json").write_text(json.dumps([{"id": "task", "question": "q"}]))
+            (root / "possible_answer" / "BFCL_v3_simple.json").write_text(json.dumps([{"id": "task", "question": "q"}]))
+            (root / "multi_turn_func_doc" / "travel.json").write_text(json.dumps([{"id": "doc"}]))
+            rows = list(read_rows(root))
+            self.assertEqual(1, len(rows))
+            self.assertEqual("task", rows[0]["id"])
 
     def test_allocated_packs_feed_repack_with_record_fields(self):
         with tempfile.TemporaryDirectory() as directory:

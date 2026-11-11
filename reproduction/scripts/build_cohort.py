@@ -31,6 +31,8 @@ def read_rows(path):
     path = Path(path)
     if path.is_dir():
         files = sorted(p for p in path.rglob("*") if p.is_file() and p.suffix in {".json", ".jsonl", ".parquet"} and ".cache" not in p.parts)
+        if "bfcl_v3" in path.parts:
+            files = [file for file in files if file.name.startswith("BFCL_v3_") and "possible_answer" not in file.parts and "multi_turn_func_doc" not in file.parts]
     else:
         files = [path]
     for file in files:
@@ -43,13 +45,19 @@ def read_rows(path):
                     if line.strip():
                         yield json.loads(line)
         else:
-            value = json.loads(file.read_text(encoding="utf-8"))
-            if isinstance(value, list):
-                yield from value
-            elif isinstance(value, dict):
-                yield value
+            text = file.read_text(encoding="utf-8")
+            if text.lstrip().startswith("["):
+                value = json.loads(text)
+                if isinstance(value, list):
+                    yield from value
+                elif isinstance(value, dict):
+                    yield value
+                else:
+                    raise ValueError(f"Unsupported JSON record in {file}")
             else:
-                raise ValueError(f"Unsupported JSON record in {file}")
+                for line in text.splitlines():
+                    if line.strip():
+                        yield json.loads(line)
 
 
 def normalize_deepcoder(row, index):

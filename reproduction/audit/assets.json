@@ -21,6 +21,75 @@
       "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/codex/codex-x86_64-unknown-linux-musl",
       "sha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da",
       "status": "verified_version_0.153.4"
+    },
+    {
+      "name": "EnvScaler RL scenarios",
+      "source_url": "https://huggingface.co/datasets/XXHStudyHard/EnvScaler-RL-Scenario",
+      "revision": "hf_default_branch_download",
+      "license": "review_required",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/envscaler-rl-scenario/envscaler_rl_scenario_metadata.json",
+      "status": "verified_2550_checklists",
+      "records": 2550,
+      "sha256": "99c05a81710da5adc81453a05f166023f2cd3235a03a9eb8b5736ba8c7c2abe8"
+    },
+    {
+      "name": "BFCL v3 data",
+      "source_url": "https://huggingface.co/datasets/gorilla-llm/Berkeley-Function-Calling-Leaderboard",
+      "revision": "hf_default_branch_download",
+      "license": "review_required",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/bfcl_v3",
+      "status": "downloaded_json_tasks"
+    },
+    {
+      "name": "BFCL evaluator",
+      "source_url": "https://github.com/ShishirPatil/gorilla",
+      "revision": "main_codeload",
+      "license": "Apache-2.0",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/gorilla-main.zip",
+      "status": "downloaded_and_unzipped",
+      "sha256": "6e56e6558582f32138084b13d0372ef5ba6f3aefe1c5f2ec1c27ede6b34b25b4"
+    },
+    {
+      "name": "ACEBench",
+      "source_url": "https://github.com/ACEBench/ACEBench",
+      "revision": "56dd66cf6439b0d9655ee1b353e4cd745c6f664e",
+      "license": "review_required",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/acebench/AgentSuite/ACEBench",
+      "status": "pinned_checkout"
+    },
+    {
+      "name": "TACO",
+      "source_url": "https://github.com/FlagOpen/TACO",
+      "revision": "245eba3beb2d23a07082307de303de2589e4321a",
+      "license": "review_required",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/taco",
+      "status": "pinned_checkout"
+    },
+    {
+      "name": "EvalPlus",
+      "source_url": "https://github.com/evalplus/evalplus",
+      "revision": "26d6d00bb1fd0fa37f39c99d5290da67891d1c5e",
+      "license": "review_required",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/evalplus",
+      "status": "pinned_checkout"
+    },
+    {
+      "name": "HumanEvalPlus",
+      "source_url": "https://github.com/evalplus/humanevalplus_release",
+      "revision": "v0.1.10",
+      "license": "review_required",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/evalplus/HumanEvalPlus.jsonl",
+      "status": "verified_jsonl",
+      "sha256": "42526ec0e7d5f3ee0b06d6ced98f8c8bae3d76519151bfb3d36f79010645bd7f"
+    },
+    {
+      "name": "MbppPlus",
+      "source_url": "https://github.com/evalplus/mbppplus_release",
+      "revision": "v0.2.0",
+      "license": "review_required",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/evalplus/MbppPlus.jsonl",
+      "status": "verified_jsonl",
+      "sha256": "b54e762755248ca411b523c917fa9f93c07b5ff2966bf60b3917b853926a3dad"
     }
   ]
 }

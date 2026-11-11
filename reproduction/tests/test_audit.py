@@ -46,6 +46,9 @@ class AuditTests(unittest.TestCase):
         self.assertEqual([0, 1], [row["exit_code"] for row in rows])
         self.assertTrue(all(row["evidence_paths"] for row in rows))
         self.assertTrue(all("evidence" in row["evidence_paths"][0] for row in rows))
+        self.assertTrue(all(len(row["evidence_sha256"]) == len(row["evidence_paths"]) for row in rows))
+        self.assertTrue(all(all(digest is None or len(digest) == 64 for digest in row["evidence_sha256"]) for row in rows))
+        self.assertTrue(all(all(digest is not None for digest in row["evidence_sha256"]) for row in rows))
 
     def test_non_utf8_output_is_recorded(self):
         result = self.run_script(

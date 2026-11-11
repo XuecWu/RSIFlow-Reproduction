@@ -3,7 +3,7 @@
   "research_status": "completed_documentation_only",
   "experiment_status": "in_progress",
   "source_commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
-  "user_boundary": "本次只调研和展示，不安装实验环境、不下载资产、不提交 SCO、不运行 GPU/API 实验",
+  "user_boundary": "已批准 4B 准备与主分区八卡 probe；先只使用 GPU 0–3。公开数据同协议重构、Meta 使用 gpt-6-astra、ACE 跳过，五轮须等 smoke 与私有凭据通过",
   "recommended_execution": {
     "mode": "dev_four_gpu_sequential",
     "workspace": "sensebot-a100-a800-liujianbo",
@@ -27,9 +27,10 @@
   },
   "current_execution": {
     "status": "in_progress",
-    "phase": "task5_sco_probe",
+    "phase": "task2r_evidence_remediation",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
+    "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
     "protocol": "protocol_reconstruction",
     "meta_provider": "OpenAI/gpt-6-astra",
     "ace_mode": "skipped_694_of_744"
@@ -43,7 +44,7 @@
     },
     "landlock": {
       "local_status": "unavailable_function_not_implemented",
-      "upstream_suite": "160 passed, 2 skipped, 1 failed",
+      "upstream_suite": "161 passed, 2 skipped, 1 failed (latest); Landlock Function not implemented",
       "sco_probe_job": "pt-r6np9yvd",
       "evidence": "reproduction/audit/reviews/environment-main.md"
     }
@@ -71,13 +72,27 @@
     },
     {
       "id": "frozen_data",
-      "status": "completed",
-      "evidence": "RSIFlow/runtime/data/rounds_3000_5x600_v2/READY.json"
+      "status": "completed_protocol_reconstruction_with_caveats",
+      "evidence": "RSIFlow/runtime/data/rounds_3000_5x600_v4/READY.json",
+      "release_accounting": "reproduction/audit/cohort-release-v4.json",
+      "version": "reconstructed-v1",
+      "clean_independence_audited": false,
+      "exposure": "exposure_unknown",
+      "limitations": [
+        "No semantic paraphrase guarantee",
+        "Unlabeled variants may remain undetected",
+        "No claim about model pretraining contamination"
+      ],
+      "quarantined_releases": [
+        "assets/cohort-mixed-qa-20261111T151857Z",
+        "assets/cohort-qa-id-missing-20261111T154900Z"
+      ]
     },
     {
       "id": "sco_gpu_probe",
-      "status": "queued",
-      "evidence": null
+      "status": "queued_starting",
+      "evidence": "reproduction/audit/reviews/environment-main.md",
+      "sco_job_id": "pt-r6np9yvd"
     },
     {
       "id": "model_service_smoke",
@@ -100,8 +115,9 @@
       "evidence": null
     },
     {
-      "id": "evaluate_4b_744",
+      "id": "evaluate_4b_694",
       "status": "not_run_pending_approval",
+      "evaluation_scope": "694_of_744_ace_pending_audit",
       "evidence": null
     },
     {
@@ -110,8 +126,9 @@
       "evidence": null
     },
     {
-      "id": "evaluate_8b_744",
+      "id": "evaluate_8b_694",
       "status": "not_run_pending_approval",
+      "evaluation_scope": "694_of_744_ace_pending_audit",
       "evidence": null
     }
   ],

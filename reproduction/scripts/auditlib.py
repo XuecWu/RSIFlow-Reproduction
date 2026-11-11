@@ -93,7 +93,7 @@ def operation_record(audit_root, **values):
     sequence = values.pop("sequence", None) or allocate_sequence(audit_root)
     now = utc_now()
     cwd = values.pop("cwd", None) or str(Path.cwd())
-    evidence_paths = values.pop("evidence_paths", [])
+    evidence_paths = [str(Path(path).resolve()) for path in values.pop("evidence_paths", [])]
     record = {
         "sequence": sequence,
         "start_timestamp": values.pop("start_timestamp", now),
@@ -108,7 +108,8 @@ def operation_record(audit_root, **values):
         "exit_code": values.pop("exit_code", 0),
         "duration_seconds": values.pop("duration_seconds", None),
         "error_type": values.pop("error_type", None),
-        "evidence_paths": [str(Path(path).resolve()) for path in evidence_paths],
+        "evidence_paths": evidence_paths,
+        "evidence_sha256": [sha256_file(path) if Path(path).is_file() else None for path in evidence_paths],
         "git_commit": values.pop("git_commit", None) or current_git_commit(cwd),
         "sco_job_id": values.pop("sco_job_id", None),
         **sanitize_value(values),

@@ -38,17 +38,17 @@
             <a class="button primary" href="#architecture">进入源码架构</a>
             <a class="button secondary" href="REPRODUCTION.md">阅读完整复现手册</a>
           </div>
-          <div class="boundary-note"><strong>本次未运行实验</strong><span>未安装环境 · 未下载资产 · 未提交 SCO · 未调用 GPU/API</span></div>
+          <div class="boundary-note"><strong>本次未运行演化实验</strong><span>环境、模型与同协议数据已准备 · 尚无模型输出或 benchmark 分数</span></div>
         </div>
         <aside class="readiness-card" aria-label="复现准备状态">
           <div class="card-kicker">REPRODUCTION READINESS</div>
-          <div class="readiness-status"><span class="status-dot pending"></span>等待后续审批</div>
+          <div class="readiness-status"><span class="status-dot pending"></span>复现准备中</div>
           <div class="readiness-number">13<span>个阶段</span></div>
-          <p>环境、资产、预检、probe、4B/8B 与最终评估均保持未执行状态。</p>
+          <p>当前只准备 Qwen3-4B；SCO Landlock probe 排队中，Meta 私有凭据尚未提供。</p>
           <ol class="readiness-list">
-            <li><span>01</span>原始 3000/744 manifests</li>
-            <li><span>02</span>四卡执行与隔离方案</li>
-            <li><span>03</span>API 注入与运行预算</li>
+            <li><span>01</span>公开数据同协议重构，不是原始队列</li>
+            <li><span>02</span>主分区八卡，仅使用 GPU 0–3</li>
+            <li><span>03</span>先通过 smoke，再决定是否启动五轮</li>
           </ol>
           <a href="data/reproduction.json">查看机器可读状态 →</a>
         </aside>
@@ -56,7 +56,7 @@
       <div class="metric-strip page-shell" aria-label="核心协议数字">
         <div><strong>5 × 600</strong><span>五轮冻结训练任务</span></div>
         <div><strong>3,000</strong><span>不同训练任务</span></div>
-        <div><strong>744</strong><span>最终独立评估</span></div>
+        <div><strong>744 冻结 / 694 计划评分</strong><span>ACE 50 待审计，不记零分</span></div>
         <div><strong>4 GPU</strong><span>BF16 / 4-rank DDP</span></div>
       </div>
     </section>
@@ -145,9 +145,9 @@
           <p class="card-footnote">代码接口：120 STDIO + 80 function / 轮 · seed 42</p>
         </article>
         <article class="protocol-card validation-card">
-          <div class="card-kicker">REPORT ONLY · AFTER B5</div><h3>六类任务，共 744</h3>
-          <ul class="data-list"><li><span>BFCL-v3</span><strong>152</strong></li><li><span>ACEBench</span><strong>50</strong></li><li><span>HumanEval+</span><strong>164</strong></li><li><span>MBPP+</span><strong>178</strong></li><li><span>HotpotQA-dev</span><strong>100</strong></li><li><span>2Wiki-dev</span><strong>100</strong></li></ul>
-          <p class="card-footnote">feedback_to_meta = false · 当前不含 LiveCodeBench</p>
+          <div class="card-kicker">REPORT ONLY · AFTER B5</div><h3>冻结 744，当前计划评分 694</h3>
+          <ul class="data-list"><li><span>BFCL-v3</span><strong>152</strong></li><li><span>ACEBench</span><strong>50 · 跳过待审计</strong></li><li><span>HumanEval+</span><strong>164</strong></li><li><span>MBPP+</span><strong>178</strong></li><li><span>HotpotQA-dev</span><strong>100</strong></li><li><span>2Wiki-dev</span><strong>100</strong></li></ul>
+          <p class="card-footnote">ACE 不记零分 · feedback_to_meta = false · 当前不含 LiveCodeBench</p>
         </article>
       </div>
       <div class="warning-band"><strong>精确复现的关键缺口</strong><p>原始 source training / validation manifests 未随仓库发布。若无法取得，后续只能经批准进行“同协议重构”，不能冒充原始队列。</p><a href="ASSETS.md">查看资产缺口 →</a></div>
@@ -171,10 +171,10 @@
           </table>
         </div>
         <div class="deployment-grid">
-          <article class="deployment recommended"><div class="card-kicker">LOWER-RISK PROPOSAL · UNVERIFIED</div><h3>Dev 四卡顺序</h3><p class="deployment-spec">N3lS.Ii.I60.4 · 4×A800 80GB</p><ul><li>不修改上游 GPU 映射</li><li>4B / 8B 独立 ACP job 与 run dir</li><li>先 probe，再顺序运行</li></ul></article>
-          <article class="deployment conditional"><div class="card-kicker">CONDITIONAL · REQUIRES CODE CHANGES</div><h3>主分区八卡双流水线</h3><p class="deployment-spec">N3lS.Ii.I60.8 · 8×A800 80GB</p><ul><li>子进程会重写 CUDA_VISIBLE_DEVICES</li><li>需 GPU 映射、端口、socket、registry 隔离</li><li>未验证前不能直接并行</li></ul></article>
+          <article class="deployment recommended"><div class="card-kicker">CURRENT · PROBE QUEUED</div><h3>主分区八卡，仅一套四卡流水线</h3><p class="deployment-spec">N3lS.Ii.I60.8 · 8×A800 80GB</p><ul><li>只使用 GPU 0–3，保留 4–7 空闲</li><li>当前只准备 4B，不并行第二套</li><li>Landlock probe：pt-r6np9yvd，STARTING</li></ul></article>
+          <article class="deployment conditional"><div class="card-kicker">NOT CURRENT PLAN</div><h3>八卡双流水线需要额外改造</h3><p class="deployment-spec">不作为本次执行方式</p><ul><li>子进程会重写 CUDA_VISIBLE_DEVICES</li><li>需 GPU 映射、端口、socket、registry 隔离</li><li>4B 审阅后才决定是否准备 8B</li></ul></article>
         </div>
-        <p class="resource-note">本次未提交任何 SCO 作业。集群规格来自操作手册，执行前仍需实时查询与短时 probe。</p>
+        <p class="resource-note">已提交短时 SCO probe，尚未开始运行；没有提交五轮实验。GPU 4–7 不参与当前任务。</p>
       </div>
     </section>
 
@@ -190,10 +190,10 @@
           <li><span>02</span><div><h3>Conda / Python 3.11</h3><p>torch 2.8.0+cu128、runtime[dev,pipeline]、Task requirements。</p></div></li>
           <li><span>03</span><div><h3>离线测试与 --check</h3><p>分别记录 pytest、路径和外部资产状态。</p></div></li>
           <li><span>04</span><div><h3>冻结 3000 / 744</h3><p>READY、disjoint、hash 与第二 backbone 复用证据。</p></div></li>
-          <li><span>05</span><div><h3>SCO 四卡 probe</h3><p>A800、BF16、显存、共享盘、模型加载和端口。</p></div></li>
-          <li><span>06</span><div><h3>API 与 benchmark smoke</h3><p>真实小额请求，区分基础设施失败与任务失败。</p></div></li>
-          <li><span>07</span><div><h3>4B 五轮与 744</h3><p>前台控制器、独立 run dir、最终快照与官方结果。</p></div></li>
-          <li><span>08</span><div><h3>8B 五轮与 744</h3><p>同一 frozen release，完成并释放 4B 后顺序执行。</p></div></li>
+          <li><span>05</span><div><h3>主分区八卡 probe</h3><p>仅用 GPU 0–3，验证 Landlock、A800、BF16、显存、模型和端口。</p></div></li>
+          <li><span>06</span><div><h3>API 与五类 benchmark smoke</h3><p>真实小额请求，区分基础设施失败与任务失败；ACE 跳过。</p></div></li>
+          <li><span>07</span><div><h3>4B 五轮与 694</h3><p>前台控制器、独立 run dir、最终快照与官方 partial 回执。</p></div></li>
+          <li><span>08</span><div><h3>8B 另行审阅决定</h3><p>只有 4B 过程和结果审阅后才讨论，当前未下载、未运行。</p></div></li>
           <li><span>09</span><div><h3>结果审计</h3><p>complete.json、task_metrics、state hash 和反馈隔离。</p></div></li>
         </ol>
         <aside class="command-card">
@@ -221,7 +221,7 @@ python -m pip install -r upstream/RSIFlow_task/requirements.txt</pre></div>
         <div class="verification-grid">
           <article class="verification-card"><span class="status-dot done"></span><h3>源码调研</h3><p>固定 commit，核对控制链、有效配置、GPU 门槛、数据协议与文档差异。</p><a href="RESULTS.md">交付结果</a></article>
           <article class="verification-card"><span class="status-dot done"></span><h3>网站验证</h3><p>事实 JSON、链接、锚点、无第三方资产依赖、执行边界与凭据扫描。</p><a href="OPERATIONS.md">操作日志</a></article>
-          <article class="verification-card pending-card"><span class="status-dot pending"></span><h3>实验复现</h3><p>13 个实验阶段全部等待后续批准；没有 SCO job ID、模型输出或 benchmark 分数。</p><a href="data/reproduction.json">阶段状态</a></article>
+          <article class="verification-card pending-card"><span class="status-dot pending"></span><h3>实验复现</h3><p>准备阶段已有真实证据；probe 排队、Meta 缺私有凭据。没有五轮输出或模型 benchmark 分数。</p><a href="data/reproduction.json">阶段状态</a></article>
         </div>
         <div class="pending-register">
           <span>CONDA</span><span>ASSETS</span><span>PYTEST</span><span>PREFLIGHT</span><span>FROZEN DATA</span><span>GPU PROBE</span><span>MODEL SMOKE</span><span>API SMOKE</span><span>BENCH SMOKE</span><span>4B RUN</span><span>4B EVAL</span><span>8B RUN</span><span>8B EVAL</span>
@@ -233,7 +233,7 @@ python -m pip install -r upstream/RSIFlow_task/requirements.txt</pre></div>
 
   <footer class="site-footer page-shell">
     <div><strong>RSI-Flow research atlas</strong><p>Source commit 496d3cfb9ff39997d107d0ff29e746b07e638180</p></div>
-    <p>中文调研 · 无外部前端依赖 · 本次未运行实验</p>
+    <p>中文调研与复现审计 · 无外部前端依赖 · 尚未运行演化实验</p>
   </footer>
 </body>
 </html>

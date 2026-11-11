@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
-from validation_skip import ace_skip_summary, reject_complete_cache_for_skip
+from validation_skip import ace_skip_summary, evaluation_scope, reject_complete_cache_for_skip
 from rsiflow.task_meta.round_validation import validate_round
 from rsiflow.task_meta.storage import digest
 from rsiflow.task_meta.types import TaskAgentState
@@ -41,6 +41,23 @@ class SkipAceProtocolTests(unittest.TestCase):
         self.assertEqual(results and [row["benchmark_id"] for row in results], partial["benchmarks_completed"])
         self.assertEqual(64, len(partial["metrics_sha256"]))
         self.assertFalse(partial["feedback_to_meta"])
+
+    def test_frozen_receipt_distinguishes_total_from_scored(self):
+        manifest = self.manifest({"bfcl_v3": 152, "acebench": 50, "humaneval_plus": 164, "mbpp_plus": 178, "hotpotqa_dev": 100, "2wiki_dev": 100})
+        self.assertEqual({
+            "status": "partial_ace_pending_audit",
+            "skip_acebench": True,
+            "frozen_validation_tasks": 744,
+            "scored_validation_tasks": 694,
+            "pending_validation_tasks": 50,
+        }, evaluation_scope({"skip_acebench": True}, manifest))
+        self.assertEqual({
+            "status": "complete_protocol_pending_execution",
+            "skip_acebench": False,
+            "frozen_validation_tasks": 744,
+            "scored_validation_tasks": 744,
+            "pending_validation_tasks": 0,
+        }, evaluation_scope({"skip_acebench": False}, manifest))
 
     def test_legacy_300_partial_remains_supported(self):
         settings = {"benchmark_ids": ["bfcl_v3", "acebench", "livecodebench", "humaneval_plus", "mbpp_plus", "hotpotqa_dev", "2wiki_dev"]}

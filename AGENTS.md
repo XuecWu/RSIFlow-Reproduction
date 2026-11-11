@@ -1,6 +1,6 @@
 # RSI-Flow Agent 工作指南
 
-本文件适用于整个仓库。调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（`main`）。本次仅完成源码调研与展示网站；未安装实验环境、未下载外部资产、未运行离线 pytest、GPU/API smoke、SCO 作业或完整实验。
+本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（`main`），当前复现分支为 `reproduction/4b-main8`。已完成环境、4B 模型、公开数据同协议重构与离线检查；SCO 仅提交短时 probe，尚未运行五轮演化或模型 benchmark。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准。
 
 ## 1. 项目是什么
 
@@ -98,7 +98,7 @@ GPU 是硬要求，无 CPU/mock 回退：
 
 ## 7. 环境与外部资产
 
-后续环境建议（本次未执行）：
+环境安装命令（已执行；实际解释器为 `/data/wuxuecheng/miniforge3/envs/rsiflow`，依赖 lock 在 `web/`）：
 
 ```bash
 conda create -n rsiflow python=3.11 -y
@@ -151,7 +151,7 @@ python RSIFlow/prepare_600_744.py --config /absolute/path/to/train_4b.json
 
 ## 10. 网站维护
 
-`web/index.html` 是核心展示，`web/data/repository.json` 固定源码事实，`web/data/reproduction.json` 记录后续阶段状态。当前所有实验阶段必须为 `not_run_pending_approval`，只有真实证据出现后才能改状态。
+`web/index.html` 是核心展示，`web/data/repository.json` 固定源码事实，`web/data/reproduction.json` 记录当前阶段状态。已完成准备项必须链接真实证据并保留限制；五轮、模型服务和最终评估在真实证据出现前保持未执行。当前为 4B、主分区八卡仅用 GPU 0–3、同协议重构、694/744 partial 口径。
 
 ```bash
 python3 -m unittest discover -s web/tests -v

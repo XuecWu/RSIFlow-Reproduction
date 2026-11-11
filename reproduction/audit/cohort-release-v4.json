@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "release": "rounds_3000_5x600_v4",
+  "protocol": "public_protocol_reconstruction",
+  "source_build_summary": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/cohort/build_summary.json",
+    "sha256": "729416edad3d42004247a7d705558700fcf379a0c515fb594e6ad2378b9e6d3b"
+  },
+  "ready": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v4/READY.json",
+    "sha256": "07f07c61bfbd6763111d3f513b9d151cf1392f8f7ca7ea305d291e50d0443585"
+  },
+  "source_manifests": {
+    "training_manifest_hash": "78863d14e2fcfb06246b02af5854fb76776ccfe3077852988050ebb3db91228f",
+    "validation_manifest_hash": "927a8606270b8b59036cb94a740426eec76490547815aaee52dbdd76d9278617"
+  },
+  "accounting": {
+    "envscaler": {
+      "input_records_before_deduplication": 2550,
+      "normalized_unique_records": 2550,
+      "native_id_collisions_collapsed": 0,
+      "selected_frozen_records": 1000
+    },
+    "deepcoder_taco": {
+      "input_records_before_deduplication": 7436,
+      "normalized_unique_records": 7436,
+      "native_id_collisions_collapsed": 0,
+      "selected_frozen_records": 1000
+    },
+    "hotpotqa": {
+      "input_records_before_deduplication": 45224,
+      "normalized_unique_records": 45224,
+      "native_id_collisions_collapsed": 0,
+      "selected_frozen_records": 500
+    },
+    "2wiki": {
+      "input_records_before_deduplication": 167454,
+      "normalized_unique_records": 167454,
+      "native_id_collisions_collapsed": 0,
+      "selected_frozen_records": 500
+    },
+    "bfcl_v3": {
+      "input_records_before_deduplication": 5251,
+      "normalized_unique_records": 5250,
+      "native_id_collisions_collapsed": 1,
+      "selected_frozen_records": 152
+    },
+    "acebench": {
+      "input_records_before_deduplication": 2046,
+      "normalized_unique_records": 1023,
+      "native_id_collisions_collapsed": 1023,
+      "selected_frozen_records": 50
+    },
+    "humaneval_plus": {
+      "input_records_before_deduplication": 164,
+      "normalized_unique_records": 164,
+      "native_id_collisions_collapsed": 0,
+      "selected_frozen_records": 164
+    },
+    "mbpp_plus": {
+      "input_records_before_deduplication": 378,
+      "normalized_unique_records": 378,
+      "native_id_collisions_collapsed": 0,
+      "selected_frozen_records": 178
+    },
+    "hotpotqa_dev": {
+      "input_records_before_deduplication": 7405,
+      "normalized_unique_records": 7405,
+      "native_id_collisions_collapsed": 0,
+      "selected_frozen_records": 100
+    },
+    "2wiki_dev": {
+      "input_records_before_deduplication": 12576,
+      "normalized_unique_records": 12576,
+      "native_id_collisions_collapsed": 0,
+      "selected_frozen_records": 100
+    }
+  },
+  "quarantine_records_total": 25884,
+  "quarantine_by_source": "not_materialized_in_legacy_summary; future build_cohort.py records it",
+  "clean_independence_audited": false,
+  "exposure": "exposure_unknown",
+  "limitations": [
+    "No semantic paraphrase guarantee",
+    "Unlabeled variants may remain undetected",
+    "No claim about model pretraining contamination"
+  ],
+  "quarantined_releases": [
+    "assets/cohort-mixed-qa-20261111T151857Z",
+    "assets/cohort-qa-id-missing-20261111T154900Z"
+  ]
+}

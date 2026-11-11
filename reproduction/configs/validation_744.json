@@ -10,7 +10,7 @@
   "dynamic_predictions": true,
   "feedback_to_training_or_meta": false,
   "frequency": "after_final_round",
-  "official_specs": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/report-evaluators.json",
+  "official_specs": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/report-evaluators-v4.json",
   "tool_benchmarks": {
     "acebench": {
       "category": "test_all",

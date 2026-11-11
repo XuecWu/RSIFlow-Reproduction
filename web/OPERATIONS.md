@@ -71,3 +71,11 @@
 - `ps` 确认 HTTP PID `2000430` 与 cpolar PID `2000586` 仍在运行，两个持久后台任务均为 running。
 - `git status --short --untracked-files=all` 仅显示本次 AGENTS 与网站源文件；`web/data` 和 `web-runtime/logs` 按上游 gitignore 规则被忽略，但文件实际存在并用于网站/运维。未发现测试生成的 `__pycache__`。
 - 没有提交或推送 git，没有任何 SCO/GPU/API 实验作业需要清理。
+
+
+### 4B 复现准备与 preflight 修复（当前）
+
+- 已获批准的范围：4B、主分区 8×A800 仅用 GPU 0–3、公开数据同协议重构、`gpt-6-astra`、ACE 跳过；未启动五轮。
+- v4 READY 记录 744 frozen / 694 scored / 50 pending；真实 release 测试与四类 official spec 已验证。
+- Qwen Code 独立审阅为 CHANGES，主 agent 已处理证据错位、公开口径、真实测试、操作 SHA256 和过程快照问题。完整操作见 `../reproduction/audit/operations.jsonl`，关键结果见 `key_results.jsonl`，日常审计见 `daily/2026-11-11.md`。
+- SCO probe `pt-r6np9yvd` 仍为 STARTING；Meta 私有凭据未提供；没有模型 benchmark 分数。

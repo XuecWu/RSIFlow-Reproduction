@@ -1,0 +1,68 @@
+{
+  "evaluators": {
+    "humaneval_plus": {
+      "benchmark": "HumanEval+",
+      "repository": "https://github.com/evalplus/evalplus",
+      "commit": "26d6d00bb1fd0fa37f39c99d5290da67891d1c5e",
+      "entrypoint": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/evalplus/evalplus/evaluate.py",
+      "entrypoint_sha256": "47f766df2dbb2280f7dd2c1040bfff0396c2b414a8d44b639424aa941bee7eab",
+      "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
+      "data_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/evalplus/HumanEvalPlus.jsonl",
+      "data_sha256": "42526ec0e7d5f3ee0b06d6ced98f8c8bae3d76519151bfb3d36f79010645bd7f",
+      "task_ids_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/report-specs-v4/humaneval_plus_ids.json",
+      "task_ids_sha256": "38b3dc35c8e3e9e970c3c518519b1fd561ab7c0cb9ee1cba67ebb5340de495c3",
+      "protocol": "evalplus_official_v1",
+      "release_version": "v0.1.10",
+      "timeout_seconds": 3600,
+      "metadata": {}
+    },
+    "mbpp_plus": {
+      "benchmark": "MBPP+",
+      "repository": "https://github.com/evalplus/evalplus",
+      "commit": "26d6d00bb1fd0fa37f39c99d5290da67891d1c5e",
+      "entrypoint": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/evalplus/evalplus/evaluate.py",
+      "entrypoint_sha256": "47f766df2dbb2280f7dd2c1040bfff0396c2b414a8d44b639424aa941bee7eab",
+      "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
+      "data_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/evalplus/MbppPlus.jsonl",
+      "data_sha256": "b54e762755248ca411b523c917fa9f93c07b5ff2966bf60b3917b853926a3dad",
+      "task_ids_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/report-specs-v4/mbpp_plus_ids.json",
+      "task_ids_sha256": "108d372e762931e2b4bf26831803a3dc64df767138cd6b1fe25ec26b27dc5855",
+      "protocol": "evalplus_official_v1",
+      "release_version": "v0.2.0",
+      "timeout_seconds": 3600,
+      "metadata": {}
+    },
+    "hotpotqa_dev": {
+      "benchmark": "HotpotQA-dev",
+      "repository": "https://github.com/hotpotqa/hotpot",
+      "commit": "3635853403a8735609ee997664e1528f4480762a",
+      "entrypoint": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/third_party/report_evaluators/hotpot/hotpot_evaluate_v1.py",
+      "entrypoint_sha256": "d35fc91a6db21d791dbdda11daf3856e9359f5701d54e3eefba20d88fecc02c0",
+      "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
+      "data_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/report-specs-v4/hotpotqa_dev.json",
+      "data_sha256": "b3524f7b1a1402652cd449a28139dd8b48a99a2bf3acbfecee20ed98ef90e863",
+      "task_ids_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/report-specs-v4/hotpotqa_dev_ids.json",
+      "task_ids_sha256": "f1c1014f6972918be0f944c1c6305f37019fa88db9c81386d2c9ee32d452c7d0",
+      "protocol": "official_hotpot_v1",
+      "release_version": null,
+      "timeout_seconds": 3600,
+      "metadata": {}
+    },
+    "2wiki_dev": {
+      "benchmark": "2Wiki-dev",
+      "repository": "https://github.com/Alab-NII/2wikimultihop",
+      "commit": "13800e5be57df1b4040b9b1588c6c811779e69e9",
+      "entrypoint": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/third_party/report_evaluators/2wiki/2wikimultihop_evaluate.py",
+      "entrypoint_sha256": "854b03c487608286d6381379eb32e46d9b845493527d1fe1951d0bf4ec923a40",
+      "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
+      "data_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/report-specs-v4/2wiki_dev.json",
+      "data_sha256": "f3ddc07e0f26f7c3d372d5d8c45e13767d88a897469a3817e4c61785c4d5d621",
+      "task_ids_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/report-specs-v4/2wiki_dev_ids.json",
+      "task_ids_sha256": "75df178ba70cb235b4ea8ae780148dd528583996e4a69211eb707262711a9bb9",
+      "protocol": "official_2wiki_original_v1",
+      "release_version": null,
+      "timeout_seconds": 3600,
+      "metadata": {}
+    }
+  }
+}

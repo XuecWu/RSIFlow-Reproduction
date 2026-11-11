@@ -1,4 +1,5 @@
 import argparse
+from collections import Counter
 import json
 import sys
 from pathlib import Path
@@ -177,6 +178,20 @@ def inspect_source(path):
     return result
 
 
+def cohort_accounting(source_audit, duplicate_variants, quarantine, selected_by_source):
+    quarantined = Counter(row["source"] for row in quarantine)
+    return {
+        row["source"]: {
+            "normalized_unique_records": row["raw_records"],
+            "native_id_collisions_collapsed": len(duplicate_variants.get(row["source"], [])),
+            "input_records_before_deduplication": row["raw_records"] + len(duplicate_variants.get(row["source"], [])),
+            "quarantined_records": quarantined[row["source"]],
+            "selected_frozen_records": selected_by_source.get(row["source"], 0),
+        }
+        for row in source_audit["files"]
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
@@ -272,7 +287,11 @@ def main():
         "ready": ready,
         "quarantine_records": len(quarantine),
         "code_interface": {"stdio": len(stdio), "function": len(function)},
-        "duplicate_variants_dropped": {source: len(rows) for source, rows in duplicate_variants.items()},
+        "native_id_collisions_collapsed": {source: len(rows) for source, rows in duplicate_variants.items()},
+        "cohort_accounting": cohort_accounting(
+            source_audit, duplicate_variants, quarantine,
+            Counter(row["source"] for row in source_training["tasks"] + source_validation["tasks"]),
+        ),
         "retrieval_index": str(args.retrieval.resolve()),
         "source_training_manifest": str(output / "train_source_manifest.json"),
         "source_validation_manifest": str(output / "validation_source_manifest.json"),

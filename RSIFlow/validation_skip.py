@@ -7,6 +7,18 @@ def reject_complete_cache_for_skip(out, skip_ace):
         raise ValueError("ACE-skipped validation cannot reuse a complete evaluation cache; use an independent output directory")
 
 
+def evaluation_scope(config, selected_manifest):
+    total = len(selected_manifest["tasks"])
+    scored = sum(row["source"] != "acebench" for row in selected_manifest["tasks"]) if config.get("skip_acebench") else total
+    return {
+        "status": "partial_ace_pending_audit" if config.get("skip_acebench") else "complete_protocol_pending_execution",
+        "skip_acebench": bool(config.get("skip_acebench")),
+        "frozen_validation_tasks": total,
+        "scored_validation_tasks": scored,
+        "pending_validation_tasks": total - scored,
+    }
+
+
 def ace_skip_summary(settings, selected_manifest, results, metrics, out, *, source_role="independent_validation", task_state_hash=None):
     expected = [name for name in settings["benchmark_ids"] if name != "acebench"]
     expected_total = len(selected_manifest["tasks"])

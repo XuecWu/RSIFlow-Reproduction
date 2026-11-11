@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from build_cohort import ROOT, deduplicate_native_ids, inspect_source, normalize_deepcoder, normalize_rows, pack_allocated_manifests, read_rows, record_from_item
+from build_cohort import ROOT, cohort_accounting, deduplicate_native_ids, inspect_source, normalize_deepcoder, normalize_rows, pack_allocated_manifests, read_rows, record_from_item
 from data_protocol import native_index, text_hash
 from evolution_protocol import file_hash, make_manifest
 from prepare_600_744 import repack
@@ -48,6 +48,24 @@ class BuildCohortTests(unittest.TestCase):
         self.assertEqual("first", rows[0]["question"])
         self.assertEqual(1, len(dropped))
         self.assertEqual("second", dropped[0]["question"])
+
+    def test_cohort_accounting_separates_collapses_quarantine_and_selection(self):
+        source_audit = {"files": [{"source": "acebench", "raw_records": 1023}]}
+        accounting = cohort_accounting(
+            source_audit,
+            {"acebench": [{"id": "duplicate"}]},
+            [{"source": "acebench"}],
+            {"acebench": 50},
+        )
+        self.assertEqual({
+            "acebench": {
+                "normalized_unique_records": 1023,
+                "native_id_collisions_collapsed": 1,
+                "input_records_before_deduplication": 1024,
+                "quarantined_records": 1,
+                "selected_frozen_records": 50,
+            },
+        }, accounting)
 
     def test_envscaler_checklist_is_required(self):
         with self.assertRaises(ValueError):

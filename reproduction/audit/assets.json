@@ -90,6 +90,19 @@
       "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/evalplus/MbppPlus.jsonl",
       "status": "verified_jsonl",
       "sha256": "b54e762755248ca411b523c917fa9f93c07b5ff2966bf60b3917b853926a3dad"
+    },
+    {
+      "name": "2Wiki official data_ids and aliases",
+      "source_url": "https://www.dropbox.com/s/7ep3h8unu2njfxv/data_ids.zip?dl=1",
+      "revision": "official_2020-12-09_update",
+      "license": "review_required",
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/2wiki-official/data_ids.zip",
+      "status": "verified_optional_v1_1_assets_not_used_by_current_protocol",
+      "sha256": "664013d34f169ed5223aedde0c8f013ac6be9568426966319240f722867c5b2d",
+      "alias_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/2wiki-official/id_aliases.json",
+      "alias_sha256": "f08ffcb6c2cefca9bdbe86b4248d6ad7a7743762d3f7264c14ff0bae85726fb6",
+      "alias_records": 203297,
+      "current_protocol": "official_2wiki_original_v1"
     }
   ]
 }

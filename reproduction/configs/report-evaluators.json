@@ -35,7 +35,7 @@
     "hotpotqa_dev": {
       "benchmark": "HotpotQA-dev",
       "repository": "https://github.com/hotpotqa/hotpot",
-      "commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
+      "commit": "3635853403a8735609ee997664e1528f4480762a",
       "entrypoint": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/third_party/report_evaluators/hotpot/hotpot_evaluate_v1.py",
       "entrypoint_sha256": "d35fc91a6db21d791dbdda11daf3856e9359f5701d54e3eefba20d88fecc02c0",
       "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
@@ -51,9 +51,9 @@
     "2wiki_dev": {
       "benchmark": "2Wiki-dev",
       "repository": "https://github.com/Alab-NII/2wikimultihop",
-      "commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
-      "entrypoint": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/third_party/report_evaluators/2wiki/2wikimultihop_evaluate_v1.1.py",
-      "entrypoint_sha256": "7c09ee2ec98c7ecb57df79eb68dba22eb381ab58d50e730dfcefafb4dda31458",
+      "commit": "13800e5be57df1b4040b9b1588c6c811779e69e9",
+      "entrypoint": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/third_party/report_evaluators/2wiki/2wikimultihop_evaluate.py",
+      "entrypoint_sha256": "854b03c487608286d6381379eb32e46d9b845493527d1fe1951d0bf4ec923a40",
       "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
       "data_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw/2wiki-hf/dev.parquet",
       "data_sha256": "c0d8b60b9026b728fb07ad74c5252a0f188f6942e8ba5c02df4dfa369502ea8d",

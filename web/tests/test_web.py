@@ -80,7 +80,9 @@ class WebsiteTests(unittest.TestCase):
         }
         self.assertTrue(expected <= self.page.ids)
         visible_text = " ".join(self.page.text)
-        self.assertIn("本次未运行实验", visible_text)
+        self.assertIn("本次未运行演化实验", visible_text)
+        self.assertIn("744 冻结 / 694 计划评分", visible_text)
+        self.assertIn("复现准备中", visible_text)
         self.assertIn("RSI-Flow", visible_text)
 
     def test_process_page_exposes_audit_visualization(self):
@@ -91,6 +93,9 @@ class WebsiteTests(unittest.TestCase):
         self.assertGreaterEqual(process.get("operations_total", 0), 1)
         self.assertIn("success", process.get("operation_counts", {}))
         self.assertIn("timeline", process)
+        self.assertGreaterEqual(process.get("as_of_sequence", 0), process["operations_total"])
+        self.assertTrue(process.get("is_snapshot"))
+        self.assertIn("sequence", read_text("process.js"))
 
     def test_protocol_and_gpu_facts_match_source(self):
         protocol = self.repository.get("protocol", {})
@@ -117,16 +122,24 @@ class WebsiteTests(unittest.TestCase):
     def test_experiment_status_tracks_real_evidence(self):
         stages = self.reproduction.get("experiment_stages", [])
         self.assertGreaterEqual(len(stages), 13)
-        completed = {"conda_environment", "external_assets", "offline_tests", "launch_preflight", "frozen_data"}
-        self.assertEqual("queued", next(stage for stage in stages if stage["id"] == "sco_gpu_probe")["status"])
+        completed = {"conda_environment", "external_assets", "offline_tests", "launch_preflight"}
+        self.assertEqual("queued_starting", next(stage for stage in stages if stage["id"] == "sco_gpu_probe")["status"])
         self.assertEqual("blocked_missing_credentials", next(stage for stage in stages if stage["id"] == "meta_api_smoke")["status"])
+        frozen = next(stage for stage in stages if stage["id"] == "frozen_data")
+        self.assertEqual("completed_protocol_reconstruction_with_caveats", frozen["status"])
+        self.assertIn("v4", frozen["evidence"])
+        self.assertFalse(frozen["clean_independence_audited"])
+        self.assertEqual("exposure_unknown", frozen["exposure"])
+        self.assertEqual("694_of_744_ace_pending_audit", next(stage for stage in stages if stage["id"] == "evaluate_4b_694")["evaluation_scope"])
         for stage in stages:
             if stage["id"] in completed:
                 expected_status = "completed_with_landlock_limitation" if stage["id"] == "offline_tests" else "completed"
                 self.assertEqual(expected_status, stage["status"])
                 self.assertIsNotNone(stage["evidence"])
-            else:
-                self.assertIn(stage["status"], {"not_run_pending_approval", "queued", "blocked_missing_credentials"})
+            elif stage["id"] not in {"frozen_data"}:
+                self.assertIn(stage["status"], {"not_run_pending_approval", "queued_starting", "blocked_missing_credentials"})
+        self.assertIn("主分区 8×A800", self.reproduction["current_execution"]["gpu_profile_display"])
+        self.assertEqual("main_partition_8xA800_sequential_gpu_0_to_3", self.reproduction["current_execution"]["gpu_profile"])
 
     def test_local_assets_documents_and_anchors_resolve(self):
         missing = []

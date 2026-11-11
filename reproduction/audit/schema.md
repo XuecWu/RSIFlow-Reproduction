@@ -14,6 +14,7 @@
 - `sanitized_input`：脱敏输入；凭据只写 `REDACTED`。
 - `cwd` / `status` / `exit_code` / `duration_seconds` / `error_type`。
 - `evidence_paths`：原始输出或报告路径；原始日志不进入公开 web 根目录。
+- `evidence_sha256`：与 evidence_paths 对齐的 SHA256；历史记录由 `evidence-hashes.json` sidecar 补齐，不重写追加账本。
 - `git_commit` / `sco_job_id`：对应版本和集群作业，没有则为 null。
 
 shell 命令由 `audit_exec.py` 包装，原始 stdout/stderr 脱敏后写入 `audit/evidence/`。无法经 wrapper 的 Read/Write/Edit/Grep/Glob、Herdr 等操作由主 agent 立即用 `record_operation.py` 追加。不得事后只凭记忆补写。证据路径使用绝对路径；命令支持超时记录和非 UTF-8 输出替换。

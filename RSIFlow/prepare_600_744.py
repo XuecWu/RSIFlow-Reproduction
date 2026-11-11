@@ -10,6 +10,7 @@ from data_protocol import native_index
 from evolution_protocol import (assert_disjoint, file_hash, fingerprint, freeze,
                                 make_manifest, manifest, read, training_quotas)
 from extend_rounds import assert_task_disjoint
+from validation_skip import evaluation_scope
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT = ROOT / 'configs/train_4b.json'
@@ -119,6 +120,7 @@ def prepare(config_path=DEFAULT):
                'training_tasks': sum(len(b['tasks']) for b in packed),
                'tasks_per_round': [len(b['tasks']) for b in packed],
                'validation_tasks': len(heldout['tasks']),
+               'evaluation_scope': evaluation_scope(config, heldout),
                'validation_by_source': config['validation_limits'],
                'source_training_hash': training['manifest_hash'],
                'source_validation_hash': validation['manifest_hash'],

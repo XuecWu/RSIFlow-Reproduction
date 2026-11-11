@@ -1,6 +1,6 @@
-# RSI-Flow 复现手册（后续执行建议，本次未运行）
+# RSI-Flow 复现手册与当前执行记录
 
-> 状态：本文所有环境安装、数据准备、SCO、GPU、API 和实验命令均未执行。只有在用户审阅并另行批准后，才应按阶段执行并记录真实结果。
+> 当前已批准 4B 准备和主分区八卡 probe：仅用 GPU 0–3、公开数据同协议重构、Meta `gpt-6-astra`、ACE 跳过。环境、模型、v4 数据和部分离线 smoke 已执行；五轮演化、最终评估和 8B 尚未运行。下文保留通用复现步骤，实际状态以 `data/reproduction.json` 和 `../reproduction/PROGRESS.md` 为准。
 
 ## 1. 复现目标与判定标准
 
@@ -8,11 +8,11 @@
 
 完整复现不是“仓库能导入”或“`--check` 返回 0”，而是同时取得：
 
-1. 相同冻结数据：五轮各 600，共 3000；独立验证 744；source/frozen manifest hash 与 disjoint 证据完整。
-2. 相同有效配置：Qwen3-4B/8B 只改变 checkpoint 和 run name，其他协议一致。
+1. 相同冻结数据：五轮各 600，共 3000；独立验证 744；source/frozen manifest hash 与 disjoint 证据完整。当前 v4 是同协议重构，不能声称作者原始队列。
+2. 相同有效配置：Qwen3-4B/8B 只改变 checkpoint 和 run name，其他协议一致。当前只执行 4B，8B 需审阅后另行决定。
 3. 完整过程：A0、B1–B5 的父代/候选轨迹、每次 attempt 的 decision/selection、技能记忆和快照。
-4. 真实计算：四卡 BF16 推理和 MODEL 更新时的四卡 DDP LoRA SFT。
-5. 最终结果：第五轮选中的完整 Task 在六类 744 任务上的官方评估回执。
+4. 真实计算：四卡 BF16 推理和 MODEL 更新时的四卡 DDP LoRA SFT。主分区申请八卡，但当前只用 GPU 0–3。
+5. 最终结果：完整协议应评估六类 744；本次明确跳过 ACE，只接受 694/744 partial 回执，ACE 50 为 pending，不能写成完整 744。
 
 若原始 source manifests 不可得，只能讨论“同协议重构”，不能直接声称原始结果精确复现。不得把离线测试、合成数据测试或部分 benchmark 当作完整实验。
 
@@ -24,9 +24,9 @@
 | MODEL LoRA SFT | 同一四卡；停止推理后每卡至少 40,000 MiB 空闲 | 4-rank DDP、BF16、gradient checkpointing，无 CPU 回退 |
 | HARNESS 构造 | 构造主要在 CPU，候选配对 rollout 仍需四卡 | 定位 → 方向 → 完整生成 → 最多三次验证 |
 | ARTIFACTS 更新 | 编辑在 CPU，直接 submission 评分依赖对应执行环境 | 当前为 `direct_submission` |
-| Meta 控制 | 不要求本地 GPU，但需要 Codex 和 Meta API | 当前为 DeepSeek-V4.1-Flash Responses 接口 |
-| ACEBench 用户模拟 | 不需要单独本地 GPU，但需要外部用户模拟 API | 缺凭据时是阻断/跳过，不是零分 |
-| 最终 744 评估 | 选中 Task 的推理服务和六类官方评测器 | 只报告，不反馈训练或 Meta |
+| Meta 控制 | 不要求本地 GPU，但需要 Codex 和 Meta API | 本次为自定义 `gpt-6-astra`，私有凭据未提供 |
+| ACEBench 用户模拟 | 不需要单独本地 GPU，但需要外部用户模拟 API | 本次显式跳过，50 条 pending，不是零分 |
+| 最终评估 | 选中 Task 的推理服务和官方评测器 | 冻结 744；本次五类 694 partial，只报告，不反馈训练或 Meta |
 
 推荐硬件是单节点 4×A800 80GB。80GB 不是仓库声明的理论最低总显存，而是满足源码 20GB/40GB 空闲门槛并留有余量的集群选择。
 
@@ -56,7 +56,7 @@ cp RSIFlow/runtime/configs/base_8b.json reproduction/configs/base_8b.json
 
 凭据通过目标平台的安全注入机制提供，不写入这些 JSON、网页或命令摘要。需要的变量名包括 `AUTODL_API_KEY`、`ACE_USER_API_KEY`、`ACE_USER_BASE_URL`，以及实际的 `RSIFLOW_CODEX_EXECUTABLE` 路径。
 
-## 4. Conda 与 Python 依赖（未执行）
+## 4. Conda 与 Python 依赖（通用步骤；当前完成情况见顶部）
 
 ```bash
 conda create -n rsiflow python=3.11 -y
@@ -82,7 +82,7 @@ python -m pip freeze > web/rsiflow-requirements.lock.txt
 
 这两个导出命令同样属于后续步骤，本次未生成 lock 文件。
 
-## 5. 离线测试和配置预检（未执行）
+## 5. 离线测试和配置预检（通用步骤；当前完成情况见顶部）
 
 ```bash
 cd /data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow
@@ -95,7 +95,7 @@ python RSIFlow_8B/launch.py --check
 
 记录测试通过、失败和 skip 的准确数量。`--check` 只报告配置和路径，不调用模型/API，也不保证 benchmark 可运行。placeholder 导致的 `checkpoint_exists=false` 等结果应标为资产未准备，不是代码测试通过。
 
-## 6. 准备冻结队列（未执行）
+## 6. 准备冻结队列（通用步骤；当前完成情况见顶部）
 
 先获取并校验原始 source training/validation manifests，然后：
 
@@ -147,7 +147,7 @@ probe 还应验证本地 checkpoint 能加载、四卡空闲显存满足门槛�
 
 主分区允许 8×A800，例如 `N3lS.Ii.I60.8`，但**不能只靠在父进程设置 `CUDA_VISIBLE_DEVICES=4,5,6,7` 并行第二套流水线**：服务和训练子进程会重写该变量。主分区双四卡方案还需修改 GPU 映射，并隔离 ports、socket、output_root/services registry、run dirs 和日志，完成测试后才可提交。未修改源码时不建议直接采用。
 
-## 8. Meta API 与 benchmark smoke（未执行）
+## 8. Meta API 与 benchmark smoke（通用步骤；当前完成情况见顶部）
 
 `api-smoke` 需要专用配置，顶层 `mode` 和 `meta.run_mode` 都为 `api_smoke`。在复制出的配置准备好 Codex binary/catalog 和安全凭据后：
 
@@ -160,7 +160,7 @@ PYTHONPATH="$PWD/RSIFlow/runtime" python -m rsiflow.task_meta.pipeline api-smoke
 
 该步骤会产生真实 API 请求，必须另行批准。分别检查 BFCL、ACE、HumanEval+/MBPP+、HotpotQA/2Wiki 的数据、解释器、official specs 和最小样例。基础设施失败、跳过和模型答错必须分开记录。
 
-## 9. 完整实验（未执行）
+## 9. 完整实验（通用步骤；当前完成情况见顶部）
 
 启动前硬门槛：环境、原始 frozen data、四卡 probe、Meta smoke 和六类评测 smoke 均有证据。使用全新 run dir，ACP 内前台运行，不能调用默认带 `--detach` 的 shell 启动器后让容器退出。
 
@@ -190,15 +190,15 @@ bash RSIFlow/watch_meta.sh --run-dir "$PWD/Rollout_logs/runs/rsiflow-4b" --once
 
 第五轮接受并保存完整 Task/Meta snapshot 后，控制器才执行 `final_only` 独立评估。检查：
 
-- 六类 benchmark 均有状态，预期任务总数为 744。
-- `complete.json` 的 state hash 与选中 Task 一致，结果文件 hash 未变化。
+- 六类 benchmark 均有状态，冻结总数为 744；本次只有五类 694 可进入评分，ACE 50 必须保留 pending。
+- `code_search_partial_complete.json` 的 state hash 与选中 Task 一致，指标文件 hash 未变化；不得复用完整 `complete.json` 缓存。
 - `task_results.jsonl` 每行都有明确 execution/scoring 状态；缺失值不能当失败或零分。
-- `task_metrics.json`/`task_metrics.csv` 的 overall complete 为真后才报告完整成功率。
+- `task_metrics.json`/`task_metrics.csv` 在 skip-ACE 下 overall complete 应为假；只有 partial 回执完整时才报告 694 口径结果。
 - `feedback_to_meta=false`，评估结果没有进入 SFT 或技能学习。
 - 跳过 ACE 时由 `RSIFlow/validation_skip.py` 按 settings/manifest 生成 partial 回执：当前为 694/744，旧 300 协议仍为 250/300；缺失指标文件或已有完整缓存都应拒绝。
 - 模型 checkpoint、Harness manifest、Artifacts、skills/context 和 snapshots 均保留。
 
-4B/8B 对比必须使用同一 frozen release、同一评估预算和兼容 API/评测器。只比较完整配对结果，不用部分任务或历史均值补齐。
+若以后审阅批准 8B，对比必须使用同一 frozen release、同一评估预算和兼容 API/评测器。只比较完整配对结果，不用部分任务或历史均值补齐。
 
 ## 11. 常见阻断与处理
 
@@ -213,9 +213,8 @@ bash RSIFlow/watch_meta.sh --run-dir "$PWD/Rollout_logs/runs/rsiflow-4b" --once
 | 既有 frozen dir 配置不同 | 使用新 release，不能覆盖 |
 | 文档参数无法识别 | 以 argparse 为准；技能 seed 当前是 `--skill-seed` |
 
-## 12. 后续需要用户决定
+## 12. 当前已决定与仍需材料
 
-1. 是否能提供原始 3000/744 source manifests 和对应数据；若不能，是否接受同协议重构。
-2. 采用未修改源码的 dev 四卡顺序方案，还是为主分区八卡并行先开发并测试 GPU 映射隔离。
-3. Meta/ACE API 的安全注入方式与预算。
-4. 是否允许长时间运行、产生 API 费用和保留较大的轨迹/checkpoint 输出。
+已决定：同协议重构、主分区八卡仅用 GPU 0–3、4B 先行、`gpt-6-astra`、ACE 跳过、4B 审阅后才讨论 8B。
+
+仍需用户提供 Meta 私有凭据到 `assets/private/credentials.sh`（权限 600）；agent 不读取、打印或复制 key。SCO Landlock/GPU 和五类 benchmark smoke 未全部通过前，不启动五轮长任务。

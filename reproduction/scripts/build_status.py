@@ -22,6 +22,9 @@ def build_status(audit_root):
     results = read_jsonl(audit_root / "key_results.jsonl")
     runs = json.loads((audit_root / "runs.json").read_text())["runs"] if (audit_root / "runs.json").is_file() else []
     counts = Counter(row.get("status", "unknown") for row in operations)
+    manifest_path = audit_root / "evidence-hashes.json"
+    historical = json.loads(manifest_path.read_text())["operations"] if manifest_path.is_file() else []
+    historical_hashes = {row["sequence"]: [item["sha256"] for item in row["evidence"]] for row in historical}
     timeline = [
         {
             "sequence": row["sequence"],
@@ -32,6 +35,7 @@ def build_status(audit_root):
             "status": row.get("status"),
             "error_type": row.get("error_type"),
             "evidence_paths": row.get("evidence_paths", []),
+            "evidence_sha256": row.get("evidence_sha256") or historical_hashes.get(row["sequence"], []),
         }
         for row in operations[-50:]
     ]
@@ -42,6 +46,9 @@ def build_status(audit_root):
         "operation_counts": dict(counts),
         "operations_total": len(operations),
         "results_total": len(results),
+        "as_of_sequence": max((row["sequence"] for row in operations), default=0),
+        "is_snapshot": True,
+        "snapshot_note": "静态快照；截至 sequence 与 generated_at，之后操作需重新生成",
         "timeline": timeline,
         "key_results": results,
         "runs": runs,

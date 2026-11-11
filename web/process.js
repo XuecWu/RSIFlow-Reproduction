@@ -19,7 +19,7 @@ async function loadProcess() {
   document.getElementById('run-status').textContent = `${run.backbone || 'Qwen3-4B'} · ${run.protocol || 'protocol_reconstruction'} · ${run.status || data.current_phase || '准备中'}`;
   document.getElementById('run-provider').textContent = `${run.provider || 'OpenAI'} / ${run.model || 'gpt-6-astra'}`;
   document.getElementById('run-sco').textContent = run.sco_job_id ? `SCO: ${run.sco_job_id}` : 'SCO: 未提交正式实验';
-  document.getElementById('process-generated').textContent = `更新: ${data.generated_at}`;
+  document.getElementById('process-generated').textContent = `静态快照 · 更新: ${data.generated_at} · 截至 sequence #${data.as_of_sequence || 0}`;
   document.getElementById('process-timeline').innerHTML = (data.timeline || []).slice().reverse().map((row) => `
     <article class="timeline-row ${row.status}">
       <span class="timeline-sequence">#${row.sequence}</span>

@@ -1,4 +1,4 @@
-"""Fail-closed Linux candidate runner with Landlock, seccomp and credential drop.
+"""Fail-closed Linux candidate runner with selectable Landlock or bubblewrap isolation.
 
 No host evaluator, source data, checkpoint, credentials or home directory is
 granted. Hidden expected outputs stay in the controller, never in this process.
@@ -137,14 +137,21 @@ def _restrict_syscalls(library: str = "libseccomp.so.2", *, allow_threads: bool 
 
 
 class LinuxSandbox:
-    """Root controller launches isolated UIDs; never silently runs without guards.
+    """Run only through the explicitly selected isolation backend, never a host fallback.
 
     ``runtime_read_paths`` is a trusted deployment allowlist, not a Task/Harness
     option. Prefer a dedicated clean Python runtime; do not grant project/data roots.
     """
 
     def __init__(self, python_executable: str | None = None, *, runtime_read_paths: list[str] | None = None,
-                 scratch_root: str | Path | None = None, limits: SandboxLimits | None = None):
+                 scratch_root: str | Path | None = None, limits: SandboxLimits | None = None,
+                 backend: str | None = None):
+        selected_backend = backend if backend is not None else os.environ.get(
+            "RSIFLOW_SANDBOX_BACKEND", "linux_landlock_seccomp"
+        )
+        if selected_backend not in {"linux_landlock_seccomp", "linux_bwrap_seccomp_v1"}:
+            raise SandboxUnavailable(f"unknown sandbox backend: {selected_backend}")
+        self.backend = selected_backend
         self.python = Path(python_executable or "/usr/bin/python3").resolve()
         self.limits = limits or SandboxLimits()
         self.scratch_root = Path(scratch_root) if scratch_root else None
@@ -159,9 +166,13 @@ class LinuxSandbox:
             raise ValueError("Unsafe broad sandbox read grant")
 
     def validate(self) -> dict:
-        evidence = probe_isolation()
-        if not evidence["available"]:
-            raise SandboxUnavailable(str(evidence))
+        if self.backend == "linux_bwrap_seccomp_v1":
+            from .bwrap_candidate import validate
+            evidence = validate()
+        else:
+            evidence = probe_isolation()
+            if not evidence["available"]:
+                raise SandboxUnavailable(str(evidence))
         if not self.python.is_file() or any(not p.exists() for p in self.runtime_read_paths):
             raise SandboxUnavailable("Configured runtime path missing")
         return evidence
@@ -208,40 +219,52 @@ class LinuxSandbox:
     def run(self, code: str, stdin: str = "", *, extra_files: dict[str, str] | None = None,
             seed: int = 0) -> SandboxResult:
         self.validate()
-        if self.scratch_root:
-            self.scratch_root.mkdir(parents=True, exist_ok=True)
         start = time.monotonic()
-        with tempfile.TemporaryDirectory(prefix="rsi-candidate-", dir=self.scratch_root or '/tmp') as directory:
-            scratch = Path(directory)
+        if self.backend == "linux_bwrap_seccomp_v1":
+            from .bwrap_candidate import create_scratch
+            temporary, scratch = create_scratch(self, code, extra_files)
+        else:
+            if self.scratch_root:
+                self.scratch_root.mkdir(parents=True, exist_ok=True)
+            temporary = tempfile.TemporaryDirectory(prefix="rsi-candidate-", dir=self.scratch_root or '/tmp')
+            scratch = Path(temporary.name)
             (scratch / "candidate.py").write_text(code, encoding="utf-8")
             for name, text in (extra_files or {}).items():
                 if Path(name).name != name or name in {"candidate.py", "stdout", "stderr"}:
                     raise ValueError("Invalid sandbox extra file name")
                 (scratch / name).write_text(text, encoding="utf-8")
 
-            with (scratch / "stdout").open("w+b") as out, (scratch / "stderr").open("w+b") as err:
-                try:
-                    process = subprocess.Popen([str(self.python), "-s", "-B", "candidate.py"],
-                        cwd=scratch, stdin=subprocess.PIPE, stdout=out, stderr=err, close_fds=True,
-                        env=self._environment(scratch, seed), preexec_fn=self._isolation_hook(scratch))
-                except (OSError, subprocess.SubprocessError) as exc:
-                    err.seek(0)
-                    diagnostic = err.read(4096).decode("utf-8", "replace")
-                    raise SandboxUnavailable(f"Sandbox launch failed: {type(exc).__name__}: {exc}; {diagnostic}") from exc
-                timed_out = False
-                try:
-                    process.communicate(stdin.encode(), timeout=self.limits.wall_seconds)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.communicate()
-                out.seek(0)
+        with temporary, (scratch / "stdout").open("w+b") as out, (scratch / "stderr").open("w+b") as err:
+            try:
+                if self.backend == "linux_bwrap_seccomp_v1":
+                    from .bwrap_candidate import command
+                    argv = command(self, scratch, profile="candidate", seed=seed)
+                    isolation_hook = None
+                else:
+                    argv = [str(self.python), "-s", "-B", "candidate.py"]
+                    isolation_hook = self._isolation_hook(scratch)
+                process = subprocess.Popen(argv,
+                    cwd=scratch, stdin=subprocess.PIPE, stdout=out, stderr=err, close_fds=True,
+                    env=self._environment(scratch, seed), preexec_fn=isolation_hook,
+                    start_new_session=self.backend == "linux_bwrap_seccomp_v1")
+            except (OSError, subprocess.SubprocessError) as exc:
                 err.seek(0)
-                stdout, stderr = out.read(self.limits.output_bytes + 1), err.read(self.limits.output_bytes + 1)
-                truncated = len(stdout) > self.limits.output_bytes or len(stderr) > self.limits.output_bytes
-                return SandboxResult(stdout[:self.limits.output_bytes].decode("utf-8", "replace"),
-                    stderr[:self.limits.output_bytes].decode("utf-8", "replace"), process.returncode, timed_out,
-                    time.monotonic() - start, truncated)
+                diagnostic = err.read(4096).decode("utf-8", "replace")
+                raise SandboxUnavailable(f"Sandbox launch failed: {type(exc).__name__}: {exc}; {diagnostic}") from exc
+            timed_out = False
+            try:
+                process.communicate(stdin.encode(), timeout=self.limits.wall_seconds)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+            out.seek(0)
+            err.seek(0)
+            stdout, stderr = out.read(self.limits.output_bytes + 1), err.read(self.limits.output_bytes + 1)
+            truncated = len(stdout) > self.limits.output_bytes or len(stderr) > self.limits.output_bytes
+            return SandboxResult(stdout[:self.limits.output_bytes].decode("utf-8", "replace"),
+                stderr[:self.limits.output_bytes].decode("utf-8", "replace"), process.returncode, timed_out,
+                time.monotonic() - start, truncated, backend=self.backend)
 
 
 class SandboxSession:
@@ -251,21 +274,32 @@ class SandboxSession:
         self.runner = runner
         self.process = None
         self.stderr = None
-        if runner.scratch_root:
-            runner.scratch_root.mkdir(parents=True, exist_ok=True)
-        self.temp = tempfile.TemporaryDirectory(prefix="rsi-environment-", dir=runner.scratch_root or '/tmp')
-        self.scratch = Path(self.temp.name)
-        try:
+        if runner.backend == "linux_bwrap_seccomp_v1":
+            from .bwrap_candidate import create_scratch
+            self.temp, self.scratch = create_scratch(runner, code, extra_files, session=True)
+        else:
+            if runner.scratch_root:
+                runner.scratch_root.mkdir(parents=True, exist_ok=True)
+            self.temp = tempfile.TemporaryDirectory(prefix="rsi-environment-", dir=runner.scratch_root or '/tmp')
+            self.scratch = Path(self.temp.name)
             (self.scratch / "candidate.py").write_text(code, encoding="utf-8")
             for name, value in (extra_files or {}).items():
                 if Path(name).name != name or name in {"candidate.py", "stderr"}:
                     raise ValueError("Invalid sandbox extra file name")
                 (self.scratch / name).write_text(value, encoding="utf-8")
+        try:
             self.stderr = (self.scratch / "stderr").open("w+b")
-            self.process = subprocess.Popen([str(runner.python), "-s", "-B", "-u", "candidate.py"],
+            if runner.backend == "linux_bwrap_seccomp_v1":
+                from .bwrap_candidate import command
+                argv = command(runner, self.scratch, profile="candidate_session", seed=seed)
+                isolation_hook = None
+            else:
+                argv = [str(runner.python), "-s", "-B", "-u", "candidate.py"]
+                isolation_hook = runner._isolation_hook(self.scratch)
+            self.process = subprocess.Popen(argv,
                 cwd=self.scratch, env=runner._environment(self.scratch, seed), close_fds=True,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, bufsize=0,
-                preexec_fn=runner._isolation_hook(self.scratch))
+                preexec_fn=isolation_hook, start_new_session=runner.backend == "linux_bwrap_seccomp_v1")
         except (OSError, subprocess.SubprocessError) as exc:
             diagnostic = ""
             if self.stderr:

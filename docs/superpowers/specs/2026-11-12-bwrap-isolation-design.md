@@ -1,7 +1,7 @@
 # RSI-Flow bubblewrap 隔离子系统设计
 
 日期：2026-11-12  
-状态：待用户审阅；尚未授权按本设计修改执行器  
+状态：用户已批准设计；实施计划已编写，等待用户审阅计划并选择执行方式
 范围：Qwen3-4B 主线的 Meta、Task candidate 与 native benchmark 隔离，不启动五轮实验
 
 ## 1. 目标与边界

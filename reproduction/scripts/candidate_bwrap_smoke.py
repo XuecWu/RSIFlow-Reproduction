@@ -17,14 +17,27 @@ BACKEND = "linux_bwrap_seccomp_v1"
 
 def negative_program(marker, checkpoint):
     return textwrap.dedent(f"""
+        import sys
+
+        def trace(stage):
+            print(f'negative_stage={{stage}}', file=sys.stderr, flush=True)
+
+        trace('import_ctypes')
         import ctypes
+        trace('import_errno')
         import errno
+        trace('import_json')
         import json
+        trace('import_os')
         import os
+        trace('import_platform')
         import platform
+        trace('import_signal')
         import signal
+        trace('import_socket')
         import socket
 
+        trace('runtime_setup')
         marker = {str(marker)!r}
         checkpoint = {str(checkpoint)!r}
         libc = ctypes.CDLL(None, use_errno=True)
@@ -101,24 +114,45 @@ def negative_program(marker, checkpoint):
                     return False
             return True
 
-        checks = {{
-            'data_absent': path_absent('/data'),
-            'root_absent': path_absent('/root'),
-            'checkpoint_absent': path_absent(checkpoint),
-            'private_marker_absent': path_absent(marker),
-            'procfs_absent': path_absent('/proc/self'),
-            'runtime_write_denied': runtime_write_denied(),
-            'scratch_write_succeeds': scratch_write_succeeds(),
-            'external_connect_denied': external_connect_denied(),
-            'mount_denied': mount_denied(),
-            'setns_denied': setns_denied(),
-            'ptrace_denied': ptrace_denied(),
-            'fork_denied': fork_denied(),
-            'clone_denied': clone_denied(),
-            'credential_changes_denied': credential_changes_denied(),
-        }}
+        checks = {{}}
+        probes = (
+            ('data_absent', lambda: path_absent('/data')),
+            ('root_absent', lambda: path_absent('/root')),
+            ('checkpoint_absent', lambda: path_absent(checkpoint)),
+            ('private_marker_absent', lambda: path_absent(marker)),
+            ('procfs_absent', lambda: path_absent('/proc/self')),
+            ('runtime_write_denied', runtime_write_denied),
+            ('scratch_write_succeeds', scratch_write_succeeds),
+            ('external_connect_denied', external_connect_denied),
+            ('mount_denied', mount_denied),
+            ('setns_denied', setns_denied),
+            ('ptrace_denied', ptrace_denied),
+            ('fork_denied', fork_denied),
+            ('clone_denied', clone_denied),
+            ('credential_changes_denied', credential_changes_denied),
+        )
+        for name, probe in probes:
+            trace(name)
+            checks[name] = probe()
+        trace('serialize')
         print(json.dumps({{'checks': checks, 'environment': dict(os.environ)}}))
     """)
+
+
+def require_negative_result(result):
+    if result.returncode != 0:
+        stages = [
+            line.removeprefix("negative_stage=")
+            for line in result.stderr.splitlines()
+            if line.startswith("negative_stage=")
+        ]
+        stage = stages[-1] if stages else "before_first_trace"
+        raise SandboxUnavailable(
+            f"negative probe did not complete at {stage}: returncode={result.returncode} "
+            f"timed_out={result.timed_out} wall_seconds={result.wall_seconds:.3f}; "
+            f"stderr={result.stderr[:512]}"
+        )
+    return json.loads(result.stdout)
 
 
 def run_smoke(output):
@@ -146,11 +180,15 @@ def run_smoke(output):
         os.environ["OPENAI_API_KEY"] = parent_key
         runner = LinuxSandbox(
             scratch_root=scratch_root,
-            limits=SandboxLimits(wall_seconds=1.0, cpu_seconds=5, output_bytes=4096),
+            limits=SandboxLimits(wall_seconds=10.0, cpu_seconds=5, output_bytes=4096),
         )
         limited_runner = LinuxSandbox(
             scratch_root=scratch_root,
             limits=SandboxLimits(wall_seconds=1.0, cpu_seconds=5, output_bytes=128),
+        )
+        timeout_runner = LinuxSandbox(
+            scratch_root=scratch_root,
+            limits=SandboxLimits(wall_seconds=1.0, cpu_seconds=5, output_bytes=4096),
         )
 
         normal = runner.run("import sys; print('ok'); print(sys.stdin.read().upper())", stdin="stdin")
@@ -176,9 +214,7 @@ def run_smoke(output):
         )
 
         negative = runner.run(negative_program(marker, checkpoint))
-        if negative.returncode != 0:
-            raise SandboxUnavailable(f"negative probe did not complete: {negative.stderr[:512]}")
-        payload = json.loads(negative.stdout)
+        payload = require_negative_result(negative)
         report["negative"].update(payload["checks"])
         environment = payload["environment"]
         report["negative"].update({
@@ -188,7 +224,7 @@ def run_smoke(output):
             "negative_has_no_infrastructure_error": negative.infrastructure_error is None,
         })
 
-        timed = runner.run("import time; time.sleep(5)")
+        timed = timeout_runner.run("import time; time.sleep(5)")
         report["timeout"].update({
             "timed_out": timed.timed_out,
             "wall_bounded": timed.wall_seconds < 3,

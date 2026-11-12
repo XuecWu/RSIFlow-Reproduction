@@ -6,7 +6,9 @@ import pytest
 
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "RSIFlow/runtime"))
+sys.path.insert(0, str(PROJECT / "reproduction/scripts"))
 
+import candidate_bwrap_smoke
 from rsiflow.task_meta import bwrap_candidate
 from rsiflow.task_meta.sandbox import (
     LinuxSandbox,
@@ -191,3 +193,19 @@ def test_bwrap_session_command_uses_unbuffered_candidate_profile(monkeypatch, tm
     request = captured["request"]
     assert request.profile == "candidate_session"
     assert request.argv == (str(runner.python), "-s", "-B", "-u", "candidate.py")
+
+
+def test_negative_timeout_reports_exact_probe_stage_and_timing(tmp_path):
+    runner = LinuxSandbox(
+        backend="linux_bwrap_seccomp_v1",
+        scratch_root=tmp_path,
+        limits=SandboxLimits(wall_seconds=2.0, cpu_seconds=5, output_bytes=4096),
+    )
+    program = candidate_bwrap_smoke.negative_program(tmp_path / "marker", PROJECT / "RSIFlow_4B")
+    program = program.replace(
+        "('runtime_write_denied', runtime_write_denied),",
+        "('runtime_write_denied', lambda: (__import__('time').sleep(5), True)[1]),",
+    )
+    result = runner.run(program)
+    with pytest.raises(SandboxUnavailable, match="runtime_write_denied.*timed_out=True"):
+        candidate_bwrap_smoke.require_negative_result(result)

@@ -9,6 +9,9 @@ credentials.json
 *.pem
 *.key
 
+# Isolated implementation worktrees
+.worktrees/
+
 # Runtime outputs and environments (keep source config below runs explicitly)
 Rollout_logs/
 local_baseline/

@@ -18,6 +18,16 @@ PROFILES = {
 LIMIT_FIELDS = {
     "wall_seconds", "cpu_seconds", "memory_bytes", "output_bytes", "file_bytes", "processes", "file_descriptors"
 }
+NAMESPACE_CREATION_FLAGS = (
+    0x00000080,  # CLONE_NEWTIME
+    0x00020000,  # CLONE_NEWNS
+    0x02000000,  # CLONE_NEWCGROUP
+    0x04000000,  # CLONE_NEWUTS
+    0x08000000,  # CLONE_NEWIPC
+    0x10000000,  # CLONE_NEWUSER
+    0x20000000,  # CLONE_NEWPID
+    0x40000000,  # CLONE_NEWNET
+)
 
 
 class _CapHeader(ctypes.Structure):
@@ -55,7 +65,7 @@ def _denied_syscalls(profile):
         "modify_ldt", "memfd_create", "init_module", "finit_module", "delete_module",
     ]
     if profile == "native":
-        denied = [name for name in denied if name not in {"clone", "rename", "renameat", "renameat2"}]
+        denied = [name for name in denied if name not in {"clone", "clone3", "rename", "renameat", "renameat2"}]
         denied.extend(["setsid", "setpgid"])
     elif profile == "meta":
         permitted = {
@@ -167,11 +177,23 @@ def _restrict_syscalls(profile, library="libseccomp.so.2"):
             number = seccomp.seccomp_syscall_resolve_name(name.encode())
             if number >= 0 and seccomp.seccomp_rule_add(context, action, number, 0) != 0:
                 raise RuntimeError(f"cannot deny syscall {name}")
+        if profile in {"native", "meta"}:
+            number = seccomp.seccomp_syscall_resolve_name(b"clone3")
+            if number >= 0 and seccomp.seccomp_rule_add(
+                context, 0x00050000 | errno.ENOSYS, number, 0
+            ) != 0:
+                raise RuntimeError("cannot force clone3 fallback to clone")
         if profile == "native":
             number = seccomp.seccomp_syscall_resolve_name(b"clone")
             comparator = _SeccompArgCmp(0, 7, 0x00000100, 0)
             if number >= 0 and seccomp.seccomp_rule_add(context, action, number, 1, comparator) != 0:
                 raise RuntimeError("cannot restrict clone to CLONE_THREAD")
+        elif profile == "meta":
+            number = seccomp.seccomp_syscall_resolve_name(b"clone")
+            for flag in NAMESPACE_CREATION_FLAGS:
+                comparator = _SeccompArgCmp(0, 7, flag, flag)
+                if number >= 0 and seccomp.seccomp_rule_add(context, action, number, 1, comparator) != 0:
+                    raise RuntimeError("cannot deny clone namespace creation")
         if seccomp.seccomp_load(context) != 0:
             raise RuntimeError("seccomp_load failed")
     finally:

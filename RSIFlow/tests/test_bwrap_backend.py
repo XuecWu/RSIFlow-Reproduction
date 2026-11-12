@@ -376,7 +376,7 @@ def test_profile_specific_network_process_and_rename_rules():
     native = set(bwrap_launcher._denied_syscalls("native"))
     meta = set(bwrap_launcher._denied_syscalls("meta"))
     assert {"socket", "connect", "clone", "clone3", "fork", "vfork", "rename", "renameat", "renameat2"} <= candidate
-    assert {"socket", "connect", "clone3", "fork", "vfork"} <= native
+    assert {"socket", "connect", "fork", "vfork"} <= native
     assert "clone" not in native
     assert {"rename", "renameat", "renameat2"}.isdisjoint(native)
     assert {"socket", "connect", "clone", "clone3", "fork", "vfork"}.isdisjoint(meta)
@@ -411,3 +411,140 @@ def test_installer_rejects_wrong_hash_and_symlink_source(tmp_path):
     link.symlink_to(source)
     with pytest.raises(RuntimeError, match="regular"):
         install_bwrap.install(link, tmp_path / "symlink")
+
+
+def test_parent_source_components_cannot_escape_writable_root(tmp_path, monkeypatch):
+    backend = make_backend(tmp_path, monkeypatch)
+    write_root = backend.allowed_write_roots[0]
+    outside = backend.project / "outside"
+    outside.mkdir()
+    escaped = write_root / "output/../../outside"
+    with pytest.raises(ValueError, match="parent|allowed_write_roots"):
+        backend.command(make_request(backend, mounts=(BwrapMount(escaped, "/workspace", "rw"),)))
+
+
+@pytest.mark.parametrize("descendant", [False, True])
+def test_writable_root_and_strict_descendant_are_allowed(tmp_path, monkeypatch, descendant):
+    backend = make_backend(tmp_path, monkeypatch)
+    write_root = backend.allowed_write_roots[0]
+    source = write_root / "output" if descendant else write_root
+    command = backend.command(make_request(backend, mounts=(BwrapMount(source, "/workspace", "rw"),)))
+    index = command.index("--bind")
+    assert command[index : index + 3] == ["--bind", str(source), "/workspace"]
+
+
+@pytest.mark.parametrize("content", [
+    "[]",
+    json.dumps({**MANIFEST, "binary": []}),
+])
+def test_non_object_manifest_shapes_raise_sandbox_unavailable(tmp_path, monkeypatch, content):
+    backend = make_backend(tmp_path, monkeypatch)
+    backend.manifest_path.write_text(content)
+    with pytest.raises(SandboxUnavailable, match="manifest"):
+        backend.validate()
+
+
+def test_bwrap_version_timeout_raises_sandbox_unavailable(tmp_path, monkeypatch):
+    import subprocess
+
+    from rsiflow.task_meta import bwrap_backend
+
+    backend = make_backend(tmp_path, monkeypatch)
+
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 10)
+
+    monkeypatch.setattr(bwrap_backend.subprocess, "run", timeout)
+    with pytest.raises(SandboxUnavailable, match="cannot execute bwrap"):
+        backend.validate()
+
+
+def run_clone_seccomp_probe(profile):
+    import subprocess
+
+    runtime = str(PROJECT / "RSIFlow/runtime")
+    script = f"""
+import ctypes
+import errno
+import json
+import os
+import signal
+import sys
+import threading
+sys.path.insert(0, {runtime!r})
+from rsiflow.task_meta import bwrap_launcher
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+seccomp = ctypes.CDLL('libseccomp.so.2')
+seccomp.seccomp_syscall_resolve_name.argtypes = [ctypes.c_char_p]
+seccomp.seccomp_syscall_resolve_name.restype = ctypes.c_int
+clone_number = seccomp.seccomp_syscall_resolve_name(b'clone')
+clone3_number = seccomp.seccomp_syscall_resolve_name(b'clone3')
+assert clone_number >= 0 and clone3_number >= 0
+assert libc.prctl(38, 1, 0, 0, 0) == 0
+
+def raw_clone(flags):
+    ctypes.set_errno(0)
+    pid = libc.syscall(clone_number, flags, 0, 0, 0, 0)
+    if pid == 0:
+        os._exit(0)
+    if pid < 0:
+        return ctypes.get_errno()
+    os.waitpid(pid, 0)
+    return 0
+
+def raw_clone3():
+    ctypes.set_errno(0)
+    result = libc.syscall(clone3_number, 0, 0)
+    return ctypes.get_errno() if result < 0 else 0
+
+bwrap_launcher._restrict_syscalls({profile!r})
+thread_values = []
+try:
+    thread = threading.Thread(target=lambda: thread_values.append(True))
+    thread.start()
+    thread.join()
+except RuntimeError:
+    pass
+result = {{
+    'thread_created': thread_values == [True],
+    'process_clone_errno': raw_clone(signal.SIGCHLD),
+    'namespace_clone_errno': raw_clone(signal.SIGCHLD | 0x10000000),
+    'newns_clone_errno': raw_clone(signal.SIGCHLD | 0x00020000),
+    'newnet_clone_errno': raw_clone(signal.SIGCHLD | 0x40000000),
+    'clone3_errno': raw_clone3(),
+}}
+print(json.dumps(result, sort_keys=True))
+"""
+    completed = subprocess.run(
+        ["/usr/bin/python3", "-I", "-B", "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    assert completed.returncode == 0, completed.stderr
+    return json.loads(completed.stdout)
+
+
+def test_native_real_seccomp_allows_threads_but_denies_process_and_namespace_clones():
+    assert run_clone_seccomp_probe("native") == {
+        "thread_created": True,
+        "process_clone_errno": 1,
+        "namespace_clone_errno": 1,
+        "newns_clone_errno": 1,
+        "newnet_clone_errno": 1,
+        "clone3_errno": 38,
+    }
+
+
+def test_meta_real_seccomp_allows_local_processes_but_denies_namespace_clones():
+    assert run_clone_seccomp_probe("meta") == {
+        "thread_created": True,
+        "process_clone_errno": 0,
+        "namespace_clone_errno": 1,
+        "newns_clone_errno": 1,
+        "newnet_clone_errno": 1,
+        "clone3_errno": 38,
+    }

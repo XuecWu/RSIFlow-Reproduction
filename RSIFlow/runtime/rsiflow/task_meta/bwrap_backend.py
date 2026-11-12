@@ -110,9 +110,13 @@ class BubblewrapBackend:
             manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise SandboxUnavailable(f"invalid bwrap manifest: {exc}") from exc
+        if not isinstance(manifest, dict):
+            raise SandboxUnavailable("invalid bwrap manifest: top-level object required")
         if manifest.get("schema_version") != 1 or manifest.get("backend") != "linux_bwrap_seccomp_v1":
             raise SandboxUnavailable("unsupported bwrap manifest identity")
         binary = manifest.get("binary", {})
+        if not isinstance(binary, dict):
+            raise SandboxUnavailable("invalid bwrap manifest: binary object required")
         relative = binary.get("path", "")
         target = PurePosixPath(relative)
         if not relative or target.is_absolute() or ".." in target.parts or str(target) != relative:
@@ -158,7 +162,7 @@ class BubblewrapBackend:
                 timeout=10,
                 env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
             )
-        except OSError as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             raise SandboxUnavailable(f"cannot execute bwrap: {exc}") from exc
         version = result.stdout.strip()
         if result.returncode != 0 or version != f"bubblewrap {binary.get('version')}":
@@ -191,6 +195,9 @@ class BubblewrapBackend:
         source = Path(mount.source)
         if not source.is_absolute():
             raise ValueError("bwrap mount source must be absolute")
+        if ".." in source.parts:
+            raise ValueError("bwrap mount source must not contain parent components")
+        source = Path(os.path.abspath(source))
         broad = {Path("/"), Path("/data"), Path("/home"), Path("/root"), Path("/proc"), Path("/sys")}
         if source in broad:
             raise ValueError(f"broad bwrap source mount denied: {source}")
@@ -217,7 +224,7 @@ class BubblewrapBackend:
             if root in broad or root in {Path("/tmp"), Path("/dev")} or root == self.project or root in self.project.parents:
                 raise ValueError(f"broad repository or host allowed_write_roots are denied: {root}")
             self._reject_symlinks(root)
-            if source != root and root in source.parents:
+            if source == root or root in source.parents:
                 return source
         raise ValueError(f"writable bwrap output is outside allowed_write_roots: {source}")
 

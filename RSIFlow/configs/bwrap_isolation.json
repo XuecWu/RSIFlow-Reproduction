@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "backend": "linux_bwrap_seccomp_v1",
+  "binary": {
+    "path": "assets/isolation/bin/bwrap",
+    "version": "0.6.1",
+    "sha256": "d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca"
+  },
+  "profiles": {
+    "candidate": {"seccomp": "candidate", "allow_threads": false, "allow_processes": false},
+    "candidate_session": {"seccomp": "candidate", "allow_threads": false, "allow_processes": false},
+    "native_benchmark": {"seccomp": "native", "allow_threads": true, "allow_processes": false},
+    "persistent_meta": {"seccomp": "meta", "allow_threads": true, "allow_processes": true}
+  }
+}

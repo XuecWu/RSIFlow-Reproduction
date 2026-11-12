@@ -79,3 +79,25 @@
 - v4 READY 记录 744 frozen / 694 scored / 50 pending；真实 release 测试与四类 official spec 已验证。
 - Qwen Code 独立审阅为 CHANGES，主 agent 已处理证据错位、公开口径、真实测试、操作 SHA256 和过程快照问题。完整操作见 `../reproduction/audit/operations.jsonl`，关键结果见 `key_results.jsonl`，日常审计见 `daily/2026-11-11.md`。
 - SCO probe `pt-r6np9yvd` 仍为 STARTING；Meta 私有凭据未提供；没有模型 benchmark 分数。
+
+
+## 2026-11-12
+
+### OpenAI 中转代理与隔离替代诊断（进行中）
+
+- 用户提供并授权使用固定 `OpenAI/gpt-6-astra` 与 `http://token.acerobotics.com/v1`；私有凭据文件权限为 600，目录被 Git 忽略，密钥未写入日志或公开页。
+- 首次 SDK `/models` 在 90 秒审计上限超时。分段计时定位到冷缓存 `import openai` 用时 67.18 秒；延长后 SDK 成功返回模型列表并包含 `gpt-6-astra`，不是中转代理无响应。
+- 原始 Responses 非流式请求返回 HTTP 200、`completed` 和正确模型名；流式请求返回 15 个 SSE 事件并以 `response.completed` 结束。Codex native dynamic tools 与 thread resume 仍未验证。
+- 发现 `persistent_meta.py` 原生线程仍写死旧 `autodl/DeepSeek`，通过 RED→GREEN 测试改为继承有效 base 配置；`test_persistent_meta.py` 8/8 通过。
+- 本机 Landlock 返回 ENOSYS；bwrap 的 proc 挂载被拒绝，但无 proc 挂载的最小沙箱与 namespaces 可运行。这些只用于路线筛选，不能替代 SCO 证据。
+- dev CPU 规格提交返回 `work spec not found`，未创建作业。改用主分区已知规格的分钟级探针，不加载模型、不启动实验。
+- `pt-vqm5sa3h` 在 Landlock 前因 `/usr/lib/python3.12` 不存在失败。新增标准库路径发现测试并修复；单元测试通过，`pt-03lf4y6x` 复测进行中。
+- 修改后上游全量回归为 167 passed、2 skipped、1 failed，唯一失败仍是已知的本机 Landlock 用例；没有五轮或 benchmark 分数。
+
+### 隔离候选后端 SCO 结果
+
+- `pt-03lf4y6x` 暴露 `/etc/python3.10` 版本化符号链接白名单问题；新增真实符号链接测试并仅允许所选解释器对应的 `/etc/pythonX.Y`，未放宽到其他目录。
+- `pt-4hdyar4r` 终态 SUCCEEDED；探针输出 ready=false，唯一错误为 `_apply_landlock()` errno 38，已越过运行时构建和其余隔离前置阶段。
+- `pt-vcq25ldi` 终态 SUCCEEDED；共享盘 bwrap 0.6.1 在无 `/proc` 条件下通过 `/data`/`/root` 隐藏、运行时只读、工作区可写、外网不可达六项最小检查。
+- 最新全量回归为 169 passed、2 skipped、1 failed，唯一失败仍为既有 Landlock 环境用例；网站 11/11 通过。
+- 上述结果只支持进入替代后端集成设计与独立安全审阅，不代表 Codex native tools、thread resume、真实 benchmark 或五轮已可运行。

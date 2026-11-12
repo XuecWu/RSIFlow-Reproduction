@@ -217,4 +217,4 @@ bash RSIFlow/watch_meta.sh --run-dir "$PWD/Rollout_logs/runs/rsiflow-4b" --once
 
 已决定：同协议重构、主分区八卡仅用 GPU 0–3、4B 先行、`gpt-6-astra`、ACE 跳过、4B 审阅后才讨论 8B。
 
-仍需用户提供 Meta 私有凭据到 `assets/private/credentials.sh`（权限 600）；agent 不读取、打印或复制 key。SCO Landlock/GPU 和五类 benchmark smoke 未全部通过前，不启动五轮长任务。
+Meta 私有凭据已提供到 Git 忽略的 `assets/private/credentials.sh`（权限 600）；agent 不读取、打印或复制 key。中转代理 `/models`、非流式/流式 Responses 已通过，Codex dynamic tools/thread resume 和五类 benchmark smoke 尚未全部通过。SCO 共享 bwrap 仅通过最小负向检查，仍需集成与独立安全审阅；这些门槛完成前不启动五轮长任务。

@@ -35,6 +35,13 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def python_stdlib_path(python: str | Path) -> Path:
+    result = subprocess.run([
+        str(python), "-I", "-B", "-c", "import sysconfig; print(sysconfig.get_path('stdlib'))"
+    ], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20, check=True)
+    return Path(result.stdout.strip()).resolve(strict=True)
+
+
 def checked_absolute(path: str | Path, *, must_exist: bool = True) -> Path:
     value = Path(path).absolute()
     if not value.is_absolute():
@@ -106,8 +113,9 @@ class IsolationRuntime:
             target.symlink_to(link)
             copied.add(source)
             linked = Path(os.path.normpath(link if os.path.isabs(link) else str(source.parent / link)))
+            python_etc = Path("/etc") / python_stdlib_path(self.python).name
             allowed = (Path("/usr"), Path("/lib"), Path("/lib64"), Path("/etc/ssl"),
-                       Path("/etc/alternatives"), Path("/etc/python3.12"))
+                       Path("/etc/alternatives"), python_etc)
             if not any(linked == root or linked.is_relative_to(root) for root in allowed):
                 raise ValueError(f"runtime_symlink_outside_allowlist:{source}")
             try:
@@ -193,7 +201,7 @@ class IsolationRuntime:
                 if resolved.is_file():
                     binaries.append(resolved)
         (base / "usr/bin/python").symlink_to("python3")
-        binaries.extend(self._copy_tree(Path("/usr/lib/python3.12"), base, copied))
+        binaries.extend(self._copy_tree(python_stdlib_path(self.python), base, copied))
         for optional in (
             Path("/usr/lib/git-core"), Path("/usr/share/git-core"),
             Path("/usr/lib/x86_64-linux-gnu/perl-base"), Path("/usr/share/perl"),

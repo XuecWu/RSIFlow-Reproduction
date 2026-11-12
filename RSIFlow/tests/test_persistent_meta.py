@@ -140,9 +140,10 @@ def test_new_operations_are_forwarded_without_bridge_whitelist(tmp_path):
     assert 'diagnosed' in result and 'unknown_operation' not in result
 
 
-def test_native_coding_config_keeps_workspace_and_original_model(tmp_path):
-    params=native_thread_parameters(tmp_path)
-    assert params['model']=='DeepSeek-V4.1-Flash'
+def test_native_coding_config_uses_configured_meta_provider(tmp_path):
+    params=native_thread_parameters(tmp_path, {'model':'gpt-6-astra', 'provider':'OpenAI'})
+    assert params['model']=='gpt-6-astra'
+    assert params['modelProvider']=='OpenAI'
     assert params['sandbox']=='workspace-write' and params['cwd']==str(tmp_path)
     config=params['config']
     assert config['features.shell_tool'] is True

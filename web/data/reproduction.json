@@ -44,8 +44,11 @@
     },
     "landlock": {
       "local_status": "unavailable_function_not_implemented",
-      "upstream_suite": "167 passed, 2 skipped, 1 failed (latest); Landlock Function not implemented",
+      "upstream_suite": "169 passed, 2 skipped, 1 failed (latest); Landlock Function not implemented",
       "sco_probe_job": "pt-r6np9yvd",
+      "meta_runtime_probe_job": "pt-4hdyar4r",
+      "bwrap_candidate_probe_job": "pt-vcq25ldi",
+      "candidate_status": "minimal_bwrap_negative_checks_passed_not_integrated",
       "evidence": "reproduction/audit/reviews/environment-main.md"
     }
   },
@@ -110,8 +113,8 @@
     },
     {
       "id": "meta_api_smoke",
-      "status": "blocked_missing_credentials",
-      "evidence": null
+      "status": "responses_http_passed_codex_native_pending_isolation",
+      "evidence": "reproduction/audit/key_results.jsonl"
     },
     {
       "id": "benchmark_smoke",

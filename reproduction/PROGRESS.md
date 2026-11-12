@@ -26,9 +26,9 @@
 ## 当前等待与阻断
 
 - **完整实验当前硬阻断于 Landlock**：`pt-texqw4a8` 在目标 `Linux-4.18.0-425.3.1.el8` 上明确返回 errno 38、`landlock_available=false`，在模型加载前失败。不能用无隔离回退继续五轮。
-- 本机与目标 SCO 均不支持 Landlock；上游最新完整测试为 167 passed、2 skipped、1 failed。目标镜像还没有 bwrap：`pt-if57mo0b` 明确为 `bwrap: command not found`、exit 127，未验证任何替代隔离。
+- 本机与目标 SCO 均不支持 Landlock；上游最新完整测试为 169 passed、2 skipped、1 failed。目标镜像还没有 bwrap：`pt-if57mo0b` 明确为 `bwrap: command not found`、exit 127。Python 标准库和版本化 `/etc` 链接假设已修复。`pt-4hdyar4r` 证明 Meta 运行时越过 namespaces/chroot/capability 前置阶段、仅停在 Landlock；`pt-vcq25ldi` 的共享 bwrap 无 `/proc` 最小负向检查全部通过。它是候选后端证据，不是完整替代或真实 benchmark 通过。
 - 四卡模型诊断已完成，但不能替代 Landlock、Meta 和五类 benchmark 门槛。
-- `assets/private/credentials.sh` 尚不存在，真实 Meta `/models`、Responses/Chat 和 Codex native tools 尚未验证。
+- 私有凭据已安全配置且不入 Git。中转代理 `/models`、非流式与流式 Responses 已实测成功；OpenAI SDK 首次超时根因是冷导入 67.18 秒而非代理无响应。原生线程旧 provider 硬编码已修复并有回归测试，但 Codex native dynamic tools 和 thread resume 仍待隔离可用后验证。
 - BFCL、HumanEval+、MBPP+ 最小真实 benchmark smoke 尚未全部完成。
 - 尚未运行五轮实验、最终 694 评估或 8B；没有模型输出分数。
 

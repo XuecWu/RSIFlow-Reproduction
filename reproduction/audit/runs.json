@@ -18,6 +18,10 @@
       "landlock_failed_job_id": "pt-texqw4a8",
       "early_failed_gpu_diagnostic_job_id": "pt-b1r8t0uk",
       "bwrap_missing_job_id": "pt-if57mo0b",
+      "meta_runtime_probe_job_id": "pt-4hdyar4r",
+      "meta_runtime_probe_status": "ready_false_only_landlock_errno38",
+      "bwrap_alternative_probe_job_id": "pt-vcq25ldi",
+      "bwrap_alternative_probe_status": "minimal_negative_checks_passed_not_integrated",
       "started_at": null,
       "ended_at": null
     }

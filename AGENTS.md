@@ -114,7 +114,7 @@ PyTorch/CUDA 组合来自现有 SCO 环境的已验证记录，仍须在目标 A
 
 完整运行另需：Qwen3-4B/8B 本地 checkpoints、原始任务和 source manifests、检索语料/索引、各 benchmark evaluator 与 official specs、匹配 Codex binary 及 source checkout、Meta API，以及 ACEBench 用户模拟 API。Codex provenance 固定 tag `rust-v0.153.4`、commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` 和二进制 SHA256 `56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da`。本次 BFCL 固定 `ea13468e4423454d0c213704fb87cf7cb3990433`，使用独立 `rsiflow-bfcl` 环境，不降级生产依赖。
 
-凭据只通过安全环境注入或私有文件提供，不写入仓库、网页或日志。`RSIFLOW_PYTHON` 只选择 launcher 解释器，不会自动替换 JSON 内的所有 interpreter 路径。复制配置到机器专用位置后再替换 `/path/to/...`，避免污染上游基线。自定义 OpenAI provider 仅允许登记的 `http://token.acerobotics.com/v1`、`gpt-6-astra`、`OPENAI_API_KEY`，不允许任意 endpoint 或模型 fallback。
+凭据只通过安全环境注入或私有文件提供，不写入仓库、网页或日志。`RSIFLOW_PYTHON` 只选择 launcher 解释器，不会自动替换 JSON 内的所有 interpreter 路径。复制配置到机器专用位置后再替换 `/path/to/...`，避免污染上游基线。自定义 OpenAI provider 仅允许登记的 `http://token.acerobotics.com/v1`、`gpt-6-astra`、`OPENAI_API_KEY`，不允许任意 endpoint 或模型 fallback。`PersistentMeta` 的原生线程模型和 provider 必须来自有效 base 配置的 `meta`，不得在控制流中另写一套硬编码身份。
 
 ## 8. 后续命令与运行边界
 

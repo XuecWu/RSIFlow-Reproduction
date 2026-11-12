@@ -466,13 +466,13 @@ milestone unless the user explicitly changes the task. Do not start a second exp
 """
 
 
-def native_thread_parameters(workspace: Path):
+def native_thread_parameters(workspace: Path, meta_config: dict):
     """This server cannot mount bubblewrap; use Codex's supported Landlock compatibility mode.
 
     Keep repository metadata protected. Temporary writes stay inside the data-disk workspace.
     The compatibility mode is tested against the installed 0.154.0-alpha.6.2 binary.
     """
-    return {'model': 'DeepSeek-V4.1-Flash', 'modelProvider': 'autodl',
+    return {'model': meta_config['model'], 'modelProvider': meta_config['provider'],
             'cwd': str(workspace), 'approvalPolicy': 'never', 'sandbox': 'workspace-write',
             'developerInstructions': PERSISTENT_META_INSTRUCTIONS + '\n' + SKILL_GUIDANCE,
             'config': {'features.shell_tool': True, 'features.use_legacy_landlock': True,
@@ -483,8 +483,9 @@ def native_thread_parameters(workspace: Path):
 
 
 class PersistentMeta:
-    def __init__(self, *, project, run, codex_home, executor, rounds=3):
+    def __init__(self, *, project, run, codex_home, executor, meta_config, rounds=3):
         self.project, self.run, self.codex_home = project, run, codex_home
+        self.meta_config = meta_config
         self.workspace = project.resolve().parent
         self.journal = run / 'meta_session'
         self.progress = ExperimentProgress(self.journal, rounds=rounds)
@@ -531,7 +532,7 @@ class PersistentMeta:
         try:
             server.start()
             state['codex_pid'] = server.process.pid
-            parameters = native_thread_parameters(self.workspace)
+            parameters = native_thread_parameters(self.workspace, self.meta_config)
             write_json(self.journal / 'app_server/thread_parameters.json', parameters)
             if thread_id:
                 reply = server.request('thread/resume', {**parameters, 'threadId': thread_id,

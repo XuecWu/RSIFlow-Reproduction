@@ -465,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     tools = SubprocessToolExecutor(project_root=PROJECT_ROOT, run_dir=run_dir)
     loop = PersistentMeta(project=PROJECT_ROOT, run=run_dir, codex_home=codex_home,
-                          executor=tools, rounds=int(config.get("rounds", 3)))
+                          executor=tools, meta_config=base["meta"], rounds=int(config.get("rounds", 3)))
     while True:
         try:
             final = loop.run_experiment(experiment_prompt(config_path, config, run_dir))

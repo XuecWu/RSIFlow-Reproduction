@@ -436,3 +436,72 @@ def test_relay_and_host_provider_configuration_are_exact():
     assert base["execution_location"] == "local_chroot"
     assert base["allow_model_fallback"] is False
     assert base["allow_provider_fallback"] is False
+
+
+def load_smoke():
+    sys.path.insert(0, str(PROJECT / "reproduction/scripts"))
+    return __import__("persistent_meta_bwrap_smoke")
+
+
+def valid_reconciliation_report():
+    return {
+        "returned_model": "gpt-6-astra",
+        "dynamic_tool_receipt": {"call_id": "call-A", "fixture_value": "public-fixture"},
+        "before": {"thread_id": "thread-A", "jobs": {"job-A": "running"}, "bootstrap_receipts": 0},
+        "after": {"thread_id": "thread-A", "jobs": {"job-A": "running"}, "bootstrap_receipts": 0},
+    }
+
+
+def test_reconcile_resume_accepts_same_thread_and_original_job():
+    smoke = load_smoke()
+    report = valid_reconciliation_report()
+    assert smoke.reconcile_resume(report["before"], report["after"]) == {
+        "same_thread": True,
+        "duplicate_jobs": [],
+        "bootstrap_repeated": False,
+    }
+    smoke.validate_smoke_report(report)
+
+
+def test_reconcile_resume_rejects_changed_thread():
+    smoke = load_smoke()
+    report = valid_reconciliation_report()
+    report["after"]["thread_id"] = "thread-B"
+    assert smoke.reconcile_resume(report["before"], report["after"])["same_thread"] is False
+    with pytest.raises(ValueError, match="same_thread"):
+        smoke.validate_smoke_report(report)
+
+
+def test_reconcile_resume_rejects_new_job():
+    smoke = load_smoke()
+    report = valid_reconciliation_report()
+    report["after"]["jobs"]["job-B"] = "running"
+    assert smoke.reconcile_resume(report["before"], report["after"])["duplicate_jobs"] == ["job-B"]
+    with pytest.raises(ValueError, match="duplicate_jobs"):
+        smoke.validate_smoke_report(report)
+
+
+def test_reconcile_resume_rejects_second_bootstrap_receipt():
+    smoke = load_smoke()
+    report = valid_reconciliation_report()
+    report["before"]["bootstrap_receipts"] = 1
+    report["after"]["bootstrap_receipts"] = 2
+    assert smoke.reconcile_resume(report["before"], report["after"])["bootstrap_repeated"] is True
+    with pytest.raises(ValueError, match="bootstrap_repeated"):
+        smoke.validate_smoke_report(report)
+
+
+def test_smoke_report_rejects_missing_dynamic_tool_receipt():
+    smoke = load_smoke()
+    report = valid_reconciliation_report()
+    report["dynamic_tool_receipt"] = None
+    with pytest.raises(ValueError, match="dynamic_tool_receipt"):
+        smoke.validate_smoke_report(report)
+
+
+def test_smoke_report_rejects_provider_model_mismatch():
+    smoke = load_smoke()
+    report = valid_reconciliation_report()
+    report["returned_model"] = "gpt-other"
+    with pytest.raises(ValueError, match="returned_model"):
+        smoke.validate_smoke_report(report)

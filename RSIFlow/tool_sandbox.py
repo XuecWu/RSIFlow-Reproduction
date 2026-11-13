@@ -42,7 +42,7 @@ def serve_rpc(incoming,outgoing,handler,errors,workers=4):
                 raise RuntimeError('Invalid RPC frame')
             slots.acquire();pool.submit(reply,frame)
 
-def run_native(command, work, output, log, handler=None, timeout=604800):
+def _run_native_landlock(command, work, output, log, handler=None, timeout=604800):
     from rsiflow.task_meta import sandbox
     if not sandbox.probe_isolation()['available']:
         raise RuntimeError('Native benchmark isolation unavailable')
@@ -135,6 +135,99 @@ def run_native(command, work, output, log, handler=None, timeout=604800):
             if fd is not None:os.close(fd)
         if process is None:
             os.close(request_read);os.close(response_write)
+
+def _make_native_request(command, work, output, *, request_write, response_read, timeout):
+    from rsiflow.task_meta.bwrap_backend import BwrapLimits, BwrapMount, BwrapRequest
+    work,output=Path(work).resolve(),Path(output).resolve()
+    scratch=output/'sandbox_tmp'
+    env={'PATH':str(Path(command[0]).absolute().parent)+':/usr/bin:/bin','HOME':str(scratch),
+         'TMPDIR':str(scratch),'LANG':'C.UTF-8','PYTHONPATH':str(work),'PYTHONDONTWRITEBYTECODE':'1',
+         'RSI_RPC_WRITE_FD':str(request_write),'RSI_RPC_READ_FD':str(response_read),
+         'API_KEY':'pipe-only','RSIFLOW_RELAY_KEY':'pipe-only',
+         'GPT_BASE_URL':'http://127.0.0.1:1/v1','BASE_URL':'http://127.0.0.1:1/v1',
+         'OPENAI_BASE_URL':'http://127.0.0.1:1/v1','OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1',
+         'CUDA_VISIBLE_DEVICES':''}
+    executable=Path(command[0]).absolute()
+    evaluator_environment=executable.parent.parent
+    reads=[]
+    if (evaluator_environment/'pyvenv.cfg').is_file() or (evaluator_environment/'conda-meta').is_dir():
+        reads.append((evaluator_environment,str(evaluator_environment)))
+    else:
+        reads.append((executable,str(executable)))
+    reads += [(Path(sys.prefix),str(Path(sys.prefix).absolute())),
+              (Path(sys.base_prefix),str(Path(sys.base_prefix).absolute())),
+              (Path(command[2]),str(Path(command[2]).absolute()))]
+    reads += [(Path(p),p) for p in ('/lib','/lib64','/usr/lib','/usr/lib64','/etc/ld.so.cache','/etc/mime.types',
+                                    '/dev/null','/dev/urandom','/dev/random') if Path(p).exists()]
+    mounts=[];targets=set()
+    def add(source,target,mode='ro'):
+        if target in targets:return
+        targets.add(target)
+        mounts.append(BwrapMount(Path(source).resolve(),target,mode))
+    for source,target in reads:add(source,target,'dev' if Path(target).parent==Path('/dev') else 'ro')
+    add(output,str(output),'rw')
+    add(work,str(work),'ro')
+    limits=BwrapLimits(wall_seconds=timeout,cpu_seconds=max(1,int(timeout)),memory_bytes=16*1024**3,
+        output_bytes=2_000_000_000,file_bytes=2_000_000_000,processes=128,file_descriptors=256)
+    return BwrapRequest(profile='native_benchmark',argv=tuple(command),cwd=str(work),env=env,limits=limits,
+        mounts=tuple(mounts),preserve_fds=(request_write,response_read))
+
+
+def _run_native_bwrap(command, work, output, log, handler=None, timeout=604800):
+    from rsiflow.task_meta.bwrap_backend import BubblewrapBackend
+    if Path(output).is_symlink() or any(p.is_symlink() for p in Path(output).parents):
+        raise ValueError('Native output must not use symlinks')
+    work,output=Path(work).resolve(),Path(output).resolve()
+    output.mkdir(parents=True,exist_ok=True)
+    if output.is_symlink():raise ValueError('Native output must not be a symlink')
+    for directory,dirs,files in os.walk(output,followlinks=False):
+        os.chown(directory,os.geteuid(),os.getegid(),follow_symlinks=False)
+        for name in files:os.chown(Path(directory)/name,os.geteuid(),os.getegid(),follow_symlinks=False)
+    scratch=output/'sandbox_tmp';scratch.mkdir(exist_ok=True)
+    request_read,request_write=os.pipe();response_read,response_write=os.pipe()
+    request=_make_native_request(command,work,output,request_write=request_write,response_read=response_read,timeout=timeout)
+    backend=BubblewrapBackend(Path(__file__).resolve().parent.parent,allowed_write_roots=(output,))
+    built=None;process=None;errors=[]
+    try:
+        built=backend.command(request)
+        try:
+            process=subprocess.Popen(built,cwd=work,env={'PATH':'/usr/bin:/bin'},stdin=subprocess.DEVNULL,
+                stdout=log,stderr=log,pass_fds=built.pass_fds,start_new_session=True)
+        except (OSError,subprocess.SubprocessError) as exc:
+            raise RuntimeError(f'Native evaluator launch failed: {exc}') from exc
+        finally:
+            built.close()
+        os.close(request_write);request_write=None;os.close(response_read);response_read=None
+        def serve():
+            try:
+                with os.fdopen(request_read,'rb') as incoming,os.fdopen(response_write,'wb') as outgoing:
+                    serve_rpc(incoming,outgoing,handler,errors)
+            except Exception as exc:errors.append(type(exc).__name__)
+        thread=threading.Thread(target=serve,daemon=True);thread.start()
+        try:code=process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid,signal.SIGKILL);process.wait();raise
+        thread.join(timeout=5)
+        if thread.is_alive():raise RuntimeError('Native RPC did not terminate')
+        if code or errors:raise RuntimeError(f'Native evaluator failed (exit={code}, RPC={errors}); inspect {log.name}')
+    finally:
+        if process is not None and process.poll() is None:
+            os.killpg(process.pid,signal.SIGKILL);process.wait()
+        for fd in (request_write,response_read):
+            if fd is not None:os.close(fd)
+        if process is None:
+            os.close(request_read);os.close(response_write)
+        if built is not None:built.close()
+
+
+def run_native(command, work, output, log, handler=None, timeout=604800, backend=None):
+    selected=backend if backend is not None else os.environ.get('RSIFLOW_SANDBOX_BACKEND','linux_landlock_seccomp')
+    if selected=='linux_bwrap_seccomp_v1':
+        return _run_native_bwrap(command,work,output,log,handler=handler,timeout=timeout)
+    if selected=='linux_landlock_seccomp':
+        return _run_native_landlock(command,work,output,log,handler=handler,timeout=timeout)
+    raise RuntimeError('Unknown native sandbox backend: '+str(selected))
+
 
 def drop_capabilities():
     libc=ctypes.CDLL(None,use_errno=True)

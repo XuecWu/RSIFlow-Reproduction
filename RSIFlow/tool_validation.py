@@ -40,7 +40,7 @@ def native_layout(identifier,spec):
 
 def check_native(identifier,spec,output):
     """Import/register the actual official runners in isolation; zero inference."""
-    output=Path(output);output.mkdir(parents=True,exist_ok=True)
+    output=Path(output).absolute();output.mkdir(parents=True,exist_ok=True)
     repo,spec,ids,files=native_layout(identifier,spec)
     work=output/'native_work'
     if not work.exists():shutil.copytree(repo,work,ignore=shutil.ignore_patterns('.git','__pycache__','.env*','result*','score*'))
@@ -56,6 +56,8 @@ def check_native(identifier,spec,output):
     with (output/'check.log').open('wb') as log:
         run_native(command,work,output,log,handler=fake_only,timeout=900)
     if len(calls)!=2:raise RuntimeError('Official SDK bridge did not complete the CPU test')
+    write(output/'check.json',{'status':'completed','controlled_rpc_calls':2,
+        'response':'test_override_cpu_only','requests':calls})
 
 def metric_rows(identifier, output, ids):
     summaries=[];task_results=[]

@@ -282,4 +282,4 @@ def evaluate_evalplus_isolated(spec, predictions_path: Path, output_dir: Path):
     atomic_json(output_dir / "official_results.json", results)
     (output_dir / "stdout.txt").write_text(json.dumps(results["pass_at_k"]) + "\n")
     (output_dir / "stderr.txt").write_text("")
-    return {"returncode": 0, "worker_isolation": "linux_landlock_seccomp", "source_commit": spec.commit}
+    return {"returncode": 0, "worker_isolation": LinuxSandbox().backend, "source_commit": spec.commit}

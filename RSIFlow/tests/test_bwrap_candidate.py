@@ -30,6 +30,11 @@ def test_bwrap_is_explicit_and_never_falls_back(monkeypatch, tmp_path):
     assert not (tmp_path / "candidate.py").exists()
 
 
+def test_evalplus_receipt_reports_selected_bwrap_backend(monkeypatch):
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
+    assert LinuxSandbox().backend == "linux_bwrap_seccomp_v1"
+
+
 def test_unknown_backend_fails_closed(monkeypatch, tmp_path):
     monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "host-or-unknown")
     with pytest.raises(SandboxUnavailable, match="unknown sandbox backend"):

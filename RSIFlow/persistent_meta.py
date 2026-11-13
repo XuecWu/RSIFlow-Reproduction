@@ -40,10 +40,11 @@ class CodexAppServer:
     """JSON-RPC connection; the same server PID handles every native tool call."""
 
     def __init__(self, *, codex_home: Path, workspace: Path, journal: Path,
-                 executable: str | None = None, on_tool=None, chat=None):
+                 executable: str | None = None, on_tool=None, chat=None, process_launcher=None):
         self.home, self.workspace, self.journal = codex_home, workspace, journal
         self.executable = executable or os.environ.get('RSIFLOW_CODEX_EXECUTABLE') or 'codex'
         self.on_tool = on_tool
+        self.process_launcher = process_launcher
         self.inbox = queue.Queue()
         self.sequence = 0
         self.responses = {}
@@ -61,12 +62,18 @@ class CodexAppServer:
         self.events = (self.journal / 'events.jsonl').open('a', encoding='utf-8', buffering=1)
         temporary = self.journal / 'tmp'
         temporary.mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ, CODEX_HOME=str(self.home), TMPDIR=str(temporary))
-        self.process = subprocess.Popen(
-            [self.executable, 'app-server', '--listen', 'stdio://'], cwd=self.workspace,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr,
-            text=True, bufsize=1, env=env,
-        )
+        argv = [self.executable, 'app-server', '--listen', 'stdio://']
+        if self.process_launcher is not None:
+            self.process = self.process_launcher.spawn(
+                argv, self.workspace, subprocess.PIPE, subprocess.PIPE, self.stderr,
+            )
+        else:
+            env = dict(os.environ, CODEX_HOME=str(self.home), TMPDIR=str(temporary))
+            self.process = subprocess.Popen(
+                argv, cwd=self.workspace,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr,
+                text=True, bufsize=1, env=env,
+            )
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         self.request('initialize', {'clientInfo': {'name': 'rsiflow_meta', 'version': '1.0'},
@@ -223,7 +230,8 @@ class ExperimentJobs:
                 (directory / 'stderr.log').open('w') as stderr:
             process = subprocess.Popen(argv, stdin=source, stdout=stdout, stderr=stderr,
                                        cwd=self.project, start_new_session=True,
-                                       env={k: v for k, v in os.environ.items() if k != 'AUTODL_API_KEY'})
+                                       env={k: v for k, v in os.environ.items()
+                                            if k not in {'AUTODL_API_KEY', 'OPENAI_API_KEY'}})
         self.children[identifier] = process
         job = {'job_id': identifier, 'request': request, 'pid': process.pid,
                'process_start': process_identity(process.pid), 'created_at': time.time(),
@@ -467,25 +475,24 @@ milestone unless the user explicitly changes the task. Do not start a second exp
 
 
 def native_thread_parameters(workspace: Path, meta_config: dict):
-    """This server cannot mount bubblewrap; use Codex's supported Landlock compatibility mode.
-
-    Keep repository metadata protected. Temporary writes stay inside the data-disk workspace.
-    The compatibility mode is tested against the installed 0.154.0-alpha.6.2 binary.
-    """
+    """Keep legacy Landlock compatibility inside the selected outer sandbox."""
     return {'model': meta_config['model'], 'modelProvider': meta_config['provider'],
             'cwd': str(workspace), 'approvalPolicy': 'never', 'sandbox': 'workspace-write',
             'developerInstructions': PERSISTENT_META_INSTRUCTIONS + '\n' + SKILL_GUIDANCE,
             'config': {'features.shell_tool': True, 'features.use_legacy_landlock': True,
                        'features.multi_agent': False, 'features.multi_agent_v2': False,
-                       'sandbox_workspace_write.network_access': True,
+                       'sandbox_workspace_write.network_access': False,
                        'sandbox_workspace_write.exclude_slash_tmp': True,
                        'sandbox_workspace_write.exclude_tmpdir_env_var': True}}
 
 
 class PersistentMeta:
-    def __init__(self, *, project, run, codex_home, executor, meta_config, rounds=3):
+    def __init__(self, *, project, run, codex_home, executor, meta_config, rounds=3,
+                 sandbox_backend=None, writable_outputs=()):
         self.project, self.run, self.codex_home = project, run, codex_home
         self.meta_config = meta_config
+        self.sandbox_backend = sandbox_backend
+        self.writable_outputs = writable_outputs
         self.workspace = project.resolve().parent
         self.journal = run / 'meta_session'
         self.progress = ExperimentProgress(self.journal, rounds=rounds)
@@ -522,16 +529,29 @@ class PersistentMeta:
         prompt_path = self.journal / 'app_server/initial_prompt.txt'
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
         prompt_path.write_text(prompt, encoding='utf-8')
-        # Landlock must resolve these metadata directories to retain their read-only protection.
-        for name in ('.git', '.agents', '.codex'):
-            if not (self.workspace / name).exists():
-                (self.workspace / name).mkdir()
+        sandbox = None
+        if self.sandbox_backend is not None:
+            if self.sandbox_backend != 'linux_bwrap_seccomp_v1':
+                raise ValueError(f'unsupported persistent Meta sandbox: {self.sandbox_backend}')
+            from persistent_meta_sandbox import PersistentMetaSandbox
+            sandbox = PersistentMetaSandbox(project=self.project, run=self.run, codex_home=self.codex_home,
+                                            meta_config=self.meta_config,
+                                            writable_outputs=self.writable_outputs)
+        else:
+            # Legacy Landlock resolves these metadata directories to retain their protection.
+            for name in ('.git', '.agents', '.codex'):
+                if not (self.workspace / name).exists():
+                    (self.workspace / name).mkdir()
         server = CodexAppServer(codex_home=self.codex_home, workspace=self.workspace,
                                 journal=self.journal / 'app_server', on_tool=self.tools,
-                                chat=ChatMailbox(self.journal / 'chat'))
+                                executable='/codex' if sandbox is not None else None,
+                                chat=ChatMailbox(self.journal / 'chat'), process_launcher=sandbox)
         try:
             server.start()
             state['codex_pid'] = server.process.pid
+            if sandbox is not None:
+                state['sandbox_backend'] = 'linux_bwrap_seccomp_v1'
+                write_json(self.journal / 'app_server/execution_host.json', sandbox.identity())
             parameters = native_thread_parameters(self.workspace, self.meta_config)
             write_json(self.journal / 'app_server/thread_parameters.json', parameters)
             if thread_id:
@@ -567,4 +587,8 @@ class PersistentMeta:
             write_json(state_path, state)
             raise
         finally:
-            server.close()
+            try:
+                server.close()
+            finally:
+                if sandbox is not None:
+                    sandbox.close()

@@ -4,9 +4,9 @@ This is transport only. Send each inference request once; reconnect using only
 read-only receipt retrieval. No API token or inference retry lives here.
 """
 
+import hashlib
 import http.client
 import http.server
-import hashlib
 import socket
 import subprocess
 import sys
@@ -19,7 +19,7 @@ class UnixConnection(http.client.HTTPConnection):
     def connect(self):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.settimeout(self.timeout)
-        self.sock.connect("/transport.sock")
+        self.sock.connect("/run/rsiflow/transport.sock")
 
 
 class Bridge(http.server.BaseHTTPRequestHandler):
@@ -69,8 +69,9 @@ class Bridge(http.server.BaseHTTPRequestHandler):
 if __name__ == "__main__":
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 18443), Bridge)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    env = {"PATH": "/usr/bin:/bin", "HOME": "/home/meta", "CODEX_HOME": "/codex_home",
-           "LANG": "C.UTF-8", "TMPDIR": "/tmp",
+    env = {"PATH": "/usr/bin:/bin", "HOME": "/codex_home", "CODEX_HOME": "/codex_home",
+           "LANG": "C.UTF-8", "TMPDIR": "/tmp", "PYTHONDONTWRITEBYTECODE": "1",
+           "RSIFLOW_RELAY_KEY": "pipe-only",
            "TOKIO_WORKER_THREADS": "4", "RAYON_NUM_THREADS": "4",
            "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1",
            "NUMEXPR_NUM_THREADS": "1", "TOKENIZERS_PARALLELISM": "false"}

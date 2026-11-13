@@ -104,7 +104,19 @@ def test_codex_home_is_persistent_and_resolves_model_catalog(tmp_path):
     assert "DeepSeek-V4.1-Flash" in config
     assert "AUTODL_API_KEY" in config
     assert "api_key =" not in config
+    (home / "session.jsonl").write_text("persistent-thread-state\n")
     assert prepare_codex_home(tmp_path / "run") == home
+    assert (home / "session.jsonl").read_text() == "persistent-thread-state\n"
+
+
+def test_bwrap_codex_home_uses_static_catalog_and_preserves_existing_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
+    home = prepare_codex_home(tmp_path / "run")
+    config_path = home / "config.toml"
+    assert 'model_catalog_json = "/catalog.json"' in config_path.read_text()
+    config_path.write_text(config_path.read_text() + "\n# existing-run-state\n")
+    assert prepare_codex_home(tmp_path / "run") == home
+    assert config_path.read_text().endswith("# existing-run-state\n")
 
 
 def test_tool_executor_starts_new_controller_process_each_call(tmp_path):

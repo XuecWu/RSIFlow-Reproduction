@@ -1,18 +1,26 @@
 """Native RPC and durable-tool integration tests, without a model or GPUs."""
 import json
+import os
+import subprocess
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from controller_tools import ControllerTools
 from experiment_progress import ExperimentProgress
-from persistent_meta import (CodexAppServer, ExperimentJobs, NativeExperimentTools,
-                             dynamic_tools, native_thread_parameters, process_identity, write_json)
+from persistent_meta import (
+    CodexAppServer,
+    ExperimentJobs,
+    NativeExperimentTools,
+    dynamic_tools,
+    native_thread_parameters,
+    process_identity,
+    write_json,
+)
 
 
-def test_real_process_survives_native_tool_error_and_multiple_turns(tmp_path):
+def test_real_process_survives_native_tool_error_and_multiple_turns(tmp_path, monkeypatch):
     executable = tmp_path / 'fake_codex'
     executable.write_text('''#!/usr/bin/env python3
 import json, sys
@@ -41,6 +49,18 @@ for line in sys.stdin:
             send({'method':'turn/completed','params':{'threadId':'thread','turn':{'id':str(turn),'status':'completed'}}})
 ''')
     executable.chmod(0o755)
+    monkeypatch.setenv('OPENAI_API_KEY', 'parent-only-secret')
+    launches = []
+
+    class Launcher:
+        def spawn(self, argv, cwd, stdin, stdout, stderr):
+            launches.append({'argv': argv, 'cwd': cwd})
+            return subprocess.Popen(
+                argv, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr,
+                text=True, bufsize=1,
+                env={'PATH': os.environ['PATH'], 'HOME': str(tmp_path)},
+            )
+
     pids = []
     def probe(*args):
         pids.append(server.process.pid)
@@ -48,7 +68,7 @@ for line in sys.stdin:
             raise RuntimeError('recoverable tool error')
         return {'status': 'ok'}
     server = CodexAppServer(codex_home=tmp_path, workspace=tmp_path, journal=tmp_path/'rpc',
-                            executable=str(executable), on_tool=probe)
+                            executable=str(executable), on_tool=probe, process_launcher=Launcher())
     try:
         server.start()
         server.request('thread/start', {'dynamicTools': dynamic_tools()})
@@ -57,6 +77,7 @@ for line in sys.stdin:
         assert server.turn('thread', 'second', environments=environments)['status'] == 'completed'
         assert len(pids) == 6 and len(set(pids)) == 1
         assert server.process.poll() is None
+        assert len(launches) == 1
     finally:
         server.close()
 
@@ -140,6 +161,33 @@ def test_new_operations_are_forwarded_without_bridge_whitelist(tmp_path):
     assert 'diagnosed' in result and 'unknown_operation' not in result
 
 
+def test_durable_host_jobs_strip_provider_credentials(tmp_path, monkeypatch):
+    import persistent_meta
+
+    project = tmp_path / 'project'
+    project.mkdir()
+    run = tmp_path / 'run'
+    received = {}
+
+    class Child:
+        pid = os.getpid()
+
+        def poll(self):
+            return None
+
+    def popen(argv, **kwargs):
+        received.update(kwargs['env'])
+        return Child()
+
+    monkeypatch.setenv('OPENAI_API_KEY', 'parent-only-secret')
+    monkeypatch.setenv('AUTODL_API_KEY', 'legacy-parent-only-secret')
+    monkeypatch.setattr(persistent_meta.subprocess, 'Popen', popen)
+    jobs = ExperimentJobs(project, run)
+    jobs.start({'operation': 'run_parent'}, run / 'meta_session/turns/0000')
+    assert 'OPENAI_API_KEY' not in received
+    assert 'AUTODL_API_KEY' not in received
+
+
 def test_native_coding_config_uses_configured_meta_provider(tmp_path):
     params=native_thread_parameters(tmp_path, {'model':'gpt-6-astra', 'provider':'OpenAI'})
     assert params['model']=='gpt-6-astra'
@@ -148,11 +196,71 @@ def test_native_coding_config_uses_configured_meta_provider(tmp_path):
     config=params['config']
     assert config['features.shell_tool'] is True
     assert config['features.use_legacy_landlock'] is True
+    assert config['features.multi_agent'] is False
+    assert config['features.multi_agent_v2'] is False
+    assert config['sandbox_workspace_write.network_access'] is False
     assert config['sandbox_workspace_write.exclude_slash_tmp'] is True
     assert config['sandbox_workspace_write.exclude_tmpdir_env_var'] is True
     assert 'environments' not in params
     assert 'supersedes earlier' in params['developerInstructions']
     assert 'add tools within the rsiH workspace' in params['developerInstructions']
+
+
+def test_persistent_meta_uses_namespace_codex_and_closes_sandbox(tmp_path, monkeypatch):
+    import persistent_meta
+    import persistent_meta_sandbox
+
+    project = tmp_path / 'repository/RSIFlow'
+    project.mkdir(parents=True)
+    run = tmp_path / 'run'
+    session = run / 'meta_session'
+    session.mkdir(parents=True)
+    (session / 'state.json').write_text(json.dumps({
+        'transport': 'app_server', 'status': 'running', 'thread_id': 'thread-existing',
+    }))
+    created = {}
+
+    class Sandbox:
+        def __init__(self, **kwargs):
+            created['sandbox_kwargs'] = kwargs
+            created['closed'] = False
+
+        def identity(self):
+            return {'backend': 'linux_bwrap_seccomp_v1'}
+
+        def close(self):
+            created['closed'] = True
+
+    class Server:
+        def __init__(self, **kwargs):
+            created['server_kwargs'] = kwargs
+            self.process = type('Process', (), {'pid': 12345})()
+
+        def start(self):
+            return self
+
+        def request(self, method, params):
+            assert method == 'thread/resume'
+            assert params['threadId'] == 'thread-existing'
+            return {'thread': {'id': 'thread-existing'}}
+
+        def close(self):
+            created['server_closed'] = True
+
+    monkeypatch.setattr(persistent_meta_sandbox, 'PersistentMetaSandbox', Sandbox)
+    monkeypatch.setattr(persistent_meta, 'CodexAppServer', Server)
+    loop = persistent_meta.PersistentMeta(
+        project=project, run=run, codex_home=session / 'codex_home', executor=object(),
+        meta_config={'model': 'gpt-6-astra', 'provider': 'OpenAI'},
+        sandbox_backend='linux_bwrap_seccomp_v1', writable_outputs=(tmp_path / 'output',),
+    )
+    loop.tools.finished = True
+    result = loop.run_experiment('continue')
+    assert result['status'] == 'complete' and result['thread_id'] == 'thread-existing'
+    assert created['server_kwargs']['executable'] == '/codex'
+    assert isinstance(created['server_kwargs']['process_launcher'], Sandbox)
+    assert created['sandbox_kwargs']['writable_outputs'] == (tmp_path / 'output',)
+    assert created['server_closed'] is True and created['closed'] is True
 
 
 def test_model_catalog_exposes_native_apply_patch():

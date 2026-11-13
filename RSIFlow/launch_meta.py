@@ -124,7 +124,9 @@ def prepare_codex_home(run_dir: Path, *, host_path=None, catalog_path=None) -> P
     if not catalog.is_absolute():
         catalog = PROJECT_ROOT / catalog
     template = host.read_text(encoding="utf-8")
-    config = template.replace("__MODEL_CATALOG_JSON__", str(catalog.resolve()))
+    catalog_target = ("/catalog.json" if os.environ.get("RSIFLOW_SANDBOX_BACKEND") ==
+                      "linux_bwrap_seccomp_v1" else str(catalog.resolve()))
+    config = template.replace("__MODEL_CATALOG_JSON__", catalog_target)
     config_path = codex_home / "config.toml"
     if not config_path.exists():
         config_path.write_text(config, encoding="utf-8")
@@ -465,7 +467,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     tools = SubprocessToolExecutor(project_root=PROJECT_ROOT, run_dir=run_dir)
     loop = PersistentMeta(project=PROJECT_ROOT, run=run_dir, codex_home=codex_home,
-                          executor=tools, meta_config=base["meta"], rounds=int(config.get("rounds", 3)))
+                          executor=tools, meta_config=base["meta"], rounds=int(config.get("rounds", 3)),
+                          sandbox_backend=os.environ.get("RSIFLOW_SANDBOX_BACKEND"),
+                          writable_outputs=config.get("meta_writable_outputs", ()))
     while True:
         try:
             final = loop.run_experiment(experiment_prompt(config_path, config, run_dir))

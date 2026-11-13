@@ -243,10 +243,16 @@ class LinuxSandbox:
                 else:
                     argv = [str(self.python), "-s", "-B", "candidate.py"]
                     isolation_hook = self._isolation_hook(scratch)
-                process = subprocess.Popen(argv,
-                    cwd=scratch, stdin=subprocess.PIPE, stdout=out, stderr=err, close_fds=True,
-                    env=self._environment(scratch, seed), preexec_fn=isolation_hook,
-                    start_new_session=self.backend == "linux_bwrap_seccomp_v1")
+                try:
+                    process = subprocess.Popen(argv,
+                        cwd=scratch, stdin=subprocess.PIPE, stdout=out, stderr=err, close_fds=True,
+                        env=self._environment(scratch, seed), preexec_fn=isolation_hook,
+                        start_new_session=self.backend == "linux_bwrap_seccomp_v1",
+                        pass_fds=getattr(argv, "pass_fds", ()))
+                finally:
+                    close = getattr(argv, "close", None)
+                    if close:
+                        close()
             except (OSError, subprocess.SubprocessError) as exc:
                 err.seek(0)
                 diagnostic = err.read(4096).decode("utf-8", "replace")
@@ -296,10 +302,16 @@ class SandboxSession:
             else:
                 argv = [str(runner.python), "-s", "-B", "-u", "candidate.py"]
                 isolation_hook = runner._isolation_hook(self.scratch)
-            self.process = subprocess.Popen(argv,
-                cwd=self.scratch, env=runner._environment(self.scratch, seed), close_fds=True,
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, bufsize=0,
-                preexec_fn=isolation_hook, start_new_session=runner.backend == "linux_bwrap_seccomp_v1")
+            try:
+                self.process = subprocess.Popen(argv,
+                    cwd=self.scratch, env=runner._environment(self.scratch, seed), close_fds=True,
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, bufsize=0,
+                    preexec_fn=isolation_hook, start_new_session=runner.backend == "linux_bwrap_seccomp_v1",
+                    pass_fds=getattr(argv, "pass_fds", ()))
+            finally:
+                close = getattr(argv, "close", None)
+                if close:
+                    close()
         except (OSError, subprocess.SubprocessError) as exc:
             diagnostic = ""
             if self.stderr:

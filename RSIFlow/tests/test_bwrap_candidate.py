@@ -116,7 +116,7 @@ def test_bwrap_command_has_typed_limits_minimal_environment_and_one_writable_mou
     assert command == ["pinned-bwrap"]
     assert captured["backend"].allowed_write_roots == (scratch.absolute(),)
     assert request.profile == "candidate"
-    assert request.argv == (str(runner.python), "-s", "-B", "candidate.py")
+    assert request.argv == ("/usr/bin/python3", "-s", "-B", "candidate.py")
     assert request.cwd == "/workspace"
     assert request.env == {
         "PATH": str(runner.python.parent),
@@ -192,7 +192,7 @@ def test_bwrap_session_command_uses_unbuffered_candidate_profile(monkeypatch, tm
     bwrap_candidate.command(runner, scratch, profile="candidate_session", seed=0)
     request = captured["request"]
     assert request.profile == "candidate_session"
-    assert request.argv == (str(runner.python), "-s", "-B", "-u", "candidate.py")
+    assert request.argv == ("/usr/bin/python3", "-s", "-B", "-u", "candidate.py")
 
 
 def test_negative_timeout_reports_exact_probe_stage_and_timing(tmp_path):
@@ -209,3 +209,20 @@ def test_negative_timeout_reports_exact_probe_stage_and_timing(tmp_path):
     result = runner.run(program)
     with pytest.raises(SandboxUnavailable, match="runtime_write_denied.*timed_out=True"):
         candidate_bwrap_smoke.require_negative_result(result)
+
+
+def test_bwrap_command_executes_fixed_interpreter_with_explicit_runtime_allowlist(monkeypatch, tmp_path):
+    runner = bwrap_runner(monkeypatch, tmp_path, runtime_read_paths=["/usr/lib"])
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    captured = {}
+
+    def capture(backend, request):
+        captured["request"] = request
+        return ["pinned-bwrap"]
+
+    monkeypatch.setattr(bwrap_candidate.BubblewrapBackend, "command", capture)
+    bwrap_candidate.command(runner, scratch, profile="candidate", seed=0)
+    request = captured["request"]
+    assert request.argv[0] == "/usr/bin/python3"
+    assert request.argv[0] in {mount.target for mount in request.mounts}

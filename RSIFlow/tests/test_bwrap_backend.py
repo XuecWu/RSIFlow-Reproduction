@@ -1,6 +1,7 @@
 import hashlib
 import importlib
 import json
+import os
 import resource
 import shutil
 import sys
@@ -43,6 +44,15 @@ MANIFEST = {
 
 def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def assert_open_identity(command, source, expected_path):
+    assert source.startswith("/proc/self/fd/")
+    descriptor = int(source.rsplit("/", 1)[1])
+    assert descriptor in command.pass_fds
+    actual = os.fstat(descriptor)
+    expected = os.lstat(expected_path)
+    assert (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
 
 
 def make_root(tmp_path):
@@ -157,9 +167,8 @@ def test_command_has_fixed_namespaces_mounts_and_inner_cli(tmp_path, monkeypatch
     request = make_request(backend)
     command = backend.command(request)
     assert command[:4] == [str(backend.binary), "--unshare-all", "--new-session", "--die-with-parent"]
-    assert [str(backend.launcher), "/opt/rsiflow/bwrap_launcher.py"] == command[
-        command.index("/opt/rsiflow/bwrap_launcher.py") - 1 : command.index("/opt/rsiflow/bwrap_launcher.py") + 1
-    ]
+    launcher_index = command.index("/opt/rsiflow/bwrap_launcher.py")
+    assert_open_identity(command, command[launcher_index - 1], backend.launcher)
     assert "--ro-bind" in command
     assert "--bind" in command
     separator = command.index("--")
@@ -220,7 +229,8 @@ def test_dev_mount_is_a_single_device(tmp_path, monkeypatch):
     request = make_request(backend, mounts=(BwrapMount(Path("/dev/null"), "/dev/null", "dev"),))
     command = backend.command(request)
     index = command.index("--dev-bind")
-    assert command[index : index + 3] == ["--dev-bind", "/dev/null", "/dev/null"]
+    assert command[index + 2] == "/dev/null"
+    assert_open_identity(command, command[index + 1], Path("/dev/null"))
     with pytest.raises((SandboxUnavailable, ValueError)):
         backend.command(make_request(backend, mounts=(BwrapMount(Path("/dev"), "/dev", "dev"),)))
 
@@ -430,7 +440,8 @@ def test_writable_root_and_strict_descendant_are_allowed(tmp_path, monkeypatch, 
     source = write_root / "output" if descendant else write_root
     command = backend.command(make_request(backend, mounts=(BwrapMount(source, "/workspace", "rw"),)))
     index = command.index("--bind")
-    assert command[index : index + 3] == ["--bind", str(source), "/workspace"]
+    assert command[index + 2] == "/workspace"
+    assert_open_identity(command, command[index + 1], source)
 
 
 @pytest.mark.parametrize("content", [
@@ -548,3 +559,47 @@ def test_meta_real_seccomp_allows_local_processes_but_denies_namespace_clones():
         "newnet_clone_errno": 1,
         "clone3_errno": 38,
     }
+
+
+def test_mount_source_replacement_after_validation_fails_closed(tmp_path, monkeypatch):
+    backend = make_backend(tmp_path, monkeypatch)
+    trusted = backend.project / "trusted"
+    replacement = backend.project / "replacement"
+    replacement.mkdir()
+    original_reject = backend._reject_symlinks
+    replaced = False
+
+    def replace_after_validation(path):
+        nonlocal replaced
+        info = original_reject(path)
+        if Path(path) == trusted and not replaced:
+            replaced = True
+            trusted.rename(backend.project / "original")
+            replacement.rename(trusted)
+        return info
+
+    monkeypatch.setattr(backend, "_reject_symlinks", replace_after_validation)
+    with pytest.raises(SandboxUnavailable, match="identity"):
+        backend.command(make_request(backend))
+
+
+def test_command_mount_sources_remain_open_original_identities_after_path_replacement(tmp_path, monkeypatch):
+    backend = make_backend(tmp_path, monkeypatch)
+    trusted = backend.project / "trusted"
+    (trusted / "identity.txt").write_text("original", encoding="utf-8")
+    replacement = backend.project / "replacement"
+    replacement.mkdir()
+    (replacement / "identity.txt").write_text("replacement", encoding="utf-8")
+    command = backend.command(make_request(backend))
+    try:
+        source = command[command.index("--ro-bind") + 1]
+        assert source.startswith("/proc/self/fd/")
+        descriptor = int(source.rsplit("/", 1)[1])
+        assert descriptor in command.pass_fds
+        trusted.rename(backend.project / "original")
+        replacement.rename(trusted)
+        assert Path(f"/proc/self/fd/{descriptor}/identity.txt").read_text(encoding="utf-8") == "original"
+    finally:
+        close = getattr(command, "close", None)
+        if close:
+            close()

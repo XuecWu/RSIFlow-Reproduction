@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import inspect
 import json
@@ -58,6 +59,23 @@ class BwrapRequest:
     limits: BwrapLimits
     mounts: tuple[BwrapMount, ...]
     preserve_fds: tuple[int, ...] = ()
+
+
+class BwrapCommand(list):
+    def __init__(self, values, owned_fds, preserve_fds):
+        super().__init__(values)
+        self._owned_fds = tuple(owned_fds)
+        self.pass_fds = self._owned_fds + tuple(preserve_fds)
+
+    def close(self):
+        for descriptor in self._owned_fds:
+            with contextlib.suppress(OSError):
+                os.close(descriptor)
+        self._owned_fds = ()
+        self.pass_fds = ()
+
+    def __del__(self):
+        self.close()
 
 
 class BubblewrapBackend:
@@ -210,7 +228,7 @@ class BubblewrapBackend:
         elif not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
             raise ValueError("bwrap mounts require a regular file or directory")
         if mount.mode != "rw":
-            return source
+            return source, info
         if source == self.project or source in self.project.parents:
             raise ValueError("repository-root or broader bwrap writes are denied")
         protected = tuple(
@@ -225,8 +243,23 @@ class BubblewrapBackend:
                 raise ValueError(f"broad repository or host allowed_write_roots are denied: {root}")
             self._reject_symlinks(root)
             if source == root or root in source.parents:
-                return source
+                return source, info
         raise ValueError(f"writable bwrap output is outside allowed_write_roots: {source}")
+
+    @staticmethod
+    def _open_identity(source, expected):
+        try:
+            descriptor = os.open(source, os.O_PATH | os.O_NOFOLLOW)
+        except OSError as exc:
+            raise SandboxUnavailable(f"cannot open bwrap mount source: {source}") from exc
+        try:
+            actual = os.fstat(descriptor)
+            if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+                raise SandboxUnavailable(f"bwrap mount source identity changed: {source}")
+            return descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
 
     @staticmethod
     def _validate_environment(env):
@@ -270,29 +303,40 @@ class BubblewrapBackend:
         self._validate_environment(request.env)
         self._validate_descriptors(request.profile, request.preserve_fds)
         command = [str(self.binary), "--unshare-all", "--new-session", "--die-with-parent", "--clearenv"]
-        targets = set()
-        for mount in request.mounts:
-            if mount.mode not in {"ro", "rw", "dev"}:
-                raise ValueError(f"unknown bwrap mount mode: {mount.mode}")
-            target = self._target(mount.target)
-            if target in targets:
-                raise ValueError(f"duplicate bwrap target: {target}")
-            targets.add(target)
-            source = self._mount_source(mount)
-            flag = {"ro": "--ro-bind", "rw": "--bind", "dev": "--dev-bind"}[mount.mode]
-            command.extend([flag, str(source), target])
-        launcher_target = "/opt/rsiflow/bwrap_launcher.py"
-        if launcher_target in targets:
-            raise ValueError("trusted launcher target cannot be replaced")
-        command.extend(["--ro-bind", str(self.launcher), launcher_target])
-        command.extend([
-            "/usr/bin/python3", "-I", "-B", launcher_target,
-            "--profile", request.profile,
-            "--limits-json", json.dumps(asdict(request.limits), sort_keys=True, separators=(",", ":")),
-            "--env-json", json.dumps(request.env, sort_keys=True, separators=(",", ":")),
-            "--cwd", request.cwd,
-            "--preserve-fds", ",".join(str(fd) for fd in request.preserve_fds),
-            "--",
-            *request.argv,
-        ])
-        return command
+        owned_fds = []
+        try:
+            targets = set()
+            for mount in request.mounts:
+                if mount.mode not in {"ro", "rw", "dev"}:
+                    raise ValueError(f"unknown bwrap mount mode: {mount.mode}")
+                target = self._target(mount.target)
+                if target in targets:
+                    raise ValueError(f"duplicate bwrap target: {target}")
+                targets.add(target)
+                source, expected = self._mount_source(mount)
+                descriptor = self._open_identity(source, expected)
+                owned_fds.append(descriptor)
+                flag = {"ro": "--ro-bind", "rw": "--bind", "dev": "--dev-bind"}[mount.mode]
+                command.extend([flag, f"/proc/self/fd/{descriptor}", target])
+            launcher_target = "/opt/rsiflow/bwrap_launcher.py"
+            if launcher_target in targets:
+                raise ValueError("trusted launcher target cannot be replaced")
+            launcher_info = self._reject_symlinks(self.launcher)
+            launcher_fd = self._open_identity(self.launcher, launcher_info)
+            owned_fds.append(launcher_fd)
+            command.extend(["--ro-bind", f"/proc/self/fd/{launcher_fd}", launcher_target])
+            command.extend([
+                "/usr/bin/python3", "-I", "-B", launcher_target,
+                "--profile", request.profile,
+                "--limits-json", json.dumps(asdict(request.limits), sort_keys=True, separators=(",", ":")),
+                "--env-json", json.dumps(request.env, sort_keys=True, separators=(",", ":")),
+                "--cwd", request.cwd,
+                "--preserve-fds", ",".join(str(fd) for fd in request.preserve_fds),
+                "--",
+                *request.argv,
+            ])
+            return BwrapCommand(command, owned_fds, request.preserve_fds)
+        except BaseException:
+            for descriptor in owned_fds:
+                os.close(descriptor)
+            raise

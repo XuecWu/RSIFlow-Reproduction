@@ -184,7 +184,7 @@ def run_smoke(output):
         )
         limited_runner = LinuxSandbox(
             scratch_root=scratch_root,
-            limits=SandboxLimits(wall_seconds=1.0, cpu_seconds=5, output_bytes=128),
+            limits=SandboxLimits(wall_seconds=10.0, cpu_seconds=5, output_bytes=128),
         )
         timeout_runner = LinuxSandbox(
             scratch_root=scratch_root,

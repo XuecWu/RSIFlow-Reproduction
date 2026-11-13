@@ -49,9 +49,9 @@ def command(runner, scratch, *, profile, seed):
         mode = "dev" if source.parent == Path("/dev") else "ro"
         mounts.append(BwrapMount(source, str(source), mode))
     mounts.append(BwrapMount(scratch, "/workspace", "rw"))
-    argv = (str(runner.python), "-s", "-B", "candidate.py")
+    argv = ("/usr/bin/python3", "-s", "-B", "candidate.py")
     if profile == "candidate_session":
-        argv = (str(runner.python), "-s", "-B", "-u", "candidate.py")
+        argv = ("/usr/bin/python3", "-s", "-B", "-u", "candidate.py")
     request = BwrapRequest(
         profile=profile,
         argv=argv,

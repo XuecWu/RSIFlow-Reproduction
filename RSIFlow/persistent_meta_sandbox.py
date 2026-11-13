@@ -1,11 +1,14 @@
 """Persistent Codex bubblewrap lifecycle and credential-free provider relay."""
 from __future__ import annotations
 
+import ctypes
+import errno
 import os
 import shutil
 import signal
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from rsiflow.task_meta import bwrap_backend
@@ -22,6 +25,47 @@ from rsiflow.task_meta.sandbox import SandboxUnavailable
 
 BACKEND = "linux_bwrap_seccomp_v1"
 UPSTREAM = "http://token.acerobotics.com/v1"
+BWRAP_MANIFEST_SHA256 = "58fe2672fd78c12025ce60a84b525019e68979b9860734e4d5cccc63e78e78f1"
+BWRAP_LAUNCHER_SHA256 = "08f9904f80110b8459637925a897d5eb7cb4943313707429aea3df5b972a48d0"
+_LIBC = ctypes.CDLL(None, use_errno=True)
+_LIBC.syscall.restype = ctypes.c_long
+
+
+def _process_group_stat(pid):
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        if fields[0] == "Z":
+            return None
+        return int(fields[2]), fields[19]
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _group_members(pgid):
+    members = []
+    for path in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            pid = int(path.parent.name)
+            fields = path.read_text().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pgid and fields[0] != "Z":
+                members.append((pid, fields[19]))
+        except (OSError, IndexError, ValueError):
+            continue
+    return members
+
+
+def _pidfd_open(pid):
+    descriptor = _LIBC.syscall(434, pid, 0)
+    if descriptor < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    return descriptor
+
+
+def _pidfd_send_signal(descriptor, sig):
+    if _LIBC.syscall(424, descriptor, sig, 0, 0) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
 
 
 class PersistentMetaSandbox:
@@ -34,22 +78,53 @@ class PersistentMetaSandbox:
         self.meta_logs = (self.run / "meta_session").resolve()
         self.temporary = (self.run / "meta_session/tmp").resolve()
         self.empty_directory = None
-        self.writable_outputs = tuple(Path(path).absolute() for path in writable_outputs)
+        self.writable_outputs = self._validated_outputs(writable_outputs)
         self.temporary.mkdir(parents=True, exist_ok=True)
         self.codex_home.mkdir(parents=True, exist_ok=True)
         for output in self.writable_outputs:
             output.mkdir(parents=True, exist_ok=True)
-        roots = {
+        self.allowed_write_roots = {
             self.project.resolve(), self.run.resolve(), self.meta_logs,
             self.codex_home.resolve(), self.temporary,
             *(output.resolve() for output in self.writable_outputs),
         }
-        self.backend = BubblewrapBackend(self.repository, allowed_write_roots=tuple(sorted(roots)))
+        self.backend = None
         self.runtime = None
         self.transport = None
         self.relay_directory = None
         self.relay_socket = None
         self.processes = []
+        self.process_groups = {}
+
+    def _validated_outputs(self, declarations):
+        run = self.run.resolve()
+        meta_logs = self.meta_logs.resolve()
+        codex_home = self.codex_home.resolve()
+        protected = (run, meta_logs, codex_home, self.temporary, self.project.resolve())
+        outputs = []
+        for declaration in declarations:
+            value = Path(declaration).absolute()
+            output = value.resolve()
+            if not (output.is_relative_to(run) or output.is_relative_to(meta_logs)):
+                raise ValueError(f"outside experiment output roots: {output}")
+            if any(output == root or output in root.parents for root in protected):
+                raise ValueError(f"unsafe output overlap: {output}")
+            if output.is_relative_to(codex_home) or output.is_relative_to(self.temporary):
+                raise ValueError(f"unsafe output overlap: {output}")
+            if any(output == other or output in other.parents or other in output.parents for other in outputs):
+                raise ValueError(f"unsafe output overlap: {output}")
+            existing = value
+            while not os.path.lexists(existing):
+                if existing == existing.parent:
+                    raise ValueError("unsafe output path")
+                existing = existing.parent
+            for parent in (existing, *existing.parents):
+                if parent.is_symlink():
+                    raise ValueError(f"unsafe output symlink: {parent}")
+            if output.exists() and not output.is_dir():
+                raise ValueError(f"unsafe output overlap: {output}")
+            outputs.append(output)
+        return tuple(outputs)
 
     def _validate_configuration(self):
         if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != BACKEND:
@@ -75,11 +150,24 @@ class PersistentMetaSandbox:
         if self.transport is not None:
             return
         self._validate_configuration()
+        trusted_files = (
+            (self.project / "configs/bwrap_isolation.json", "bwrap_isolation.json",
+             BWRAP_MANIFEST_SHA256, 0o444),
+            (self.project / "runtime/rsiflow/task_meta/bwrap_launcher.py", "bwrap_launcher.py",
+             BWRAP_LAUNCHER_SHA256, 0o444),
+        )
+        self.runtime = local_execution.runtime(self.config, trusted_files=trusted_files)
+        self.runtime.validate()
+        self.backend = BubblewrapBackend(
+            self.repository,
+            manifest_path=self.runtime.root / "bwrap_isolation.json",
+            launcher_path=self.runtime.root / "bwrap_launcher.py",
+            launcher_sha256=BWRAP_LAUNCHER_SHA256,
+            allowed_write_roots=tuple(sorted(self.allowed_write_roots)),
+        )
         bwrap_evidence = self.backend.validate()
         if bwrap_evidence.get("backend") != BACKEND:
             raise SandboxUnavailable("bubblewrap backend identity mismatch")
-        self.runtime = local_execution.runtime(self.config)
-        self.runtime.validate()
         secret = os.environ.get(self.config.api_key_env, "")
         if not secret:
             raise SandboxUnavailable(f"{self.config.api_key_env} is required by the host transport")
@@ -197,34 +285,69 @@ class PersistentMetaSandbox:
             )
         finally:
             command.close()
-        self.processes.append(process)
+        self._track_process(process)
         return process
 
+    def _track_process(self, process):
+        self.processes.append(process)
+        try:
+            self.process_groups[process.pid] = _pidfd_open(process.pid)
+        except BaseException:
+            self._signal_group(process.pid, signal.SIGKILL)
+            if process.poll() is None:
+                process.wait(timeout=10)
+            self.processes.remove(process)
+            raise
+
+    def _signal_group(self, pgid, sig):
+        for pid, start_time in _group_members(pgid):
+            try:
+                descriptor = _pidfd_open(pid)
+            except OSError as exc:
+                if exc.errno == errno.ESRCH:
+                    continue
+                raise
+            try:
+                if _process_group_stat(pid) == (pgid, start_time):
+                    try:
+                        _pidfd_send_signal(descriptor, sig)
+                    except OSError as exc:
+                        if exc.errno != errno.ESRCH:
+                            raise
+            finally:
+                os.close(descriptor)
+
     def close(self) -> None:
-        for process in self.processes:
-            if process.poll() is not None:
-                continue
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait(timeout=10)
-        self.processes.clear()
-        if self.transport is not None:
-            self.transport.close()
-            self.transport = None
-        if self.relay_socket is not None:
-            self.relay_socket.unlink(missing_ok=True)
-        if self.relay_directory is not None:
-            shutil.rmtree(self.relay_directory, ignore_errors=True)
-        self.relay_directory = self.relay_socket = None
+        try:
+            for process in self.processes:
+                pgid = process.pid
+                self._signal_group(pgid, signal.SIGTERM)
+                deadline = time.monotonic() + 10
+                while _group_members(pgid) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                if _group_members(pgid):
+                    self._signal_group(pgid, signal.SIGKILL)
+                    deadline = time.monotonic() + 2
+                    while _group_members(pgid) and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                if process.poll() is None:
+                    process.wait(timeout=10)
+                descriptor = self.process_groups.pop(pgid, None)
+                if descriptor is not None:
+                    os.close(descriptor)
+        finally:
+            self.processes.clear()
+            for descriptor in self.process_groups.values():
+                os.close(descriptor)
+            self.process_groups.clear()
+            if self.transport is not None:
+                self.transport.close()
+                self.transport = None
+            if self.relay_socket is not None:
+                self.relay_socket.unlink(missing_ok=True)
+            if self.relay_directory is not None:
+                shutil.rmtree(self.relay_directory, ignore_errors=True)
+            self.relay_directory = self.relay_socket = None
 
     def identity(self) -> dict:
         self.start()

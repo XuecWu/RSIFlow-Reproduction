@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from controller_tools import ControllerTools
@@ -217,6 +219,7 @@ def test_persistent_meta_uses_namespace_codex_and_closes_sandbox(tmp_path, monke
     session.mkdir(parents=True)
     (session / 'state.json').write_text(json.dumps({
         'transport': 'app_server', 'status': 'running', 'thread_id': 'thread-existing',
+        'sandbox_backend': 'linux_bwrap_seccomp_v1',
     }))
     created = {}
 
@@ -252,15 +255,71 @@ def test_persistent_meta_uses_namespace_codex_and_closes_sandbox(tmp_path, monke
     loop = persistent_meta.PersistentMeta(
         project=project, run=run, codex_home=session / 'codex_home', executor=object(),
         meta_config={'model': 'gpt-6-astra', 'provider': 'OpenAI'},
-        sandbox_backend='linux_bwrap_seccomp_v1', writable_outputs=(tmp_path / 'output',),
+        sandbox_backend='linux_bwrap_seccomp_v1', writable_outputs=(run / 'declared-output',),
     )
     loop.tools.finished = True
     result = loop.run_experiment('continue')
     assert result['status'] == 'complete' and result['thread_id'] == 'thread-existing'
     assert created['server_kwargs']['executable'] == '/codex'
     assert isinstance(created['server_kwargs']['process_launcher'], Sandbox)
-    assert created['sandbox_kwargs']['writable_outputs'] == (tmp_path / 'output',)
+    assert created['sandbox_kwargs']['writable_outputs'] == (run / 'declared-output',)
     assert created['server_closed'] is True and created['closed'] is True
+
+
+def test_bwrap_resume_rejects_missing_backend_before_server_construction(tmp_path, monkeypatch):
+    import persistent_meta
+
+    project = tmp_path / 'repository/RSIFlow'
+    project.mkdir(parents=True)
+    run = tmp_path / 'run'
+    session = run / 'meta_session'
+    session.mkdir(parents=True)
+    (session / 'state.json').write_text(json.dumps({
+        'transport': 'app_server', 'status': 'running', 'thread_id': 'thread-existing',
+        'sandbox_backend': 'linux_bwrap_seccomp_v1',
+    }))
+    constructed = []
+
+    class Server:
+        def __init__(self, **kwargs):
+            constructed.append(kwargs)
+            self.process = type('Process', (), {'pid': 12345})()
+
+        def start(self):
+            return self
+
+        def request(self, method, params):
+            return {'thread': {'id': 'thread-existing'}}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(persistent_meta, 'CodexAppServer', Server)
+    loop = persistent_meta.PersistentMeta(
+        project=project, run=run, codex_home=session / 'codex_home', executor=object(),
+        meta_config={'model': 'gpt-6-astra', 'provider': 'OpenAI'}, sandbox_backend=None,
+    )
+    loop.tools.finished = True
+    with pytest.raises(RuntimeError, match='sandbox_backend'):
+        loop.run_experiment('continue')
+    assert constructed == []
+
+
+def test_partial_spawn_failure_closes_rpc_logs(tmp_path):
+    class FailingLauncher:
+        def spawn(self, *args):
+            raise RuntimeError('controlled spawn failed')
+
+    server = CodexAppServer(
+        codex_home=tmp_path, workspace=tmp_path, journal=tmp_path / 'rpc',
+        executable='/codex', process_launcher=FailingLauncher(),
+    )
+    with pytest.raises(RuntimeError, match='controlled spawn failed'):
+        server.start()
+    assert server.process is None
+    server.close()
+    assert server.stderr.closed is True
+    assert server.events.closed is True
 
 
 def test_model_catalog_exposes_native_apply_patch():

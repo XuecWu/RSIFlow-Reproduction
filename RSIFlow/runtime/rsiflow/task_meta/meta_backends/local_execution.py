@@ -28,14 +28,19 @@ def runtime_identity(config):
         "codex": config.codex_binary_sha256, "catalog": config.model_catalog_sha256}
 
 
-def runtime(config):
+def runtime(config, trusted_files=()):
     directory = Path(__file__).parent.resolve()
-    key = hashlib.sha256(json.dumps(runtime_identity(config), sort_keys=True).encode()).hexdigest()[:16]
+    identity = runtime_identity(config)
+    if trusted_files:
+        identity["trusted_files"] = [{
+            "source_sha256": regular_digest(Path(source)), "name": name, "sha256": expected_hash,
+        } for source, name, expected_hash, _ in trusted_files]
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
     # Lustre rejects isolated UIDs. Keep this bounded, transient runtime on the system disk.
     return IsolationRuntime("/tmp/rsiflow_meta_local_" + key,
         launcher=directory / "isolation_launcher.py", codex=config.codex_executable,
         catalog=config.model_catalog_json, bridge=directory / "bridge.py",
-        setpriv="/usr/bin/setpriv", unshare="/usr/bin/unshare")
+        setpriv="/usr/bin/setpriv", unshare="/usr/bin/unshare", trusted_files=trusted_files)
 
 
 LOCK = "/tmp/rsiflow_meta_local.lock"

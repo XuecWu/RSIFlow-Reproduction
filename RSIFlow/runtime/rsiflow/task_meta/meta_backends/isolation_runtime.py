@@ -73,7 +73,7 @@ def regular_digest(path: Path, limit: int = 512 * 1024 * 1024) -> str:
 class IsolationRuntime:
     def __init__(self, root: str | Path, *, launcher: str | Path, codex: str | Path,
                  catalog: str | Path, bridge: str | Path, setpriv: str | Path,
-                 unshare: str | Path, python: str | Path = "/usr/bin/python3"):
+                 unshare: str | Path, python: str | Path = "/usr/bin/python3", trusted_files=()):
         self.root = checked_absolute(root, must_exist=False)
         if self.root.parent != Path("/tmp") or not self.root.name.startswith("rsiflow_meta_"):
             raise ValueError("runtime_root_must_be_dedicated_tmp_path")
@@ -84,8 +84,18 @@ class IsolationRuntime:
         self.setpriv = checked_absolute(setpriv)
         self.unshare = checked_absolute(unshare)
         self.python = Path(python).resolve(strict=True)
+        trusted = []
+        for source, name, expected_hash, mode in trusted_files:
+            source = checked_absolute(source)
+            if PurePosixPath(name).name != name or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+                raise ValueError(f"invalid_trusted_runtime_file:{name}")
+            if regular_digest(source) != expected_hash:
+                raise ValueError(f"trusted_runtime_source_changed:{name}")
+            trusted.append((source, name, expected_hash, mode))
+        self.trusted_files = tuple(trusted)
         for path in (self.launcher, self.codex, self.catalog, self.bridge,
-                     self.setpriv, self.unshare, self.python):
+                     self.setpriv, self.unshare, self.python,
+                     *(source for source, _, _, _ in self.trusted_files)):
             if not path.is_file() or path.is_symlink():
                 raise ValueError(f"runtime_component_must_be_regular:{path}")
         self.host_namespaces = {
@@ -230,9 +240,11 @@ class IsolationRuntime:
                 self._copy_one(dependency, base, copied)
                 if resolved not in inspected:
                     pending.append(resolved)
+        trusted = tuple((source, name, mode) for source, name, _, mode in self.trusted_files)
         for source, name, mode in (
             (self.codex, "codex", 0o555), (self.catalog, "catalog.json", 0o444),
             (self.bridge, "bridge.py", 0o444), (self.launcher, "isolation_launcher.py", 0o444),
+            *trusted,
         ):
             target = base / name
             shutil.copyfile(source, target)
@@ -332,6 +344,9 @@ class IsolationRuntime:
         for source, name in ((self.codex, "codex"), (self.catalog, "catalog.json"),
                              (self.bridge, "bridge.py"), (self.launcher, "isolation_launcher.py")):
             if regular_digest(source) != regular_digest(self.root / name):
+                raise ValueError(f"runtime_source_changed:{name}")
+        for source, name, expected_hash, _ in self.trusted_files:
+            if regular_digest(self.root / name) != expected_hash or regular_digest(source) != expected_hash:
                 raise ValueError(f"runtime_source_changed:{name}")
         return manifest_hash
 

@@ -50,6 +50,9 @@ class CodexAppServer:
         self.responses = {}
         self.completed_turns = {}
         self.process = None
+        self.stderr = None
+        self.events = None
+        self.reader = None
         self.chat = chat
         self.active_turn = None
         self.chat_requests = {}
@@ -187,18 +190,19 @@ class CodexAppServer:
         return self.completed_turns.pop(key)
 
     def close(self):
-        if self.process is not None:
-            if self.process.poll() is None:
-                self.process.stdin.close()
-                try:
-                    self.process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    self.process.terminate()
-                    self.process.wait(timeout=10)
+        if self.process is not None and self.process.poll() is None:
+            self.process.stdin.close()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.terminate()
+                self.process.wait(timeout=10)
+        if self.stderr is not None:
             self.stderr.close()
+        if self.reader is not None:
             self.reader.join(timeout=2)
-            if not self.reader.is_alive():
-                self.events.close()
+        if self.events is not None and (self.reader is None or not self.reader.is_alive()):
+            self.events.close()
 
 
 class ExperimentJobs:
@@ -504,6 +508,13 @@ class PersistentMeta:
         native = previous.get('transport') == 'app_server'
         if native and previous.get('status') == 'complete':
             return previous
+        if native and previous:
+            recorded_backend = previous.get('sandbox_backend', 'legacy_host')
+            selected_backend = self.sandbox_backend or 'legacy_host'
+            if recorded_backend != selected_backend:
+                raise RuntimeError(
+                    f'sandbox_backend mismatch on resume: recorded={recorded_backend}, selected={selected_backend}'
+                )
         if previous and not native:
             write_json(self.journal / 'legacy_cli_state.json', previous)
             self.tools.jobs.adopt_legacy(previous)

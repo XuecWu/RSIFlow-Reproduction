@@ -79,13 +79,17 @@ class BwrapCommand(list):
 
 
 class BubblewrapBackend:
-    def __init__(self, project, *, manifest_path=None, allowed_write_roots=()):
+    def __init__(self, project, *, manifest_path=None, launcher_path=None,
+                 launcher_sha256=None, allowed_write_roots=()):
         self.project = Path(project).absolute()
         self.manifest_path = Path(manifest_path).absolute() if manifest_path else (
             self.project / "RSIFlow/configs/bwrap_isolation.json"
         )
         self.allowed_write_roots = tuple(Path(path).absolute() for path in allowed_write_roots)
-        self.launcher = self.project / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
+        self.launcher = Path(launcher_path).absolute() if launcher_path else (
+            self.project / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
+        )
+        self.expected_launcher_sha256 = launcher_sha256
         self.binary = self.project / "assets/isolation/bin/bwrap"
         self.manifest = None
 
@@ -171,6 +175,10 @@ class BubblewrapBackend:
         actual_hash = self._sha256(self.binary)
         if actual_hash != binary.get("sha256"):
             raise SandboxUnavailable("bwrap binary hash mismatch")
+        self._regular_file(self.launcher, "launcher")
+        launcher_hash = self._sha256(self.launcher)
+        if self.expected_launcher_sha256 is not None and launcher_hash != self.expected_launcher_sha256:
+            raise SandboxUnavailable("bwrap launcher hash mismatch")
         try:
             result = subprocess.run(
                 [str(self.binary), "--version"],
@@ -185,14 +193,13 @@ class BubblewrapBackend:
         version = result.stdout.strip()
         if result.returncode != 0 or version != f"bubblewrap {binary.get('version')}":
             raise SandboxUnavailable(f"bwrap version mismatch: {version!r}")
-        self._regular_file(self.launcher, "launcher")
         if not self._namespaces_available():
             raise SandboxUnavailable("bwrap namespace support unavailable")
         return {
             "backend": "linux_bwrap_seccomp_v1",
             "binary_sha256": actual_hash,
             "binary_version": binary["version"],
-            "launcher_sha256": self._sha256(self.launcher),
+            "launcher_sha256": launcher_hash,
             "profile_sha256": hashlib.sha256(
                 json.dumps(self.manifest["profiles"], sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest(),

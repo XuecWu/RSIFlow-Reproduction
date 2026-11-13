@@ -1,5 +1,9 @@
 import hashlib
 import json
+import os
+import shutil
+import signal
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -22,11 +26,15 @@ class FakeRuntime:
         self.root = root
         self.valid = True
         self.validations = 0
+        self.trusted_files = ()
 
     def validate(self):
         self.validations += 1
         if not self.valid:
             raise ValueError("runtime_manifest_mismatch")
+        for source, name, expected_hash, _ in self.trusted_files:
+            if digest(Path(source)) != expected_hash or digest(self.root / name) != expected_hash:
+                raise ValueError(f"runtime_source_changed:{name}")
         return "static-runtime-hash"
 
     def identity(self):
@@ -54,8 +62,12 @@ class FakeTransport:
 class FakeBubblewrapBackend:
     instances: ClassVar[list] = []
 
-    def __init__(self, project, *, manifest_path=None, allowed_write_roots=()):
+    def __init__(self, project, *, manifest_path=None, launcher_path=None,
+                 launcher_sha256=None, allowed_write_roots=()):
         self.project = Path(project)
+        self.manifest_path = Path(manifest_path) if manifest_path else None
+        self.launcher = Path(launcher_path) if launcher_path else None
+        self.launcher_sha256 = launcher_sha256
         self.allowed_write_roots = tuple(allowed_write_roots)
         self.requests = []
         type(self).instances.append(self)
@@ -86,12 +98,27 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def make_meta_sandbox(tmp_path, monkeypatch, *, outputs=True):
+class BackendProxy:
+    def __init__(self, sandbox):
+        self.sandbox = sandbox
+
+    def __getattr__(self, name):
+        return getattr(self.sandbox.backend, name)
+
+
+def make_meta_sandbox(tmp_path, monkeypatch, *, outputs=True, declared_outputs=None):
     FakeTransport.instances = []
     FakeBubblewrapBackend.instances = []
     repository = tmp_path / "repository"
     project = repository / "RSIFlow"
     project.mkdir(parents=True, exist_ok=True)
+    for relative, source in (
+        ("configs/bwrap_isolation.json", PROJECT / "RSIFlow/configs/bwrap_isolation.json"),
+        ("runtime/rsiflow/task_meta/bwrap_launcher.py", PROJECT / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"),
+    ):
+        destination = project / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
     run = tmp_path / "run"
     central = tmp_path / "Meta_logs/run"
     central.mkdir(parents=True, exist_ok=True)
@@ -100,7 +127,7 @@ def make_meta_sandbox(tmp_path, monkeypatch, *, outputs=True):
         (run / "meta_session").symlink_to(central, target_is_directory=True)
     codex_home = run / "meta_session/codex_home"
     codex_home.mkdir(exist_ok=True)
-    output = tmp_path / "declared-output"
+    output = run / "declared-output"
     output.mkdir(exist_ok=True)
     codex = tmp_path / "codex"
     codex.write_bytes(b"offline-codex-fixture")
@@ -122,19 +149,28 @@ def make_meta_sandbox(tmp_path, monkeypatch, *, outputs=True):
         "execution_location": "local_chroot",
     }
     runtime = FakeRuntime(tmp_path / "static-runtime")
+
+    def fake_runtime(config, trusted_files=()):
+        runtime.trusted_files = trusted_files
+        for source, name, _, _ in trusted_files:
+            (runtime.root / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, runtime.root / name)
+        return runtime
+
     monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
     monkeypatch.setenv("OPENAI_API_KEY", "parent-only-secret")
-    monkeypatch.setattr(sandbox_module.local_execution, "runtime", lambda config: runtime)
+    monkeypatch.setattr(sandbox_module.local_execution, "runtime", fake_runtime)
     monkeypatch.setattr(sandbox_module, "ResponsesTransport", FakeTransport)
     monkeypatch.setattr(sandbox_module, "BubblewrapBackend", FakeBubblewrapBackend)
+    selected_outputs = declared_outputs if declared_outputs is not None else ((output,) if outputs else ())
     sandbox = PersistentMetaSandbox(
         project=project,
         run=run,
         codex_home=codex_home,
         meta_config=meta,
-        writable_outputs=(output,) if outputs else (),
+        writable_outputs=selected_outputs,
     )
-    return sandbox, FakeBubblewrapBackend.instances[0], runtime
+    return sandbox, BackendProxy(sandbox), runtime
 
 
 def test_meta_sandbox_preserves_codex_home_and_hides_real_key(tmp_path, monkeypatch):
@@ -167,7 +203,7 @@ def test_meta_sandbox_has_only_declared_writable_mounts(tmp_path, monkeypatch):
         ((sandbox.run / "meta_session").resolve(), str((sandbox.run / "meta_session").resolve())),
         (sandbox.codex_home.resolve(), "/codex_home"),
         ((sandbox.run / "meta_session/tmp").resolve(), "/tmp"),
-        ((tmp_path / "declared-output").resolve(), str(tmp_path / "declared-output")),
+        ((sandbox.run / "declared-output").resolve(), str(sandbox.run / "declared-output")),
     }
     assert writable == expected
     mounted = " ".join(f"{mount.source} {mount.target}" for mount in request.mounts)
@@ -247,6 +283,7 @@ def test_spawn_uses_bridge_stdio_and_minimal_host_environment(tmp_path, monkeypa
         return Child()
 
     monkeypatch.setattr(sandbox_module.subprocess, "Popen", popen)
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", lambda pid: os.dup(0))
     stdin, stdout, stderr = object(), object(), object()
     child = sandbox.spawn(
         ["/codex", "app-server", "--listen", "stdio://"], sandbox.project.parent,
@@ -282,6 +319,96 @@ def test_bwrap_selection_is_explicit_and_fail_closed(tmp_path, monkeypatch):
     with pytest.raises(SandboxUnavailable):
         sandbox.start()
     assert FakeTransport.instances == []
+
+
+def test_reconnect_uses_static_hash_pinned_policy_and_launcher(tmp_path, monkeypatch):
+    sandbox, backend, runtime = make_meta_sandbox(tmp_path, monkeypatch)
+    sandbox.command(["/codex", "app-server", "--listen", "stdio://"])
+    assert backend.manifest_path == runtime.root / "bwrap_isolation.json"
+    assert backend.launcher == runtime.root / "bwrap_launcher.py"
+    assert backend.launcher_sha256 == digest(PROJECT / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py")
+    (sandbox.project / "configs/bwrap_isolation.json").write_text('{"binary":{"path":"assets/evil"}}\n')
+    (sandbox.project / "runtime/rsiflow/task_meta/bwrap_launcher.py").write_text("host-controlled-tamper\n")
+    monkeypatch.setattr(
+        sandbox.backend, "validate",
+        lambda: (_ for _ in ()).throw(AssertionError("writable policy reached host backend validation")),
+    )
+    with pytest.raises(ValueError, match="runtime_source_changed"):
+        sandbox.command(["/codex", "app-server", "--listen", "stdio://"])
+    sandbox.close()
+
+
+def test_unrelated_output_is_rejected_before_creation(tmp_path, monkeypatch):
+    unrelated = tmp_path / "unrelated-output"
+    with pytest.raises(ValueError, match="outside experiment output roots"):
+        make_meta_sandbox(tmp_path, monkeypatch, declared_outputs=(unrelated,))
+    assert not unrelated.exists()
+
+
+@pytest.mark.parametrize("name", ["run", "codex_home", "temporary"])
+def test_output_overlaps_are_rejected(tmp_path, monkeypatch, name):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch, outputs=False)
+    target = {"run": sandbox.run, "codex_home": sandbox.codex_home, "temporary": sandbox.temporary}[name]
+    with pytest.raises(ValueError, match="unsafe output overlap"):
+        make_meta_sandbox(tmp_path, monkeypatch, declared_outputs=(target,))
+
+
+def process_group_members(pgid):
+    members = []
+    for path in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = path.read_text().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pgid and fields[0] != "Z":
+                members.append(int(path.parent.name))
+        except (OSError, ValueError, IndexError):
+            continue
+    return members
+
+
+def test_close_kills_descendants_after_group_leader_exits(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    process = subprocess.Popen(
+        ["/bin/sh", "-c", "sleep 30 &"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        process.wait(timeout=5)
+        assert process.poll() is not None
+        assert process_group_members(process.pid)
+        sandbox.processes.append(process)
+        sandbox.close()
+        assert process_group_members(process.pid) == []
+    finally:
+        if process_group_members(process.pid):
+            os.killpg(process.pid, signal.SIGKILL)
+
+
+def test_group_signal_rejects_pid_reuse_before_signaling(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    calls = []
+    monkeypatch.setattr(sandbox_module, "_group_members", lambda pgid: [(43210, "original-start")])
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", lambda pid: 77)
+    monkeypatch.setattr(sandbox_module, "_process_group_stat", lambda pid: (43210, "reused-start"))
+    monkeypatch.setattr(sandbox_module, "_pidfd_send_signal", lambda fd, sig: calls.append((fd, sig)))
+    monkeypatch.setattr(sandbox_module.os, "close", lambda fd: None)
+    sandbox._signal_group(43210, signal.SIGTERM)
+    assert calls == []
+
+
+def test_group_signal_ignores_member_exit_race(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    monkeypatch.setattr(sandbox_module, "_group_members", lambda pgid: [(43210, "original-start")])
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", lambda pid: 77)
+    monkeypatch.setattr(sandbox_module, "_process_group_stat", lambda pid: (43210, "original-start"))
+    monkeypatch.setattr(
+        sandbox_module, "_pidfd_send_signal",
+        lambda fd, sig: (_ for _ in ()).throw(OSError(3, "member exited")),
+    )
+    monkeypatch.setattr(sandbox_module.os, "close", lambda fd: None)
+    sandbox._signal_group(43210, signal.SIGTERM)
 
 
 def test_relay_and_host_provider_configuration_are_exact():

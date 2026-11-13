@@ -40,6 +40,27 @@ def test_native_bwrap_preserves_only_declared_rpc_fds_and_output_write(monkeypat
     assert all(mount.target != "/proc" and not mount.target.startswith("/proc/") for mount in request.mounts)
 
 
+def test_native_bwrap_mounts_inner_launcher_python_with_conda_official_environment(tmp_path):
+    work, output, _ = native_files(tmp_path)
+    environment = tmp_path / "official-env"
+    (environment / "conda-meta").mkdir(parents=True)
+    (environment / "bin").mkdir()
+    python = environment / "bin" / "python"
+    python.write_text("not executed\n", encoding="utf-8")
+    script = work / "probe.py"
+    request = make_request(tool_sandbox, work, output, [str(python), "-B", str(script)])
+    mounts = {(mount.source, mount.target, mount.mode) for mount in request.mounts}
+    assert (Path("/usr/bin/python3").resolve(), "/usr/bin/python3", "ro") in mounts
+    assert (environment.resolve(), str(environment), "ro") in mounts
+
+
+def test_native_bwrap_redirects_bfcl_generated_directories_to_dedicated_output(tmp_path):
+    work, output, command = native_files(tmp_path)
+    request = make_request(tool_sandbox, work, output, command)
+    assert request.env["BFCL_PROJECT_ROOT"] == str(output.resolve())
+    assert next(mount for mount in request.mounts if mount.source == work.resolve()).mode == "ro"
+
+
 def test_native_bwrap_uses_dummy_values_without_inheriting_provider_key(monkeypatch, tmp_path):
     secret = "task4-parent-only-nonsecret"
     monkeypatch.setenv("OPENAI_API_KEY", secret)
@@ -163,3 +184,50 @@ def test_native_timeout_kills_complete_process_group_without_host_preexec(monkey
     assert "preexec_fn" not in observed["popen"]
     assert set(observed["popen"]["pass_fds"]) == set(observed["request"].preserve_fds)
     assert observed["built"].closed is True
+
+
+def test_bwrap_native_shared_output_owner_does_not_require_current_uid_chown(monkeypatch, tmp_path):
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", BACKEND)
+    work, output, command = native_files(tmp_path)
+    output.mkdir()
+    existing = output / "existing.json"
+    existing.write_text("preserved\n", encoding="utf-8")
+    monkeypatch.setattr(tool_sandbox.os, "geteuid", lambda: 12345)
+    monkeypatch.setattr(tool_sandbox.os, "getegid", lambda: 54321)
+
+    def shared_fs_chown(*args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(tool_sandbox.os, "chown", shared_fs_chown)
+    with (output / "check.log").open("wb") as log:
+        tool_sandbox.run_native(command, work, output, log, timeout=30)
+    assert existing.read_text(encoding="utf-8") == "preserved\n"
+    assert (output / "sandbox_tmp").is_dir()
+
+
+def test_bwrap_native_still_reclaims_mismatched_output_entry(monkeypatch, tmp_path):
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", BACKEND)
+    work, output, command = native_files(tmp_path)
+    output.mkdir()
+    existing = output / "existing.json"
+    existing.write_text("preserved\n", encoding="utf-8")
+    original_lstat = Path.lstat
+
+    def shared_fs_lstat(path):
+        info = original_lstat(path)
+        if path != existing:
+            return info
+        values = list(info)
+        values[4], values[5] = 12345, 54321
+        return type(info)(values)
+
+    calls = []
+    monkeypatch.setattr(Path, "lstat", shared_fs_lstat)
+    monkeypatch.setattr(
+        tool_sandbox.os,
+        "chown",
+        lambda path, uid, gid, follow_symlinks: calls.append((Path(path), uid, gid, follow_symlinks)),
+    )
+    with (output / "check.log").open("wb") as log:
+        tool_sandbox.run_native(command, work, output, log, timeout=30)
+    assert calls == [(existing, tool_sandbox.os.geteuid(), tool_sandbox.os.getegid(), False)]

@@ -142,6 +142,7 @@ def _make_native_request(command, work, output, *, request_write, response_read,
     scratch=output/'sandbox_tmp'
     env={'PATH':str(Path(command[0]).absolute().parent)+':/usr/bin:/bin','HOME':str(scratch),
          'TMPDIR':str(scratch),'LANG':'C.UTF-8','PYTHONPATH':str(work),'PYTHONDONTWRITEBYTECODE':'1',
+         'BFCL_PROJECT_ROOT':str(output),
          'RSI_RPC_WRITE_FD':str(request_write),'RSI_RPC_READ_FD':str(response_read),
          'API_KEY':'pipe-only','RSIFLOW_RELAY_KEY':'pipe-only',
          'GPT_BASE_URL':'http://127.0.0.1:1/v1','BASE_URL':'http://127.0.0.1:1/v1',
@@ -149,7 +150,7 @@ def _make_native_request(command, work, output, *, request_write, response_read,
          'CUDA_VISIBLE_DEVICES':''}
     executable=Path(command[0]).absolute()
     evaluator_environment=executable.parent.parent
-    reads=[]
+    reads=[(Path('/usr/bin/python3'),'/usr/bin/python3')]
     if (evaluator_environment/'pyvenv.cfg').is_file() or (evaluator_environment/'conda-meta').is_dir():
         reads.append((evaluator_environment,str(evaluator_environment)))
     else:
@@ -180,9 +181,12 @@ def _run_native_bwrap(command, work, output, log, handler=None, timeout=604800):
     work,output=Path(work).resolve(),Path(output).resolve()
     output.mkdir(parents=True,exist_ok=True)
     if output.is_symlink():raise ValueError('Native output must not be a symlink')
+    owner=output.lstat()
     for directory,dirs,files in os.walk(output,followlinks=False):
-        os.chown(directory,os.geteuid(),os.getegid(),follow_symlinks=False)
-        for name in files:os.chown(Path(directory)/name,os.geteuid(),os.getegid(),follow_symlinks=False)
+        for path in [Path(directory),*[Path(directory)/name for name in files]]:
+            info=path.lstat()
+            if (info.st_uid,info.st_gid)==(owner.st_uid,owner.st_gid):continue
+            os.chown(path,os.geteuid(),os.getegid(),follow_symlinks=False)
     scratch=output/'sandbox_tmp';scratch.mkdir(exist_ok=True)
     request_read,request_write=os.pipe();response_read,response_write=os.pipe()
     request=_make_native_request(command,work,output,request_write=request_write,response_read=response_read,timeout=timeout)

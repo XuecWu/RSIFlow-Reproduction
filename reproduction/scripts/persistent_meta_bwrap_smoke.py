@@ -134,6 +134,13 @@ def offline_check(config_path):
     return result["ok"]
 
 
+def prepare_codex_installation_id(codex_home):
+    destination = Path(codex_home) / "installation_id"
+    if not destination.exists():
+        destination.write_text(str(uuid.uuid4()) + "\n", encoding="utf-8")
+    destination.chmod(0o644)
+
+
 def make_controller(run, meta):
     codex_home = run / "meta_session/codex_home"
     executor = SubprocessToolExecutor(
@@ -194,6 +201,13 @@ def jobs_snapshot(tools):
     return statuses, pids
 
 
+def validate_job_status_receipt(receipt, job_id):
+    if (not receipt or receipt.get("job_id") != job_id
+            or receipt.get("status") not in {"running", "completed"}):
+        raise ValueError("job_status did not observe only the original job")
+    return receipt
+
+
 def read_events(run):
     path = run / "meta_session/app_server/events.jsonl"
     if not path.exists():
@@ -225,6 +239,7 @@ def copy_provider(run, name):
     source = run / "meta_session/provider"
     destination = run / "evidence" / name
     shutil.copytree(source, destination)
+    shutil.copy2(source.parent / "transport_records.json", destination / "transport_records.json")
     return destination
 
 
@@ -356,6 +371,30 @@ def write_sanitized_events(run, secret, marker):
     return destination
 
 
+def write_failure_diagnostics(run, secret, marker):
+    evidence = run / "evidence"
+    evidence.mkdir(parents=True, exist_ok=True)
+    journal = run / "meta_session/app_server"
+    diagnostics = {"journal_files": []}
+    if (journal / "events.jsonl").is_file():
+        events = write_sanitized_events(run, secret, marker)
+        diagnostics["events_sanitized"] = {"path": str(events), "sha256": digest(events)}
+    if (journal / "stderr.log").is_file():
+        stderr = evidence / "stderr.sanitized.log"
+        stderr.write_text(sanitized_text(
+            (journal / "stderr.log").read_text(encoding="utf-8", errors="replace"), secret, marker,
+        ), encoding="utf-8")
+        diagnostics["stderr_sanitized"] = {"path": str(stderr), "sha256": digest(stderr)}
+    if journal.is_dir():
+        diagnostics["journal_files"] = [
+            {"name": path.name, "sha256": digest(path), "size_bytes": path.stat().st_size}
+            for path in sorted(journal.iterdir()) if path.is_file()
+        ]
+    destination = evidence / "app_server_diagnostics.json"
+    write_sanitized_json(destination, diagnostics, secret, marker)
+    return {"path": str(destination), "sha256": digest(destination)}
+
+
 def close_controller(server, sandbox):
     try:
         if server is not None:
@@ -393,10 +432,11 @@ def run_smoke(config_path, run):
             raise FileExistsError("smoke run directory must be fresh")
         run.mkdir(parents=True)
         prepare_meta_storage(run)
-        prepare_codex_home(
+        codex_home = prepare_codex_home(
             run, host_path=PROJECT / "reproduction/configs/codex_host.toml",
             catalog_path=meta["model_catalog_json"],
         )
+        prepare_codex_installation_id(codex_home)
         fixture_path = run / "public_fixture.json"
         fixture_path.write_text(json.dumps(FIXTURE, indent=2) + "\n", encoding="utf-8")
         report["fixture"] = {"sha256": digest(fixture_path), "value": FIXTURE}
@@ -427,8 +467,9 @@ def run_smoke(config_path, run):
             raise ValueError("thread/start provider identity mismatch")
 
         report["stage"] = "read_json_turn"
-        prompt = (f"Call experiment exactly once with operation=read_json and path={fixture_path}. "
-                  "Do not call any other dynamic tool. After its result, end the turn.")
+        request_json = json.dumps({"request": {"operation": "read_json", "path": str(fixture_path)}})
+        prompt = ("Call experiment exactly once with this exact arguments object, including every field:\n"
+                  + request_json + "\nDo not call any other dynamic tool. After its result, end the turn.")
         require_completed(server.turn(first_thread, prompt, environments=environments()))
         reads = operation_calls(run, "read_json")
         if len(reads) != 1 or reads[0]["request"] != {"operation": "read_json", "path": str(fixture_path)}:
@@ -443,9 +484,10 @@ def run_smoke(config_path, run):
         }
 
         report["stage"] = "durable_job_turn"
-        prompt = ("Call experiment exactly once with operation=run_command and "
-                  "argv=[\"/bin/sh\", \"-c\", \"sleep 20\"]. Do not wait for the job and do not call "
-                  "job_status or any other dynamic tool. Return the job receipt and end the turn.")
+        request_json = json.dumps({"request": {"operation": "run_command", "argv": JOB_ARGV}})
+        prompt = ("Call experiment exactly once with this exact arguments object, including every field:\n"
+                  + request_json + "\nDo not wait for the job and do not call job_status or any other dynamic tool. "
+                  "Return the job receipt and end the turn.")
         require_completed(server.turn(first_thread, prompt, environments=environments()))
         starts = operation_calls(run, "run_command")
         if len(starts) != 1 or starts[0]["request"].get("argv") != JOB_ARGV:
@@ -503,16 +545,16 @@ def run_smoke(config_path, run):
         report["resumed_job_pids"] = after_pids
 
         report["stage"] = "job_status_turn"
-        prompt = (f"Call job_status exactly once with job_id={job_id}. Do not start, wait for, or restart any job. "
-                  "Do not call experiment or any other dynamic tool. Return the observed status and end the turn.")
+        request_json = json.dumps({"job_id": job_id})
+        prompt = ("Call job_status exactly once with this exact arguments object:\n" + request_json
+                  + "\nDo not start, wait for, or restart any job. Do not call experiment or any other dynamic tool. "
+                  "Return the observed status and end the turn.")
         require_completed(server.turn(second_thread, prompt, environments=environments()))
         statuses = operation_calls(run, "job_status")
         if len(statuses) != 1 or statuses[0]["request"] != {"operation": "job_status", "job_id": job_id}:
             raise ValueError("job_status must have exactly one exact host call after resume")
         status_receipt = statuses[0]["receipt"]
-        if (not status_receipt or status_receipt.get("status") != "read"
-                or [job["job_id"] for job in status_receipt.get("jobs", [])] != [job_id]):
-            raise ValueError("job_status did not observe only the original job")
+        validate_job_status_receipt(status_receipt, job_id)
         report["job_status_receipt_sha256"] = digest(statuses[0]["turn_dir"] / "receipt.json")
 
         report["stage"] = "native_key_hygiene_turn"
@@ -556,7 +598,7 @@ Do not print any environment values. Do not call dynamic tools. End the turn aft
             "second_relay_removed": second_relay is not None and not second_relay.exists(),
             "durable_job_process_gone": process_identity(job_pid) is None,
             "codex_home_persists": (run / "meta_session/codex_home/config.toml").is_file(),
-            "provider_receipts_persist": (run / "meta_session/provider/transport_records.json").is_file()
+            "provider_receipts_persist": (run / "meta_session/transport_records.json").is_file()
             and before_provider.is_dir() and after_provider.is_dir(),
         }
         report["stage"] = "sanitize_evidence"
@@ -580,6 +622,7 @@ Do not print any environment values. Do not call dynamic tools. End the turn aft
         report["stage"] = "completed"
     except Exception as exc:  # noqa: BLE001
         report["error_type"] = type(exc).__name__
+        report["error_message"] = sanitized_text(str(exc), secret, marker)[:16384]
         report["failed_stage"] = report["stage"]
     finally:
         try:
@@ -589,7 +632,9 @@ Do not print any environment values. Do not call dynamic tools. End the turn aft
             report["cleanup_error_type"] = type(exc).__name__
         if run.exists():
             try:
-                if (run / "meta_session/app_server/events.jsonl").exists():
+                if not report["ok"]:
+                    report["diagnostics"] = write_failure_diagnostics(run, secret, marker)
+                elif (run / "meta_session/app_server/events.jsonl").exists():
                     write_sanitized_events(run, secret, marker)
                 write_sanitized_json(run / "report.json", report, secret, marker)
                 public_report = (run / "report.json").read_text(encoding="utf-8")

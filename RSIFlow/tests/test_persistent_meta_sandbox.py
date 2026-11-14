@@ -505,3 +505,97 @@ def test_smoke_report_rejects_provider_model_mismatch():
     report["returned_model"] = "gpt-other"
     with pytest.raises(ValueError, match="returned_model"):
         smoke.validate_smoke_report(report)
+
+
+def test_smoke_failure_preserves_sanitized_error_and_app_server_diagnostics(tmp_path, monkeypatch):
+    smoke = load_smoke()
+    secret = "dummy-provider-secret-for-diagnostic-test"
+    monkeypatch.setenv("OPENAI_API_KEY", secret)
+    monkeypatch.setattr(smoke, "prepare_meta_storage", lambda run: (run / "meta_session").mkdir(parents=True))
+
+    def prepare_home(run, **kwargs):
+        home = run / "meta_session/codex_home"
+        home.mkdir(parents=True)
+        return home
+
+    monkeypatch.setattr(smoke, "prepare_codex_home", prepare_home)
+
+    class FakeSandbox:
+        def close(self):
+            pass
+
+    class FakeServer:
+        def __init__(self, run):
+            self.run = run
+
+        def start(self):
+            journal = self.run / "meta_session/app_server"
+            journal.mkdir(parents=True)
+            marker = os.environ["RSIFLOW_TASK6_PARENT_MARKER"]
+            (journal / "events.jsonl").write_text(json.dumps({
+                "method": "simulated", "params": {"text": f"raw prompt {secret} {marker}"},
+            }) + "\n")
+            (journal / "stderr.log").write_text(f"simulated stderr {secret} {marker}\n")
+            raise RuntimeError(f"simulated start failure {secret} {marker}")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(smoke, "make_controller", lambda run, meta: (FakeServer(run), FakeSandbox(), object()))
+    run = tmp_path / "run"
+    report = smoke.run_smoke(PROJECT / "reproduction/configs/meta_bwrap_smoke.json", run)
+    marker = os.environ["RSIFLOW_TASK6_PARENT_MARKER"]
+    assert report["ok"] is False
+    assert report["error_type"] == "RuntimeError"
+    assert "simulated start failure" in report["error_message"]
+    assert secret not in report["error_message"] and marker not in report["error_message"]
+    report_text = (run / "report.json").read_text()
+    assert secret not in report_text and marker not in report_text
+    stderr = (run / "evidence/stderr.sanitized.log").read_text()
+    assert "simulated stderr" in stderr and secret not in stderr and marker not in stderr
+    events = (run / "evidence/events.sanitized.jsonl").read_text()
+    assert "simulated" in events and "raw prompt" not in events
+    diagnostics = json.loads((run / "evidence/app_server_diagnostics.json").read_text())
+    assert {entry["name"] for entry in diagnostics["journal_files"]} == {"events.jsonl", "stderr.log"}
+    assert all(len(entry["sha256"]) == 64 for entry in diagnostics["journal_files"])
+
+
+def test_smoke_precreates_codex_installation_id_with_required_mode(tmp_path):
+    smoke = load_smoke()
+    home = tmp_path / "codex_home"
+    home.mkdir()
+    previous_umask = os.umask(0o077)
+    try:
+        smoke.prepare_codex_installation_id(home)
+    finally:
+        os.umask(previous_umask)
+    installation_id = home / "installation_id"
+    assert installation_id.stat().st_mode & 0o777 == 0o644
+    value = installation_id.read_text().strip()
+    assert len(value) == 36
+    assert int(value.replace("-", ""), 16) >= 0
+
+
+def test_provider_snapshot_includes_sibling_transport_records(tmp_path):
+    smoke = load_smoke()
+    run = tmp_path / "run"
+    provider = run / "meta_session/provider"
+    provider.mkdir(parents=True)
+    (provider / "000.json").write_text('{"status":"completed"}\n')
+    (provider / "receipts").mkdir()
+    (run / "meta_session/transport_records.json").write_text(json.dumps([{
+        "completed": True, "accounting_completed": True, "returned_model": "gpt-6-astra",
+    }]) + "\n")
+    snapshot = smoke.copy_provider(run, "provider_snapshot")
+    assert (snapshot / "transport_records.json").is_file()
+    summary = smoke.provider_summary(snapshot)
+    assert summary["completed_requests"] == 1
+    assert summary["returned_models"] == ["gpt-6-astra"]
+
+
+def test_job_status_receipt_accepts_single_job_form():
+    smoke = load_smoke()
+    receipt = {"job_id": "job-A", "status": "completed", "operation": "job_status"}
+    assert smoke.validate_job_status_receipt(receipt, "job-A") == receipt
+    with pytest.raises(ValueError, match="original job"):
+        smoke.validate_job_status_receipt({**receipt, "job_id": "job-B"}, "job-A")

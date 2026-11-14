@@ -511,7 +511,7 @@ def test_smoke_failure_preserves_sanitized_error_and_app_server_diagnostics(tmp_
     smoke = load_smoke()
     secret = "dummy-provider-secret-for-diagnostic-test"
     monkeypatch.setenv("OPENAI_API_KEY", secret)
-    monkeypatch.setattr(smoke, "prepare_meta_storage", lambda run: (run / "meta_session").mkdir(parents=True))
+    monkeypatch.setattr(smoke, "prepare_meta_storage", lambda run, **kwargs: (run / "meta_session").mkdir(parents=True))
 
     def prepare_home(run, **kwargs):
         home = run / "meta_session/codex_home"
@@ -611,3 +611,48 @@ def test_smoke_host_config_disables_vendor_shell_tool():
     assert production["config"]["features.shell_tool"] is True
     assert production["config"]["features.use_legacy_landlock"] is True
     assert smoke_parameters["config"]["features.shell_tool"] is False
+
+
+def test_smoke_meta_storage_isolated_between_fresh_runs_and_stable_on_restart(tmp_path, monkeypatch):
+    import launch_meta
+
+    smoke = load_smoke()
+    monkeypatch.setenv("OPENAI_API_KEY", "offline-storage-test-only")
+    monkeypatch.setattr(launch_meta, "PROJECT_ROOT", tmp_path / "project/RSIFlow")
+    initializations = []
+    real_prepare = smoke.prepare_meta_storage
+
+    def record_initialization(run, **kwargs):
+        initializations.append((run, kwargs))
+        return real_prepare(run, **kwargs)
+
+    class FakeServer:
+        def start(self):
+            raise RuntimeError("stop after real storage initialization")
+
+        def close(self):
+            pass
+
+    class FakeSandbox:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(smoke, "prepare_meta_storage", record_initialization)
+    monkeypatch.setattr(
+        smoke, "make_controller", lambda run, meta: (FakeServer(), FakeSandbox(), object()),
+    )
+    first = tmp_path / "r2/run"
+    second = tmp_path / "r3/run"
+    for run in (first, second):
+        report = smoke.run_smoke(PROJECT / "reproduction/configs/meta_bwrap_smoke.json", run)
+        assert report["failed_stage"] == "first_app_server"
+        assert report["error_message"] == "stop after real storage initialization"
+
+    first_session = (first / "meta_session").resolve()
+    first_home = (first / "meta_session/codex_home").resolve()
+    repeated_run, repeated_kwargs = initializations[0]
+    record_initialization(repeated_run, **repeated_kwargs)
+    assert (first / "meta_session").resolve() == first_session
+    assert (first / "meta_session/codex_home").resolve() == first_home
+    assert (second / "meta_session").resolve() != first_session
+    assert (second / "meta_session/codex_home").resolve() != first_home

@@ -404,7 +404,7 @@ def run_smoke(config_path, run):
         if run.exists():
             raise FileExistsError("smoke run directory must be fresh")
         run.mkdir(parents=True)
-        prepare_meta_storage(run)
+        prepare_meta_storage(run, meta_logs_root=run / "Meta_logs")
         codex_home = prepare_codex_home(
             run, host_path=PROJECT / "reproduction/configs/codex_host.toml",
             catalog_path=meta["model_catalog_json"],

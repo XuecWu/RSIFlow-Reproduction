@@ -599,3 +599,15 @@ def test_job_status_receipt_accepts_single_job_form():
     assert smoke.validate_job_status_receipt(receipt, "job-A") == receipt
     with pytest.raises(ValueError, match="original job"):
         smoke.validate_job_status_receipt({**receipt, "job_id": "job-B"}, "job-A")
+
+
+def test_smoke_host_config_disables_vendor_shell_tool():
+    smoke = load_smoke()
+    host = tomllib.loads((PROJECT / "reproduction/configs/codex_host.toml").read_text())
+    assert host["features"]["shell_tool"] is False
+    meta = {"model": "gpt-6-astra", "provider": "OpenAI"}
+    production = smoke.native_thread_parameters(PROJECT, meta)
+    smoke_parameters = smoke.thread_parameters(meta)
+    assert production["config"]["features.shell_tool"] is True
+    assert production["config"]["features.use_legacy_landlock"] is True
+    assert smoke_parameters["config"]["features.shell_tool"] is False

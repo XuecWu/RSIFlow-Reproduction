@@ -10,7 +10,7 @@ web_search = "disabled"
 enabled = false
 
 [features]
-shell_tool = true
+shell_tool = false
 use_legacy_landlock = true
 multi_agent = false
 multi_agent_v2 = false

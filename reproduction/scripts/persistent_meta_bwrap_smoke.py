@@ -164,6 +164,10 @@ def make_controller(run, meta):
 def thread_parameters(meta):
     parameters = native_thread_parameters(PROJECT, meta)
     parameters["developerInstructions"] = SMOKE_INSTRUCTIONS
+    # This kernel cannot run the vendor shell sandbox (no Landlock; nested
+    # bwrap is blocked by the anti-escape seccomp), so the smoke disables the
+    # native shell tool deterministically instead of relying on its failure.
+    parameters["config"]["features.shell_tool"] = False
     return parameters
 
 
@@ -280,34 +284,6 @@ def process_key_absent(pid, name, secret):
     return not any(field.startswith(prefix) for field in fields) and secret.encode() not in fields
 
 
-def hygiene_from_item(item):
-    if item.get("type") != "commandExecution" or item.get("exitCode") != 0:
-        return None
-    for line in (item.get("aggregatedOutput") or "").splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if (set(value) == {"openai_api_key_present", "parent_marker_present"}
-                and all(type(value[key]) is bool for key in value)):
-            return value
-    return None
-
-
-def native_hygiene_receipt(run):
-    receipts = []
-    for event in read_events(run):
-        if event.get("method") != "item/completed":
-            continue
-        item = event.get("params", {}).get("item", {})
-        hygiene = hygiene_from_item(item)
-        if hygiene is not None:
-            receipts.append({"item_id": item.get("id"), **hygiene})
-    if len(receipts) != 1:
-        raise ValueError("native boolean hygiene receipt missing or duplicated")
-    return receipts[0]
-
-
 def sanitized_event(event, raw_line):
     result = {"method": event.get("method"), "event_sha256": hashlib.sha256(raw_line.encode()).hexdigest()}
     if isinstance(event.get("id"), (str, int)):
@@ -331,9 +307,6 @@ def sanitized_event(event, raw_line):
         item_arguments = item.get("arguments")
         if isinstance(item_arguments, dict):
             safe_item["arguments_sha256"] = value_digest(item_arguments)
-        hygiene = hygiene_from_item(item)
-        if hygiene is not None:
-            safe_item["hygiene"] = hygiene
         safe_params["item"] = safe_item
     if safe_params:
         result["params"] = safe_params
@@ -456,8 +429,10 @@ def run_smoke(config_path, run):
             "host_transport_has_real_key": sandbox.transport._secret == secret,
             "sandbox_real_key_absent": "OPENAI_API_KEY" not in sandbox._environment()
             and secret not in sandbox._environment().values(),
+            "sandbox_parent_marker_absent": marker not in sandbox._environment().values(),
             "sandbox_dummy_relay_key_present": sandbox._environment().get("RSIFLOW_RELAY_KEY") == "pipe-only",
             "codex_config_real_key_absent": secret not in (sandbox.codex_home / "config.toml").read_text(),
+            "codex_config_marker_absent": marker not in (sandbox.codex_home / "config.toml").read_text(),
             "codex_config_dummy_relay_key_present": "RSIFLOW_RELAY_KEY" in (sandbox.codex_home / "config.toml").read_text(),
         }
         reply = server.request("thread/start", {**thread_parameters(meta), "dynamicTools": dynamic_tools()})
@@ -528,6 +503,9 @@ def run_smoke(config_path, run):
         if sandbox.identity()["backend"] != BACKEND:
             raise ValueError("resumed sandbox backend mismatch")
         report["key_hygiene"]["resumed_host_transport_has_real_key"] = sandbox.transport._secret == secret
+        report["key_hygiene"]["resumed_sandbox_parent_marker_absent"] = (
+            marker not in sandbox._environment().values()
+        )
         reply = server.request("thread/resume", {
             **thread_parameters(meta), "threadId": first_thread, "excludeTurns": True,
         })
@@ -556,16 +534,6 @@ def run_smoke(config_path, run):
         status_receipt = statuses[0]["receipt"]
         validate_job_status_receipt(status_receipt, job_id)
         report["job_status_receipt_sha256"] = digest(statuses[0]["turn_dir"] / "receipt.json")
-
-        report["stage"] = "native_key_hygiene_turn"
-        prompt = ("""Use the native Codex shell exactly once, with no file or system changes, to run:
-/bin/sh -c 'if [ "${OPENAI_API_KEY+x}" = x ]; then k=true; else k=false; fi; if [ "${RSIFLOW_TASK6_PARENT_MARKER+x}" = x ]; then m=true; else m=false; fi; printf "{\\"openai_api_key_present\\":%s,\\"parent_marker_present\\":%s}\\n" "$k" "$m"'
-Do not print any environment values. Do not call dynamic tools. End the turn after the boolean output.""")
-        require_completed(server.turn(second_thread, prompt, environments=environments()))
-        report["native_shell_hygiene"] = native_hygiene_receipt(run)
-        if (report["native_shell_hygiene"]["openai_api_key_present"]
-                or report["native_shell_hygiene"]["parent_marker_present"]):
-            raise ValueError("native sandbox environment contains a parent-only variable")
 
         report["stage"] = "second_provider_evidence"
         after_provider = copy_provider(run, "provider_after_restart")

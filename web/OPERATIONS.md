@@ -101,3 +101,23 @@
 - `pt-vcq25ldi` 终态 SUCCEEDED；共享盘 bwrap 0.6.1 在无 `/proc` 条件下通过 `/data`/`/root` 隐藏、运行时只读、工作区可写、外网不可达六项最小检查。
 - 最新全量回归为 169 passed、2 skipped、1 failed，唯一失败仍为既有 Landlock 环境用例；网站 11/11 通过。
 - 上述结果只支持进入替代后端集成设计与独立安全审阅，不代表 Codex native tools、thread resume、真实 benchmark 或五轮已可运行。
+
+## 2026-11-13 至 2026-11-15
+
+### Bubblewrap 集成与真实最小 smoke
+
+- 固定 bwrap 0.6.1、SHA256 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`，显式后端为 `linux_bwrap_seccomp_v1`；无 host/Landlock fallback 或 `danger-full-access`。
+- Candidate `pt-gyfupguq` SUCCEEDED/worker Succeeded，7 functional + 18 negative + 5 timeout + 3 session 全通过；report SHA256 `56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63`。
+- EvalPlus `pt-bfkp5k0d` SUCCEEDED/worker Succeeded，单任务 canonical Base/Plus pass、wrong Base/Plus fail；smoke SHA256 `537ed60c8ed385ecab81197fb218a6e8117bfc3a0871d5e2445779daf524bfc0`，official canonical/wrong SHA256 `3125b42c1d1f8ef7ba4a6a4ee263ab653485c11a0b8e087327a9987ea8a2ffa2` / `f41bea3178f193a2228b196fe3709fe8f1aa6321302ff04c0ef29a3bf2427514`。不是 benchmark 分数。
+- BFCL `pt-fdvsxqax` SUCCEEDED/worker Succeeded，恰好两次受控 native RPC；`check.json` SHA256 `ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4`。不是 benchmark 分数。
+- Meta `pt-zj1l9q1t` SUCCEEDED/worker Succeeded，same thread、无重复 job/bootstrap、3 dynamic calls、11 key hygiene + 7 cleanup true、durable job exit 0；report SHA256 `b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920`。
+- Meta 证据由外部 actor `huangsiyuan1` 提交，实际 8×A100、N3lS+N2lS candidate specs、`root_mapping=true`，经用户授权接受。A800 r5/r6 `pt-7i4qertj` / `pt-44m6zkmx` 启动前失败，不宣称 A800 pass。
+- Codex native-shell descendant hygiene 未执行；仅采用批准的 `shell_tool=false` construction-level gate，未放宽 seccomp。
+
+### Task 7 回归与发布检查
+
+- Base 完整套件重现 `276 passed, 2 skipped, 1 failed`；旧 Landlock Harness 测试保持名称和断言，显式切换 bwrap 后仍 RED，定位为 validation worker 自装 Landlock。最小接入 pinned backend 并移除非必要且被 backend 拒绝的 token 命名环境变量后，真实测试 GREEN：`1 passed in 32.98s`。
+- 聚焦回归 `79 passed`；brief 原命令最终完整套件 **277 passed, 2 skipped**；website **11/11**，`node --check`、`git diff --check` 均通过。
+- 现有 secret scan 通过；`assets/isolation/`、凭据、raw provider requests、私有轨迹和大输出保持 ignored/unlinked，`web/` 无 symlink。公开内容仅含脱敏证据，不包含 raw prompts/responses。
+- 本任务未提交 SCO job，未启动五轮、SFT、最终 694/744、ACE 50、8B、Qwen 服务或正式演化训练，未 push。
+- Task 7 最终独立安全审阅由 controller 在 commit 后执行；五轮前的五类 benchmark smoke、四卡 Qwen 健康、当前 694 `--check` 和 experiment preflight 仍是独立门槛。

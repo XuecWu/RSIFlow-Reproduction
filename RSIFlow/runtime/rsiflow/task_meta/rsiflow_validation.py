@@ -21,6 +21,48 @@ class ValidationResult(SimpleNamespace):
         return dict(vars(self))
 
 
+def _bwrap_command(scratch, copied, project, report_path, env, timeout):
+    from rsiflow.task_meta.bwrap_backend import BubblewrapBackend, BwrapLimits, BwrapMount, BwrapRequest
+    from rsiflow.task_meta.rsiflow_production import UPSTREAM_ROOT
+
+    script = Path(__file__).resolve()
+    runtime = script.parents[2]
+    mounts = [
+        BwrapMount(Path(sys.executable).resolve(), "/usr/bin/python3", "ro"),
+        BwrapMount(runtime, str(runtime), "ro"),
+        BwrapMount(UPSTREAM_ROOT, str(UPSTREAM_ROOT), "ro"),
+        BwrapMount(scratch, str(scratch), "rw"),
+    ]
+    for value in (
+        Path(sys.prefix).resolve(), "/lib", "/lib64", "/usr/lib", "/usr/lib64",
+        "/etc/ld.so.cache", "/etc/localtime", "/dev/null", "/dev/urandom", "/dev/random",
+    ):
+        path = Path(value)
+        if path.exists():
+            resolved = path.resolve()
+            mode = "dev" if resolved.parent == Path("/dev") else "ro"
+            mounts.append(BwrapMount(resolved, str(path), mode))
+    request = BwrapRequest(
+        profile="candidate",
+        argv=(
+            "/usr/bin/python3", "-I", "-B", "-X", "faulthandler", str(script),
+            str(copied), str(project), str(report_path),
+        ),
+        cwd=str(scratch),
+        env={
+            **{key: value for key, value in env.items() if key != "TOKENIZERS_PARALLELISM"},
+            "RSIFLOW_SANDBOX_BACKEND": "linux_bwrap_seccomp_v1",
+        },
+        limits=BwrapLimits(
+            wall_seconds=timeout, cpu_seconds=2400, memory_bytes=8 * 1024**3,
+            output_bytes=8192, file_bytes=8 * 1024 * 1024, processes=1, file_descriptors=32,
+        ),
+        mounts=tuple(mounts),
+    )
+    backend = BubblewrapBackend(script.parents[4], allowed_write_roots=(scratch,))
+    return backend.command(request)
+
+
 def validate_candidate(candidate_dir: Path, *, timeout: float = 300) -> ValidationResult:
     from rsiflow.task_meta.rsiflow_manifest import HarnessBundleManifest
 
@@ -45,13 +87,24 @@ def validate_candidate(candidate_dir: Path, *, timeout: float = 300) -> Validati
             "NUMEXPR_NUM_THREADS": "1", "TOKENIZERS_PARALLELISM": "false",
             "CUDA_VISIBLE_DEVICES": "", "HF_HUB_OFFLINE": "1",
         }
+        if os.environ.get("RSIFLOW_SANDBOX_BACKEND") == "linux_bwrap_seccomp_v1":
+            command = _bwrap_command(scratch, copied, project, report_path, env, timeout)
+        else:
+            command = [
+                sys.executable, "-I", "-B", "-X", "faulthandler", str(Path(__file__).resolve()),
+                str(copied), str(project), str(report_path),
+            ]
         with (scratch / "stdout.log").open("wb") as out, (scratch / "stderr.log").open("wb") as err:
-            process = subprocess.Popen(
-                [sys.executable, "-I", "-B", "-X", "faulthandler", str(Path(__file__).resolve()),
-                 str(copied), str(project), str(report_path)],
-                cwd=scratch, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                close_fds=True, start_new_session=True,
-            )
+            try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=scratch, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                    close_fds=True, start_new_session=True, pass_fds=getattr(command, "pass_fds", ()),
+                )
+            finally:
+                close = getattr(command, "close", None)
+                if close:
+                    close()
             timed_out = False
             try:
                 process.wait(timeout=timeout)
@@ -113,18 +166,18 @@ def _worker(candidate: Path, project: Path, report_path: Path) -> None:
         "/etc/localtime", "/dev/null", "/dev/urandom", "/dev/random",
         "/proc/self", "/proc/cpuinfo", "/proc/meminfo", "/sys/devices/system/cpu",
     ) if Path(p).exists())
-    # Guards are installed before any candidate import. Thread creation is needed
-    # by native dependencies; host mutation, network and process escape are denied.
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     resource.setrlimit(resource.RLIMIT_FSIZE, (8 * 1024 * 1024, 8 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_CPU, (2400, 2401))
     resource.setrlimit(resource.RLIMIT_AS, (8 * 1024**3, 8 * 1024**3))
-    try:
-        _restrict_filesystem(readable, scratch, write_paths=(Path("/dev/null"),))
-        _restrict_syscalls(allow_threads=True)
-    except Exception as exc:
-        report_path.write_text(json.dumps({"worker_error": f"{type(exc).__name__}: {exc}"}))
-        return
+    if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != "linux_bwrap_seccomp_v1":
+        # The legacy worker installs Landlock before importing generated code.
+        try:
+            _restrict_filesystem(readable, scratch, write_paths=(Path("/dev/null"),))
+            _restrict_syscalls(allow_threads=True)
+        except Exception as exc:
+            report_path.write_text(json.dumps({"worker_error": f"{type(exc).__name__}: {exc}"}))
+            return
     for source in (UPSTREAM_ROOT, UPSTREAM_ROOT / "harness", UPSTREAM_ROOT / "harness_factory"):
         sys.path.insert(0, str(source))
     _install_json_repair_fallback()

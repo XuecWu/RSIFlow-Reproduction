@@ -44,7 +44,7 @@
           <div class="card-kicker">REPRODUCTION READINESS</div>
           <div class="readiness-status"><span class="status-dot pending"></span>复现准备中</div>
           <div class="readiness-number">13<span>个阶段</span></div>
-          <p>当前只准备 Qwen3-4B；SCO Landlock probe 排队中，Meta 私有凭据尚未提供。</p>
+          <p>当前只准备 Qwen3-4B；bwrap 最小 smoke 已验证，最终独立安全审阅与五轮 preflight 仍待完成。</p>
           <ol class="readiness-list">
             <li><span>01</span>公开数据同协议重构，不是原始队列</li>
             <li><span>02</span>主分区八卡，仅使用 GPU 0–3</li>
@@ -171,10 +171,10 @@
           </table>
         </div>
         <div class="deployment-grid">
-          <article class="deployment recommended"><div class="card-kicker">CURRENT · PROBE QUEUED</div><h3>主分区八卡，仅一套四卡流水线</h3><p class="deployment-spec">N3lS.Ii.I60.8 · 8×A800 80GB</p><ul><li>只使用 GPU 0–3，保留 4–7 空闲</li><li>当前只准备 4B，不并行第二套</li><li>Landlock probe：pt-r6np9yvd，STARTING</li></ul></article>
+          <article class="deployment recommended"><div class="card-kicker">CURRENT · PREFLIGHT PENDING</div><h3>主分区八卡，仅一套四卡流水线</h3><p class="deployment-spec">N3lS.Ii.I60.8 · 8×A800 80GB</p><ul><li>只使用 GPU 0–3，保留 4–7 空闲</li><li>当前只准备 4B，不并行第二套</li><li>bwrap smoke 已通过；五轮尚未启动</li></ul></article>
           <article class="deployment conditional"><div class="card-kicker">NOT CURRENT PLAN</div><h3>八卡双流水线需要额外改造</h3><p class="deployment-spec">不作为本次执行方式</p><ul><li>子进程会重写 CUDA_VISIBLE_DEVICES</li><li>需 GPU 映射、端口、socket、registry 隔离</li><li>4B 审阅后才决定是否准备 8B</li></ul></article>
         </div>
-        <p class="resource-note">已提交短时 SCO probe，尚未开始运行；没有提交五轮实验。GPU 4–7 不参与当前任务。</p>
+        <p class="resource-note">短时 SCO 隔离 smoke 已有终态证据；没有提交五轮实验。GPU 4–7 不参与当前任务。</p>
       </div>
     </section>
 
@@ -190,7 +190,7 @@
           <li><span>02</span><div><h3>Conda / Python 3.11</h3><p>torch 2.8.0+cu128、runtime[dev,pipeline]、Task requirements。</p></div></li>
           <li><span>03</span><div><h3>离线测试与 --check</h3><p>分别记录 pytest、路径和外部资产状态。</p></div></li>
           <li><span>04</span><div><h3>冻结 3000 / 744</h3><p>READY、disjoint、hash 与第二 backbone 复用证据。</p></div></li>
-          <li><span>05</span><div><h3>主分区八卡 probe</h3><p>仅用 GPU 0–3，验证 Landlock、A800、BF16、显存、模型和端口。</p></div></li>
+          <li><span>05</span><div><h3>主分区八卡 probe</h3><p>仅用 GPU 0–3，验证 bwrap、A800、BF16、显存、模型和端口。</p></div></li>
           <li><span>06</span><div><h3>API 与五类 benchmark smoke</h3><p>真实小额请求，区分基础设施失败与任务失败；ACE 跳过。</p></div></li>
           <li><span>07</span><div><h3>4B 五轮与 694</h3><p>前台控制器、独立 run dir、最终快照与官方 partial 回执。</p></div></li>
           <li><span>08</span><div><h3>8B 另行审阅决定</h3><p>只有 4B 过程和结果审阅后才讨论，当前未下载、未运行。</p></div></li>
@@ -221,7 +221,7 @@ python -m pip install -r upstream/RSIFlow_task/requirements.txt</pre></div>
         <div class="verification-grid">
           <article class="verification-card"><span class="status-dot done"></span><h3>源码调研</h3><p>固定 commit，核对控制链、有效配置、GPU 门槛、数据协议与文档差异。</p><a href="RESULTS.md">交付结果</a></article>
           <article class="verification-card"><span class="status-dot done"></span><h3>网站验证</h3><p>事实 JSON、链接、锚点、无第三方资产依赖、执行边界与凭据扫描。</p><a href="OPERATIONS.md">操作日志</a></article>
-          <article class="verification-card pending-card"><span class="status-dot pending"></span><h3>实验复现</h3><p>准备阶段已有真实证据；probe 排队、Meta 缺私有凭据。没有五轮输出或模型 benchmark 分数。</p><a href="data/reproduction.json">阶段状态</a></article>
+          <article class="verification-card pending-card"><span class="status-dot pending"></span><h3>实验复现</h3><p>bwrap 最小 smoke 已有真实证据；独立安全审阅和五轮 preflight 待完成。没有五轮输出或模型 benchmark 分数。</p><a href="data/reproduction.json">阶段状态</a></article>
         </div>
         <div class="pending-register">
           <span>CONDA</span><span>ASSETS</span><span>PYTEST</span><span>PREFLIGHT</span><span>FROZEN DATA</span><span>GPU PROBE</span><span>MODEL SMOKE</span><span>API SMOKE</span><span>BENCH SMOKE</span><span>4B RUN</span><span>4B EVAL</span><span>8B RUN</span><span>8B EVAL</span>

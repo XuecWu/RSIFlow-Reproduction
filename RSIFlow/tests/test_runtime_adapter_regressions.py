@@ -96,7 +96,8 @@ def test_correct_function_is_not_excluded_from_success_sft():
     assert _structured_match(True, [True]) is False  # Former, incorrect call-site comparison.
 
 
-def test_real_isolated_harness_validation_ignores_host_directory_name(tmp_path):
+def test_real_isolated_harness_validation_ignores_host_directory_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
     sys.path.insert(0, str(ROOT))
     from controller_tools import ControllerTools
     from task_adapter import TaskAdapter

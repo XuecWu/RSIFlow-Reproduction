@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "research_status": "completed_documentation_only",
-  "experiment_status": "in_progress",
+  "research_status": "completed_source_research",
+  "experiment_status": "in_progress_preflight",
   "source_commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
-  "user_boundary": "已批准 4B 准备与主分区八卡 probe；先只使用 GPU 0–3。公开数据同协议重构、Meta 使用 gpt-6-astra、ACE 跳过，五轮须等 smoke 与私有凭据通过",
+  "isolation_branch": "reproduction/4b-bwrap",
+  "user_boundary": "4B 公开数据同协议重构、Meta 使用 gpt-6-astra、ACE 跳过；五轮须等独立安全审阅、五类 benchmark 最小 smoke、健康四卡 Qwen 服务、当前 694 --check 与 experiment preflight",
   "recommended_execution": {
     "mode": "dev_four_gpu_sequential",
     "workspace": "sensebot-a100-a800-liujianbo",
@@ -26,30 +27,93 @@
     "verified": false
   },
   "current_execution": {
-    "status": "blocked_landlock_unavailable",
-    "phase": "task5_benchmark_smoke_and_isolation_blocked",
+    "status": "isolation_validated_pending_final_independent_security_review",
+    "phase": "task7_final_review_gate",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
     "protocol": "protocol_reconstruction",
     "meta_provider": "OpenAI/gpt-6-astra",
-    "ace_mode": "skipped_694_of_744"
+    "ace_mode": "skipped_694_of_744",
+    "sandbox_backend": "linux_bwrap_seccomp_v1"
   },
   "compatibility_fixes": {
     "skip_ace_744": {
-      "status": "focused_tests_passed_full_suite_pending",
+      "status": "focused_and_full_suite_passed",
       "focused_tests": "6/6",
+      "full_suite": "277 passed, 2 skipped",
       "source": "RSIFlow/validation_skip.py",
       "evidence": "reproduction/audit/reviews/skip-ace-codex-r1.md"
     },
     "landlock": {
       "local_status": "unavailable_function_not_implemented",
-      "upstream_suite": "169 passed, 2 skipped, 1 failed (latest); Landlock Function not implemented",
-      "sco_probe_job": "pt-r6np9yvd",
+      "legacy_sco_status": "unavailable_errno38",
+      "upstream_suite": "277 passed, 2 skipped with explicit bwrap real-isolation coverage",
       "meta_runtime_probe_job": "pt-4hdyar4r",
       "bwrap_candidate_probe_job": "pt-vcq25ldi",
-      "candidate_status": "minimal_bwrap_negative_checks_passed_not_integrated",
-      "evidence": "reproduction/audit/reviews/environment-main.md"
+      "candidate_status": "bwrap_integrated_and_real_smokes_passed",
+      "independent_security_review": "pending_controller_after_task7_commit",
+      "evidence": "reproduction/audit/daily/2026-11-12.md"
+    }
+  },
+  "bwrap_isolation": {
+    "backend": "linux_bwrap_seccomp_v1",
+    "binary_version": "0.6.1",
+    "binary_sha256": "d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca",
+    "profiles": ["candidate_and_session", "native_benchmark", "persistent_meta"],
+    "host_fallback": false,
+    "landlock_fallback": false,
+    "danger_full_access": false,
+    "provider_key_location": "host_ResponsesTransport_only",
+    "native_shell_descendant_hygiene": "not_executed_shell_tool_false_construction_gate_only",
+    "candidate": {
+      "job_id": "pt-gyfupguq",
+      "terminal": "SUCCEEDED",
+      "worker": "Succeeded",
+      "report": "reproduction/logs/candidate_bwrap_smoke_sco_r3.json",
+      "sha256": "56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63",
+      "checks": {"functional": 7, "negative": 18, "timeout": 5, "session": 3},
+      "scope": "infrastructure_smoke_not_a_model_score"
+    },
+    "evalplus": {
+      "job_id": "pt-bfkp5k0d",
+      "terminal": "SUCCEEDED",
+      "worker": "Succeeded",
+      "report": "reproduction/logs/evalplus-bwrap-smoke/20261113T035651Z/smoke_report.json",
+      "sha256": "537ed60c8ed385ecab81197fb218a6e8117bfc3a0871d5e2445779daf524bfc0",
+      "canonical_official_sha256": "3125b42c1d1f8ef7ba4a6a4ee263ab653485c11a0b8e087327a9987ea8a2ffa2",
+      "wrong_official_sha256": "f41bea3178f193a2228b196fe3709fe8f1aa6321302ff04c0ef29a3bf2427514",
+      "scope": "one_HumanEval_task_official_comparator_smoke_not_a_benchmark_score"
+    },
+    "bfcl": {
+      "job_id": "pt-fdvsxqax",
+      "terminal": "SUCCEEDED",
+      "worker": "Succeeded",
+      "source_commit": "ea13468e4423454d0c213704fb87cf7cb3990433",
+      "receipt": "reproduction/logs/bfcl-bwrap-check-r2/check.json",
+      "sha256": "ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4",
+      "controlled_rpc_calls": 2,
+      "scope": "native_infrastructure_smoke_not_a_benchmark_score"
+    },
+    "persistent_meta": {
+      "job_id": "pt-zj1l9q1t",
+      "terminal": "SUCCEEDED",
+      "terminal_time": "2026-11-14T17:33:42Z",
+      "worker": "Succeeded",
+      "report": "reproduction/logs/meta-bwrap-task6-r4-20261114T173158Z/run/report.json",
+      "sha256": "b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920",
+      "submitted_by": "huangsiyuan1",
+      "not_submitted_by": "main-kimi",
+      "resource": "8xA100",
+      "candidate_specs": "N3lS+N2lS",
+      "root_mapping": true,
+      "a100_authorized_by_user": true,
+      "a800_pass": false,
+      "a800_prestart_failures": ["pt-7i4qertj", "pt-44m6zkmx"],
+      "dynamic_tool_calls": 3,
+      "key_hygiene_checks": 11,
+      "cleanup_checks": 7,
+      "scope": "infrastructure_resume_smoke_not_a_model_quality_result"
     }
   },
   "experiment_stages": [
@@ -65,12 +129,14 @@
     },
     {
       "id": "offline_tests",
-      "status": "completed_with_landlock_limitation",
-      "evidence": "reproduction/audit/reviews/environment-main.md"
+      "status": "completed",
+      "test_counts": "277 passed, 2 skipped",
+      "focused_counts": "79 passed",
+      "evidence": "reproduction/audit/daily/2026-11-12.md"
     },
     {
       "id": "launch_preflight",
-      "status": "completed",
+      "status": "historical_precheck_current_694_check_pending",
       "evidence": "reproduction/audit/reviews/custom-provider-main.md"
     },
     {
@@ -97,29 +163,36 @@
     },
     {
       "id": "sco_gpu_probe",
-      "status": "landlock_unavailable_errno38",
+      "status": "legacy_landlock_unavailable_bwrap_validated",
       "evidence": "reproduction/logs/landlock-model-smoke.json",
       "sco_job_id": "pt-texqw4a8",
-      "full_run_blocked": true
+      "full_run_blocked": true,
+      "current_blocker": "remaining_experiment_preflight_not_landlock"
     },
     {
       "id": "model_service_smoke",
-      "status": "completed_gpu_diagnostic_landlock_blocker_remains",
+      "status": "completed_gpu_diagnostic_only",
       "evidence": "reproduction/audit/smoke/model-service-r3-result.json",
       "sco_job_id": "pt-ox3o5he2",
       "answer": "RSIFLOW_SMOKE_OK",
       "usage": {"prompt_tokens": 22, "completion_tokens": 8},
-      "scope": "gpu_diagnostic_only_not_full_experiment"
+      "scope": "gpu_diagnostic_only_not_full_experiment",
+      "current_service_running": false
     },
     {
       "id": "meta_api_smoke",
-      "status": "responses_http_passed_codex_native_pending_isolation",
-      "evidence": "reproduction/audit/key_results.jsonl"
+      "status": "completed_real_codex_bwrap_resume_smoke",
+      "evidence": "reproduction/logs/meta-bwrap-task6-r4-20261114T173158Z/run/report.json",
+      "sco_job_id": "pt-zj1l9q1t",
+      "sha256": "b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920",
+      "scope": "infrastructure_smoke_not_a_model_score"
     },
     {
       "id": "benchmark_smoke",
-      "status": "not_run_pending_approval",
-      "evidence": null
+      "status": "partial_minimum_infrastructure_smokes_not_scores",
+      "completed": ["candidate", "HumanEval+ one-task official comparator", "BFCL two-RPC native", "Codex dynamic/resume"],
+      "evidence": "reproduction/audit/daily/2026-11-12.md",
+      "model_benchmark_scores": false
     },
     {
       "id": "run_4b_five_rounds",
@@ -144,6 +217,14 @@
       "evidence": null
     }
   ],
+  "remaining_experiment_gates": [
+    "final_independent_security_review",
+    "five_benchmark_minimum_smokes",
+    "healthy_four_gpu_qwen_services_logical_gpu_0_to_3",
+    "current_694_python_RSIFlow_4B_launch.py_--check",
+    "final_independent_experiment_preflight_review"
+  ],
+  "not_run": ["five_rounds", "SFT", "final_694_of_744", "ACE_50", "8B", "Qwen_services"],
   "blocking_decisions": [
     "original_3000_744_source_manifests_availability",
     "exact_reproduction_or_protocol_reconstruction",

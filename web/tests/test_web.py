@@ -122,25 +122,34 @@ class WebsiteTests(unittest.TestCase):
     def test_experiment_status_tracks_real_evidence(self):
         stages = self.reproduction.get("experiment_stages", [])
         self.assertGreaterEqual(len(stages), 13)
-        completed = {"conda_environment", "external_assets", "offline_tests", "launch_preflight"}
-        self.assertEqual("landlock_unavailable_errno38", next(stage for stage in stages if stage["id"] == "sco_gpu_probe")["status"])
-        self.assertEqual("completed_gpu_diagnostic_landlock_blocker_remains", next(stage for stage in stages if stage["id"] == "model_service_smoke")["status"])
-        self.assertEqual("responses_http_passed_codex_native_pending_isolation", next(stage for stage in stages if stage["id"] == "meta_api_smoke")["status"])
-        frozen = next(stage for stage in stages if stage["id"] == "frozen_data")
+        by_id = {stage["id"]: stage for stage in stages}
+        for identifier in ("conda_environment", "external_assets", "offline_tests"):
+            self.assertEqual("completed", by_id[identifier]["status"])
+            self.assertIsNotNone(by_id[identifier]["evidence"])
+        self.assertEqual("277 passed, 2 skipped", by_id["offline_tests"]["test_counts"])
+        self.assertEqual("historical_precheck_current_694_check_pending", by_id["launch_preflight"]["status"])
+        self.assertEqual("legacy_landlock_unavailable_bwrap_validated", by_id["sco_gpu_probe"]["status"])
+        self.assertEqual("completed_gpu_diagnostic_only", by_id["model_service_smoke"]["status"])
+        self.assertEqual("completed_real_codex_bwrap_resume_smoke", by_id["meta_api_smoke"]["status"])
+        self.assertEqual("partial_minimum_infrastructure_smokes_not_scores", by_id["benchmark_smoke"]["status"])
+        self.assertFalse(by_id["benchmark_smoke"]["model_benchmark_scores"])
+        frozen = by_id["frozen_data"]
         self.assertEqual("completed_protocol_reconstruction_with_caveats", frozen["status"])
         self.assertIn("v4", frozen["evidence"])
         self.assertFalse(frozen["clean_independence_audited"])
         self.assertEqual("exposure_unknown", frozen["exposure"])
-        self.assertEqual("694_of_744_ace_pending_audit", next(stage for stage in stages if stage["id"] == "evaluate_4b_694")["evaluation_scope"])
-        for stage in stages:
-            if stage["id"] in completed:
-                expected_status = "completed_with_landlock_limitation" if stage["id"] == "offline_tests" else "completed"
-                self.assertEqual(expected_status, stage["status"])
-                self.assertIsNotNone(stage["evidence"])
-            elif stage["id"] not in {"frozen_data"}:
-                self.assertIn(stage["status"], {"not_run_pending_approval", "completed_gpu_diagnostic_landlock_blocker_remains", "landlock_unavailable_errno38", "responses_http_passed_codex_native_pending_isolation"})
+        self.assertEqual("694_of_744_ace_pending_audit", by_id["evaluate_4b_694"]["evaluation_scope"])
+        for identifier in ("run_4b_five_rounds", "evaluate_4b_694", "run_8b_five_rounds", "evaluate_8b_694"):
+            self.assertEqual("not_run_pending_approval", by_id[identifier]["status"])
         self.assertIn("主分区 8×A800", self.reproduction["current_execution"]["gpu_profile_display"])
         self.assertEqual("main_partition_8xA800_sequential_gpu_0_to_3", self.reproduction["current_execution"]["gpu_profile"])
+        meta = self.reproduction["bwrap_isolation"]["persistent_meta"]
+        self.assertEqual("huangsiyuan1", meta["submitted_by"])
+        self.assertEqual("8xA100", meta["resource"])
+        self.assertTrue(meta["root_mapping"])
+        self.assertFalse(meta["a800_pass"])
+        self.assertIn("not_executed", self.reproduction["bwrap_isolation"]["native_shell_descendant_hygiene"])
+        self.assertEqual("pending_controller_after_task7_commit", self.reproduction["compatibility_fixes"]["landlock"]["independent_security_review"])
 
     def test_local_assets_documents_and_anchors_resolve(self):
         missing = []

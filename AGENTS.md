@@ -1,6 +1,6 @@
 # RSI-Flow Agent 工作指南
 
-本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（`main`），当前复现分支为 `reproduction/4b-main8`。已完成环境、4B 模型、公开数据同协议重构与离线检查；SCO 仅提交短时 probe，尚未运行五轮演化或模型 benchmark。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准。
+本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（`main`），当前隔离分支为 `reproduction/4b-bwrap`。环境、4B 模型、公开数据同协议重构与显式 bubblewrap 最小 smoke 已验证；尚未运行五轮演化、SFT、最终 694/744 或模型 benchmark。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准。
 
 ## 1. 项目是什么
 
@@ -24,7 +24,7 @@ RSI-Flow 用持久化 Meta agent 迭代改进 Task agent。Task 状态由模型 
 - `RSIFlow/seed_harness/`：初始 Harness bundle 与 manifest。
 - `RSIFlow/upstream/RSIFlow_task/`：适配后的 Task 组件、Harness production templates 和参考实现。
 - `RSIFlow/configs/`：实验、backbone、Codex 和验证配置；含大量 `/path/to/...` 占位符。
-- `RSIFlow/tests/`：17 个离线测试文件，覆盖协议、配置等价、技能记忆、控制工具、恢复和评估隔离。
+- `RSIFlow/tests/`：离线测试，覆盖协议、配置等价、技能记忆、控制工具、恢复和评估隔离；real-isolation 用例逐项显式选择 bwrap。
 - `RSIFlow_4B/`、`RSIFlow_8B/`：薄启动入口，最终都调用共享 `launcher.main()`。
 - `third_party/`：评测工具与 Codex provenance；保留对应许可证和 notices。
 - `web/`：本次新增的中文调研/复现展示站、实际结果和操作日志。
@@ -116,22 +116,53 @@ PyTorch/CUDA 组合来自现有 SCO 环境的已验证记录，仍须在目标 A
 
 凭据只通过安全环境注入或私有文件提供，不写入仓库、网页或日志。`RSIFLOW_PYTHON` 只选择 launcher 解释器，不会自动替换 JSON 内的所有 interpreter 路径。复制配置到机器专用位置后再替换 `/path/to/...`，避免污染上游基线。自定义 OpenAI provider 仅允许登记的 `http://token.acerobotics.com/v1`、`gpt-6-astra`、`OPENAI_API_KEY`，不允许任意 endpoint 或模型 fallback。`PersistentMeta` 的原生线程模型和 provider 必须来自有效 base 配置的 `meta`，不得在控制流中另写一套硬编码身份。
 
+真实隔离必须显式设置 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1`；未设置时仅为上游兼容保留 legacy Landlock 默认。bwrap 失败不得回退 host、Landlock 或 `danger-full-access`，必须归类为 infrastructure error，不能记成模型零分。固定 bwrap 0.6.1 通过以下 installer 放入 Git 忽略的 `assets/isolation/`，binary SHA256 必须为 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`：
+
+```bash
+python reproduction/scripts/install_bwrap.py \
+  --source /absolute/path/to/verified-bwrap-0.6.1 --root "$PWD/assets/isolation"
+```
+
+三类 profile 为 `candidate`（`candidate_session` 共用 seccomp）、`native_benchmark`、`persistent_meta`。候选只有专用 scratch 可写；native 仅保留两个 RPC FD、允许 thread-only clone/atomic rename；Meta 保留持久 `codex_home` 和 host-side jobs。真实 `OPENAI_API_KEY` 只在 host `ResponsesTransport`，sandbox 只有 `RSIFLOW_RELAY_KEY=pipe-only` 和私有 loopback relay。恢复必须采用同一 thread/job，不重复 bootstrap。
+
+Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用，nested vendor bwrap 与已审阅 anti-escape seccomp 冲突。批准的 smoke 只覆盖 `shell_tool=false` 的 construction-level hygiene；不得放宽 seccomp 或宣称 native-shell 通过。完整命令与证据见 `reproduction/REPRODUCTION.md`。
+
 ## 8. 后续命令与运行边界
 
 以下命令用于离线检查和后续完整实验；离线检查已执行不代表五轮已运行：
 
 ```bash
-# 离线测试；通过不代表能力提升或完整复现
+# 完整离线测试（2026-11-15：277 passed, 2 skipped）
 cd RSIFlow
-PYTHONPATH="$PWD/runtime:$PWD" python -m pytest -q tests
-
-# 配置预检；返回 0 不代表模型、API 或评测器可用
+PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
 cd ..
+
+# 当前 694 配置预检仍是五轮前门槛，本任务未重新执行
 python RSIFlow_4B/launch.py --check
-python RSIFlow_8B/launch.py --check
 
 # 数据准备；需要真实 source manifests
 python RSIFlow/prepare_600_744.py --config /absolute/path/to/train_4b.json
+
+# Candidate 最小 smoke
+RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1 PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
+  python reproduction/scripts/candidate_bwrap_smoke.py --output reproduction/logs/candidate-new.json
+
+# EvalPlus 单任务 official comparator smoke，不是 benchmark 分数
+RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1 PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow:$PWD/reproduction/scripts" \
+  python reproduction/scripts/evalplus_bwrap_smoke.py --config reproduction/configs/report-evaluators-v4.json \
+  --output reproduction/logs/evalplus-new
+
+# BFCL 两次受控 native RPC；使用机器专用 validation config
+RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1 PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python - <<'PY'
+import json
+from pathlib import Path
+from tool_validation import check_native
+config = json.loads(Path("reproduction/configs/validation_744.json").read_text())
+check_native("bfcl_v3", config["tool_benchmarks"]["bfcl_v3"], Path("reproduction/logs/bfcl-new"))
+PY
+
+# Meta 离线检查；真实 smoke 另需安全注入 OPENAI_API_KEY 和独立授权
+PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python reproduction/scripts/persistent_meta_bwrap_smoke.py --check
 ```
 
 `start_5round_600.sh` 默认带 `--detach`。在 ACP 容器中，应让控制器以前台方式运行，否则脚本返回后作业可能结束并清理进程。每个 backbone 使用新的 run dir；相同命令和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。
@@ -148,6 +179,8 @@ python RSIFlow/prepare_600_744.py --config /absolute/path/to/train_4b.json
 后续 GPU 资源参考 `/data/wuxuecheng/sco_usage-1010.md`，不得复制其中的凭据示例。未修改源码的低风险方案是 dev `sensebot-a800-dev-liujianbo`、workspace `sensebot-a100-a800-liujianbo`、单节点规格 `N3lS.Ii.I60.4`（4×A800 80GB、48 vCPU、480 GiB）。
 
 主分区只提交合规的 8 卡及倍数任务。若使用主分区 8 卡，先解决双流水线 GPU 映射、端口、socket、服务 registry 和 output_root 隔离，否则不要并行。提交前做短时 probe，任务不使用 `sleep inf`，多次提交至少间隔 5 秒，结束或失败后确认资源释放。
+
+Task 6 的接受证据 `pt-zj1l9q1t` 是用户授权后的特殊 A100 smoke：外部 actor `huangsiyuan1` 提交，8×A100、N3lS+N2lS candidate specs、`root_mapping=true`，worker Succeeded；report SHA256 `b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920`。A800 r5/r6 `pt-7i4qertj` / `pt-44m6zkmx` 启动前失败，不得宣称 A800 pass 或把该提交归到 `main-kimi`。本任务不再提交 SCO job。
 
 ## 10. 网站维护
 

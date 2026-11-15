@@ -1,6 +1,6 @@
 # RSI-Flow 复现手册与当前执行记录
 
-> 当前已批准 4B 准备和主分区八卡 probe：仅用 GPU 0–3、公开数据同协议重构、Meta `gpt-6-astra`、ACE 跳过。环境、模型、v4 数据和部分离线 smoke 已执行；五轮演化、最终评估和 8B 尚未运行。下文保留通用复现步骤，实际状态以 `data/reproduction.json` 和 `../reproduction/PROGRESS.md` 为准。
+> 当前已验证 4B 准备和显式 bubblewrap 最小基础设施 smoke；正式实验规划仍为主分区八卡仅用 GPU 0–3、公开数据同协议重构、Meta `gpt-6-astra`、ACE 跳过。五轮、SFT、最终 694/744、ACE 50、8B 和正式 Qwen 服务未在本轮运行。下文保留通用复现步骤，实际状态以 `data/reproduction.json` 和 `../reproduction/PROGRESS.md` 为准。
 
 ## 1. 复现目标与判定标准
 
@@ -24,7 +24,7 @@
 | MODEL LoRA SFT | 同一四卡；停止推理后每卡至少 40,000 MiB 空闲 | 4-rank DDP、BF16、gradient checkpointing，无 CPU 回退 |
 | HARNESS 构造 | 构造主要在 CPU，候选配对 rollout 仍需四卡 | 定位 → 方向 → 完整生成 → 最多三次验证 |
 | ARTIFACTS 更新 | 编辑在 CPU，直接 submission 评分依赖对应执行环境 | 当前为 `direct_submission` |
-| Meta 控制 | 不要求本地 GPU，但需要 Codex 和 Meta API | 本次为自定义 `gpt-6-astra`，私有凭据未提供 |
+| Meta 控制 | 不要求本地 GPU，但需要 Codex 和 Meta API | 本次为自定义 `gpt-6-astra`，真实 key 仅注入 host transport |
 | ACEBench 用户模拟 | 不需要单独本地 GPU，但需要外部用户模拟 API | 本次显式跳过，50 条 pending，不是零分 |
 | 最终评估 | 选中 Task 的推理服务和官方评测器 | 冻结 744；本次五类 694 partial，只报告，不反馈训练或 Meta |
 
@@ -54,7 +54,7 @@ cp RSIFlow/runtime/configs/base_8b.json reproduction/configs/base_8b.json
 - 路径字段使用绝对路径。两个 backbone 的 frozen cohort 必须相同；顺序运行时 output_root 可一致，run_name/run_dir 必须不同。
 - `RSIFLOW_PYTHON` 只控制 launcher 解释器，不会替换 JSON 内的 trainer/evaluator interpreters。
 
-凭据通过目标平台的安全注入机制提供，不写入这些 JSON、网页或命令摘要。需要的变量名包括 `AUTODL_API_KEY`、`ACE_USER_API_KEY`、`ACE_USER_BASE_URL`，以及实际的 `RSIFLOW_CODEX_EXECUTABLE` 路径。
+凭据通过目标平台的安全注入机制提供，不写入这些 JSON、网页或命令摘要。Meta 使用 `OPENAI_API_KEY`，真实值只允许存在于 host `ResponsesTransport`；ACE 如另行批准则使用 `ACE_USER_API_KEY`、`ACE_USER_BASE_URL`。同时准备实际的 `RSIFLOW_CODEX_EXECUTABLE` 路径。sandbox 只接收 `RSIFLOW_RELAY_KEY=pipe-only`，不得接收真实 provider key。
 
 ## 4. Conda 与 Python 依赖（通用步骤；当前完成情况见顶部）
 
@@ -160,6 +160,44 @@ PYTHONPATH="$PWD/RSIFlow/runtime" python -m rsiflow.task_meta.pipeline api-smoke
 
 该步骤会产生真实 API 请求，必须另行批准。分别检查 BFCL、ACE、HumanEval+/MBPP+、HotpotQA/2Wiki 的数据、解释器、official specs 和最小样例。基础设施失败、跳过和模型答错必须分开记录。
 
+### 显式 bubblewrap 隔离
+
+真实隔离执行必须设置 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1`，不得回退 host、Landlock 或 `danger-full-access`。固定 bwrap 0.6.1 安装到 Git 忽略目录：
+
+```bash
+python reproduction/scripts/install_bwrap.py \
+  --source /absolute/path/to/verified-bwrap-0.6.1 --root "$PWD/assets/isolation"
+```
+
+binary SHA256 必须为 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`。三类 profile 是 candidate/session、native benchmark（恰好两个 RPC FD、thread-only clone）和 persistent Meta（持久 `codex_home`、host-side jobs、私有 loopback relay）。候选错误、sandbox/RPC infrastructure error 和模型答错必须分类记录。
+
+```bash
+# Candidate
+RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1 PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
+  python reproduction/scripts/candidate_bwrap_smoke.py --output reproduction/logs/candidate-new.json
+
+# EvalPlus 单任务 official comparator，不是分数
+RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1 PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow:$PWD/reproduction/scripts" \
+  python reproduction/scripts/evalplus_bwrap_smoke.py --config reproduction/configs/report-evaluators-v4.json \
+  --output reproduction/logs/evalplus-new
+
+# BFCL 两次受控 native RPC，不是分数
+RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1 PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python - <<'PY'
+import json
+from pathlib import Path
+from tool_validation import check_native
+config = json.loads(Path("reproduction/configs/validation_744.json").read_text())
+check_native("bfcl_v3", config["tool_benchmarks"]["bfcl_v3"], Path("reproduction/logs/bfcl-new"))
+PY
+
+# Meta 离线检查；真实 smoke 需另行授权和安全注入 OPENAI_API_KEY
+PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python reproduction/scripts/persistent_meta_bwrap_smoke.py --check
+```
+
+已接受 SCO 证据：Candidate `pt-gyfupguq` / SHA256 `56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63`；EvalPlus `pt-bfkp5k0d` / SHA256 `537ed60c8ed385ecab81197fb218a6e8117bfc3a0871d5e2445779daf524bfc0`；BFCL `pt-fdvsxqax` / SHA256 `ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4`；Meta `pt-zj1l9q1t` / SHA256 `b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920`。完整路径与 official hash 见 `../reproduction/REPRODUCTION.md`。
+
+Meta 由外部 actor `huangsiyuan1` 提交，实际 8×A100、N3lS+N2lS candidate specs、`root_mapping=true`，经用户授权接受；A800 r5/r6 启动前失败。Codex native-shell descendant hygiene 未验证，当前仅为 `shell_tool=false` construction-level gate，不得放宽 seccomp。
+
 ## 9. 完整实验（通用步骤；当前完成情况见顶部）
 
 启动前硬门槛：环境、原始 frozen data、四卡 probe、Meta smoke 和六类评测 smoke 均有证据。使用全新 run dir，ACP 内前台运行，不能调用默认带 `--detach` 的 shell 启动器后让容器退出。
@@ -217,4 +255,4 @@ bash RSIFlow/watch_meta.sh --run-dir "$PWD/Rollout_logs/runs/rsiflow-4b" --once
 
 已决定：同协议重构、主分区八卡仅用 GPU 0–3、4B 先行、`gpt-6-astra`、ACE 跳过、4B 审阅后才讨论 8B。
 
-Meta 私有凭据已提供到 Git 忽略的 `assets/private/credentials.sh`（权限 600）；agent 不读取、打印或复制 key。中转代理 `/models`、非流式/流式 Responses 已通过，Codex dynamic tools/thread resume 和五类 benchmark smoke 尚未全部通过。SCO 共享 bwrap 仅通过最小负向检查，仍需集成与独立安全审阅；这些门槛完成前不启动五轮长任务。
+Meta 私有凭据已提供到 Git 忽略的 `assets/private/credentials.sh`（权限 600）；agent 不读取、打印或复制 key。真实 Codex dynamic tools/thread resume 和 candidate/EvalPlus/BFCL 最小 smoke 已有上述证据，但都不是模型分数。Task 7 最终独立安全审阅仍由 controller 执行；五轮还需五类 benchmark 最小 smoke、健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review。这些门槛完成前不启动五轮长任务。

@@ -75,6 +75,45 @@ def make_root(tmp_path):
     return root, manifest_path, write_root
 
 
+def write_trust_receipt(root):
+    binary = root / "assets/isolation/bin/bwrap"
+    manifest = root / "RSIFlow/configs/bwrap_isolation.json"
+    launcher = root / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
+    receipt = {
+        "source_sha256": sha256(binary),
+        "destination_sha256": sha256(binary),
+        "version": "0.6.1",
+        "manifest_path": "RSIFlow/configs/bwrap_isolation.json",
+        "manifest_sha256": sha256(manifest),
+        "launcher_path": "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py",
+        "launcher_sha256": sha256(launcher),
+    }
+    (root / "assets/isolation/install-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+    return receipt
+
+
+@pytest.mark.parametrize("asset", ["manifest", "launcher"])
+def test_default_backend_rejects_tampered_trusted_assets(tmp_path, monkeypatch, asset):
+    root, manifest_path, _ = make_root(tmp_path)
+    write_trust_receipt(root)
+    monkeypatch.setattr(BubblewrapBackend, "_namespaces_available", lambda self: True)
+    backend = BubblewrapBackend(root)
+    backend.validate()
+    target = manifest_path if asset == "manifest" else backend.launcher
+    target.write_text(target.read_text() + "\n", encoding="utf-8")
+    with pytest.raises(SandboxUnavailable, match=f"{asset}.*hash"):
+        backend.validate()
+
+
+def test_default_backend_requires_installer_trust_receipt(tmp_path, monkeypatch):
+    root, _, _ = make_root(tmp_path)
+    write_trust_receipt(root)
+    (root / "assets/isolation/install-receipt.json").unlink()
+    monkeypatch.setattr(BubblewrapBackend, "_namespaces_available", lambda self: True)
+    with pytest.raises(SandboxUnavailable, match="receipt"):
+        BubblewrapBackend(root).validate()
+
+
 def make_backend(tmp_path, monkeypatch):
     root, manifest_path, write_root = make_root(tmp_path)
     monkeypatch.setattr(BubblewrapBackend, "_namespaces_available", lambda self: True)
@@ -398,7 +437,9 @@ def test_installer_copies_regular_file_atomically_and_writes_receipt(tmp_path, m
     source.chmod(0o755)
     monkeypatch.setattr(install_bwrap, "EXPECTED_SHA256", sha256(source))
     root = tmp_path / "installed"
-    receipt = install_bwrap.install(source, root)
+    manifest = PROJECT / "RSIFlow/configs/bwrap_isolation.json"
+    launcher = PROJECT / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
+    receipt = install_bwrap.install(source, root, manifest_path=manifest, launcher_path=launcher)
     destination = root / "bin/bwrap"
     assert destination.is_file()
     assert destination.stat().st_mode & 0o111
@@ -406,6 +447,10 @@ def test_installer_copies_regular_file_atomically_and_writes_receipt(tmp_path, m
         "source_sha256": sha256(source),
         "destination_sha256": sha256(destination),
         "version": "0.6.1",
+        "manifest_path": "RSIFlow/configs/bwrap_isolation.json",
+        "manifest_sha256": sha256(manifest),
+        "launcher_path": "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py",
+        "launcher_sha256": sha256(launcher),
     }
     assert json.loads((root / "install-receipt.json").read_text()) == receipt
     assert list(root.glob("bin/.bwrap-*")) == []

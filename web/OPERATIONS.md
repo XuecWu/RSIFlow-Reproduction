@@ -121,3 +121,11 @@
 - 现有 secret scan 通过；`assets/isolation/`、凭据、raw provider requests、私有轨迹和大输出保持 ignored/unlinked，`web/` 无 symlink。公开内容仅含脱敏证据，不包含 raw prompts/responses。
 - 本任务未提交 SCO job，未启动五轮、SFT、最终 694/744、ACE 50、8B、Qwen 服务或正式演化训练，未 push。
 - Task 7 最终独立安全审阅由 controller 在 commit 后执行；五轮前的五类 benchmark smoke、四卡 Qwen 健康、当前 694 `--check` 和 experiment preflight 仍是独立门槛。
+
+### Consolidated final-review fix wave
+
+- 生产 fresh home 的 installation-ID 测试先 `5 failed`，再以原子 no-follow 0644 生产 helper 转为 `5 passed`；fresh smoke production-path startup `1 passed`。有效 inode/content 保留，symlink/非普通文件/非法 UUID fail closed。
+- same-basename/legacy/ownership/symlink 测试先 `5 failed`；central `.run-owner.json` 绑定 resolved full run identity 后，组合 storage/installation `14 passed`。不同 fresh run 不再共享，same-path 和可证明 legacy resume 保留。
+- manifest/launcher tamper 与 missing receipt 先 `3 failed`；candidate/native/Harness no-spawn 联合 `9 failed`。ignored installer receipt 强制 pin 两类 security assets 后 `10 passed`；persistent Meta static-copy pinning 未改。
+- 综合 focused **156 passed in 50.41s**；完整 suite **297 passed, 2 skipped in 90.22s**。Ruff 修复两个新增 import-order 后仍有 18 个既有 legacy findings，不宣称 clean。
+- 当前公开计数已同步为 297/156。既有 SCO IDs/hash 不是新代码证据；受影响 candidate/native/Harness/Meta SCO rerun 和独立 re-review 均待 controller。本 wave 未提交 SCO job、未运行真实 provider smoke、未启动训练/评估、未 push。

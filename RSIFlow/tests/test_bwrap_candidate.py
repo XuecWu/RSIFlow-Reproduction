@@ -231,3 +231,28 @@ def test_bwrap_command_executes_fixed_interpreter_with_explicit_runtime_allowlis
     request = captured["request"]
     assert request.argv[0] == "/usr/bin/python3"
     assert request.argv[0] in {mount.target for mount in request.mounts}
+
+
+@pytest.mark.parametrize("asset", ["manifest", "launcher"])
+def test_candidate_tampered_security_asset_fails_before_spawn(monkeypatch, tmp_path, asset):
+    from test_bwrap_backend import make_root, write_trust_receipt
+
+    root, manifest_path, _ = make_root(tmp_path)
+    write_trust_receipt(root)
+    target = manifest_path if asset == "manifest" else root / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
+    target.write_text(target.read_text() + "\n", encoding="utf-8")
+    monkeypatch.setattr(bwrap_candidate, "PROJECT_ROOT", root)
+    monkeypatch.setattr(
+        "rsiflow.task_meta.bwrap_backend.BubblewrapBackend._namespaces_available", lambda self: True,
+    )
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("candidate Popen must not run after security-asset tampering")
+
+    monkeypatch.setattr("rsiflow.task_meta.sandbox.subprocess.Popen", forbidden)
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
+    with pytest.raises(SandboxUnavailable, match=f"{asset}.*hash"):
+        LinuxSandbox(scratch_root=tmp_path / "scratch").run("print('must-not-run')")
+    assert calls == []

@@ -126,6 +126,41 @@ def test_validation_rejects_unknown_backend_before_isolation_or_spawn(tmp_path, 
     assert calls == []
 
 
+@pytest.mark.parametrize("asset", ["manifest", "launcher"])
+def test_harness_tampered_security_asset_fails_before_spawn(tmp_path, monkeypatch, asset):
+    from rsiflow.task_meta import rsiflow_validation
+    from rsiflow.task_meta.sandbox import SandboxUnavailable
+    from test_bwrap_backend import make_root, write_trust_receipt
+
+    root, manifest_path, _ = make_root(tmp_path)
+    write_trust_receipt(root)
+    target = manifest_path if asset == "manifest" else root / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
+    target.write_text(target.read_text() + "\n", encoding="utf-8")
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    monkeypatch.setattr(
+        "rsiflow.task_meta.rsiflow_manifest.HarnessBundleManifest.from_directory",
+        lambda path: SimpleNamespace(
+            materialize=lambda destination: Path(destination).mkdir(parents=True)
+        ),
+    )
+    monkeypatch.setattr(rsiflow_validation, "PROJECT_ROOT", root, raising=False)
+    monkeypatch.setattr(
+        "rsiflow.task_meta.bwrap_backend.BubblewrapBackend._namespaces_available", lambda self: True,
+    )
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("Harness Popen must not run after security-asset tampering")
+
+    monkeypatch.setattr(rsiflow_validation.subprocess, "Popen", forbidden)
+    with pytest.raises(SandboxUnavailable, match=f"{asset}.*hash"):
+        rsiflow_validation.validate_candidate(candidate)
+    assert calls == []
+
+
 def test_real_isolated_harness_validation_ignores_host_directory_name(tmp_path, monkeypatch):
     monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
     sys.path.insert(0, str(ROOT))

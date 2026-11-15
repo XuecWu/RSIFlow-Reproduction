@@ -90,6 +90,9 @@ class BubblewrapBackend:
             self.project / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
         )
         self.expected_launcher_sha256 = launcher_sha256
+        self.expected_manifest_sha256 = None
+        self._use_install_trust = manifest_path is None and launcher_path is None and launcher_sha256 is None
+        self.trust_receipt_path = self.project / "assets/isolation/install-receipt.json"
         self.binary = self.project / "assets/isolation/bin/bwrap"
         self.manifest = None
 
@@ -126,8 +129,34 @@ class BubblewrapBackend:
         if info is None or not stat.S_ISREG(info.st_mode):
             raise SandboxUnavailable(f"bwrap {description} is not a regular file: {path}")
 
+    def _load_install_trust(self):
+        self._regular_file(self.trust_receipt_path, "install receipt")
+        try:
+            receipt = json.loads(self.trust_receipt_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise SandboxUnavailable(f"invalid bwrap install receipt: {exc}") from exc
+        if not isinstance(receipt, dict):
+            raise SandboxUnavailable("invalid bwrap install receipt")
+        expected_paths = {
+            "manifest_path": "RSIFlow/configs/bwrap_isolation.json",
+            "launcher_path": "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py",
+        }
+        for key, value in expected_paths.items():
+            if receipt.get(key) != value:
+                raise SandboxUnavailable(f"bwrap install receipt {key} mismatch")
+        for key in ("manifest_sha256", "launcher_sha256"):
+            value = receipt.get(key)
+            if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+                raise SandboxUnavailable(f"invalid bwrap install receipt {key}")
+        self.expected_manifest_sha256 = receipt["manifest_sha256"]
+        self.expected_launcher_sha256 = receipt["launcher_sha256"]
+
     def _load_manifest(self):
+        if self._use_install_trust:
+            self._load_install_trust()
         self._regular_file(self.manifest_path, "manifest")
+        if self.expected_manifest_sha256 is not None and self._sha256(self.manifest_path) != self.expected_manifest_sha256:
+            raise SandboxUnavailable("bwrap manifest hash mismatch")
         try:
             manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -52,6 +55,77 @@ def test_new_run_writes_meta_records_into_central_directory(tmp_path):
     assert (central / "meta_session/state.json").read_text() == '{"status":"running"}'
     assert (central / "meta/skills.jsonl").read_text().startswith('{"id"')
     assert prepare_meta_storage(run, tmp_path / "Meta_logs") == central
+
+
+def test_same_basename_fresh_runs_cannot_share_meta_state_and_same_path_resumes(tmp_path):
+    root = tmp_path / "Meta_logs"
+    first = tmp_path / "r1/run"
+    second = tmp_path / "r2/run"
+    central = prepare_meta_storage(first, root)
+    (first / "meta_session/state.json").write_text('{"thread_id":"first"}')
+    first_session = (first / "meta_session").resolve()
+    first_home = first / "meta_session/codex_home"
+    first_home.mkdir()
+    (first_home / "thread.json").write_text('{"thread_id":"first"}')
+    with pytest.raises(FileExistsError, match="different run"):
+        prepare_meta_storage(second, root)
+    assert not (second / "meta_session").exists()
+    assert prepare_meta_storage(first, root) == central
+    assert (first / "meta_session").resolve() == first_session
+    assert (first_home / "thread.json").read_text() == '{"thread_id":"first"}'
+
+
+def test_preexisting_legacy_same_path_storage_is_adopted_without_rewriting_state(tmp_path):
+    root = tmp_path / "Meta_logs"
+    run = tmp_path / "legacy/run"
+    central = root / "run"
+    (central / "meta_session").mkdir(parents=True)
+    (central / "meta").mkdir()
+    (central / "meta_session/state.json").write_text('{"thread_id":"legacy"}')
+    run.mkdir(parents=True)
+    (run / "meta_session").symlink_to(central / "meta_session", target_is_directory=True)
+    (run / "meta").symlink_to(central / "meta", target_is_directory=True)
+    original_inode = (central / "meta_session/state.json").stat().st_ino
+    assert prepare_meta_storage(run, root) == central
+    owner = json.loads((central / ".run-owner.json").read_text())
+    assert owner == {"schema_version": 1, "run_dir": str(run.resolve())}
+    assert (central / "meta_session/state.json").stat().st_ino == original_inode
+    assert (run / "meta_session/state.json").read_text() == '{"thread_id":"legacy"}'
+
+
+def test_conflicting_storage_owner_fails_closed(tmp_path):
+    root = tmp_path / "Meta_logs"
+    run = tmp_path / "r1/run"
+    central = prepare_meta_storage(run, root)
+    (central / ".run-owner.json").write_text(json.dumps({
+        "schema_version": 1, "run_dir": str((tmp_path / "other/run").resolve()),
+    }))
+    with pytest.raises(FileExistsError, match="different run"):
+        prepare_meta_storage(run, root)
+
+
+def test_central_storage_directory_symlink_is_rejected(tmp_path):
+    root = tmp_path / "Meta_logs"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "run").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(FileExistsError, match="symlink"):
+        prepare_meta_storage(tmp_path / "fresh/run", root)
+
+
+def test_storage_owner_symlink_is_rejected(tmp_path):
+    root = tmp_path / "Meta_logs"
+    run = tmp_path / "fresh/run"
+    central = prepare_meta_storage(run, root)
+    owner = central / ".run-owner.json"
+    payload = owner.read_bytes()
+    owner.unlink()
+    external = tmp_path / "external-owner.json"
+    external.write_bytes(payload)
+    owner.symlink_to(external)
+    with pytest.raises(OSError, match="run-owner|symlink"):
+        prepare_meta_storage(run, root)
 
 
 def test_live_legacy_records_keep_same_directory_and_open_file(tmp_path):
@@ -107,6 +181,53 @@ def test_codex_home_is_persistent_and_resolves_model_catalog(tmp_path):
     (home / "session.jsonl").write_text("persistent-thread-state\n")
     assert prepare_codex_home(tmp_path / "run") == home
     assert (home / "session.jsonl").read_text() == "persistent-thread-state\n"
+
+
+def test_fresh_production_codex_home_creates_valid_installation_id(tmp_path):
+    previous_umask = os.umask(0o077)
+    try:
+        home = prepare_codex_home(tmp_path / "run")
+    finally:
+        os.umask(previous_umask)
+    installation_id = home / "installation_id"
+    assert installation_id.stat().st_mode & 0o777 == 0o644
+    value = installation_id.read_text().strip()
+    assert len(value) == 36
+    assert int(value.replace("-", ""), 16) >= 0
+
+
+def test_codex_installation_id_preserves_valid_file_and_inode_on_restart(tmp_path):
+    run = tmp_path / "run"
+    home = prepare_codex_home(run)
+    installation_id = home / "installation_id"
+    original = installation_id.read_bytes()
+    original_inode = installation_id.stat().st_ino
+    installation_id.chmod(0o600)
+    assert prepare_codex_home(run) == home
+    assert installation_id.read_bytes() == original
+    assert installation_id.stat().st_ino == original_inode
+    assert installation_id.stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.parametrize("kind", ["symlink", "directory", "invalid"])
+def test_codex_installation_id_rejects_unsafe_or_invalid_existing_state(tmp_path, kind):
+    run = tmp_path / "run"
+    home = run / "meta_session/codex_home"
+    home.mkdir(parents=True)
+    installation_id = home / "installation_id"
+    target = tmp_path / "target"
+    target.write_text("must-not-change\n")
+    if kind == "symlink":
+        installation_id.symlink_to(target)
+    elif kind == "directory":
+        installation_id.mkdir()
+    else:
+        installation_id.write_text("not-a-uuid\n")
+    with pytest.raises((OSError, ValueError), match="installation_id"):
+        prepare_codex_home(run)
+    assert target.read_text() == "must-not-change\n"
+    if kind == "invalid":
+        assert installation_id.read_text() == "not-a-uuid\n"
 
 
 def test_bwrap_codex_home_uses_static_catalog_and_preserves_existing_config(tmp_path, monkeypatch):

@@ -15,6 +15,8 @@ import sys
 import tempfile
 from types import SimpleNamespace
 
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
 
 class ValidationResult(SimpleNamespace):
     def to_dict(self):
@@ -59,7 +61,7 @@ def _bwrap_command(scratch, copied, project, report_path, env, timeout):
         ),
         mounts=tuple(mounts),
     )
-    backend = BubblewrapBackend(script.parents[4], allowed_write_roots=(scratch,))
+    backend = BubblewrapBackend(PROJECT_ROOT, allowed_write_roots=(scratch,))
     return backend.command(request)
 
 

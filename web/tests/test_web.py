@@ -84,6 +84,8 @@ class WebsiteTests(unittest.TestCase):
         self.assertIn("744 冻结 / 694 计划评分", visible_text)
         self.assertIn("复现准备中", visible_text)
         self.assertIn("RSI-Flow", visible_text)
+        self.assertIn("ACE 用户模拟凭据需单独批准", visible_text)
+        self.assertNotIn("DeepSeek / 用户模拟凭据", visible_text)
 
     def test_process_page_exposes_audit_visualization(self):
         page = read_text("process.html")
@@ -126,7 +128,8 @@ class WebsiteTests(unittest.TestCase):
         for identifier in ("conda_environment", "external_assets", "offline_tests"):
             self.assertEqual("completed", by_id[identifier]["status"])
             self.assertIsNotNone(by_id[identifier]["evidence"])
-        self.assertEqual("277 passed, 2 skipped", by_id["offline_tests"]["test_counts"])
+        self.assertEqual("297 passed, 2 skipped", by_id["offline_tests"]["test_counts"])
+        self.assertEqual("156 passed", by_id["offline_tests"]["focused_counts"])
         self.assertEqual("historical_precheck_current_694_check_pending", by_id["launch_preflight"]["status"])
         self.assertEqual("legacy_landlock_unavailable_bwrap_validated", by_id["sco_gpu_probe"]["status"])
         self.assertEqual("completed_gpu_diagnostic_only", by_id["model_service_smoke"]["status"])
@@ -149,7 +152,9 @@ class WebsiteTests(unittest.TestCase):
         self.assertTrue(meta["root_mapping"])
         self.assertFalse(meta["a800_pass"])
         self.assertIn("not_executed", self.reproduction["bwrap_isolation"]["native_shell_descendant_hygiene"])
-        self.assertEqual("pending_controller_after_task7_commit", self.reproduction["compatibility_fixes"]["landlock"]["independent_security_review"])
+        self.assertEqual("pending_controller_final_fix_rereview_and_sco", self.reproduction["compatibility_fixes"]["landlock"]["independent_security_review"])
+        self.assertIn("pending_controller", self.reproduction["bwrap_isolation"]["affected_path_sco_reruns"])
+        self.assertIn("installer_receipt", self.reproduction["bwrap_isolation"]["trusted_security_assets"])
 
     def test_local_assets_documents_and_anchors_resolve(self):
         missing = []

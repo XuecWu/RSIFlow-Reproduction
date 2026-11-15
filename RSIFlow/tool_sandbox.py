@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 MAX_RPC_BYTES = 8_000_000
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def serve_rpc(incoming,outgoing,handler,errors,workers=4):
@@ -190,7 +191,7 @@ def _run_native_bwrap(command, work, output, log, handler=None, timeout=604800):
     scratch=output/'sandbox_tmp';scratch.mkdir(exist_ok=True)
     request_read,request_write=os.pipe();response_read,response_write=os.pipe()
     request=_make_native_request(command,work,output,request_write=request_write,response_read=response_read,timeout=timeout)
-    backend=BubblewrapBackend(Path(__file__).resolve().parent.parent,allowed_write_roots=(output,))
+    backend=BubblewrapBackend(PROJECT_ROOT,allowed_write_roots=(output,))
     built=None;process=None;errors=[]
     try:
         built=backend.command(request)

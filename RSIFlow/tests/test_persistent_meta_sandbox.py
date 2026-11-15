@@ -560,16 +560,33 @@ def test_smoke_failure_preserves_sanitized_error_and_app_server_diagnostics(tmp_
     assert all(len(entry["sha256"]) == 64 for entry in diagnostics["journal_files"])
 
 
-def test_smoke_precreates_codex_installation_id_with_required_mode(tmp_path):
+def test_smoke_fresh_start_uses_production_installation_id_initialization(tmp_path, monkeypatch):
     smoke = load_smoke()
-    home = tmp_path / "codex_home"
-    home.mkdir()
+    monkeypatch.setenv("OPENAI_API_KEY", "offline-startup-test-only")
+
+    class FakeServer:
+        def start(self):
+            raise RuntimeError("stop after production home initialization")
+
+        def close(self):
+            pass
+
+    class FakeSandbox:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        smoke, "make_controller", lambda run, meta: (FakeServer(), FakeSandbox(), object()),
+    )
     previous_umask = os.umask(0o077)
     try:
-        smoke.prepare_codex_installation_id(home)
+        report = smoke.run_smoke(
+            PROJECT / "reproduction/configs/meta_bwrap_smoke.json", tmp_path / "fresh/run",
+        )
     finally:
         os.umask(previous_umask)
-    installation_id = home / "installation_id"
+    assert report["error_message"] == "stop after production home initialization"
+    installation_id = tmp_path / "fresh/run/meta_session/codex_home/installation_id"
     assert installation_id.stat().st_mode & 0o777 == 0o644
     value = installation_id.read_text().strip()
     assert len(value) == 36

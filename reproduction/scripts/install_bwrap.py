@@ -28,6 +28,26 @@ def _reject_symlink_parents(path):
             raise RuntimeError(f"bwrap installation path contains a symlink: {current}")
 
 
+def _source_digest(path, label):
+    path = Path(path).absolute()
+    _reject_symlink_parents(path)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise RuntimeError(f"{label} must be a non-symlink regular file: {path}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RuntimeError(f"{label} must be a non-symlink regular file: {path}")
+        digest = hashlib.sha256()
+        with os.fdopen(descriptor, "rb", closefd=False) as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    finally:
+        os.close(descriptor)
+
+
 def _version(executable):
     try:
         result = subprocess.run(
@@ -46,9 +66,12 @@ def _version(executable):
     return EXPECTED_VERSION
 
 
-def install(source, root):
+def install(source, root, *, manifest_path=None, launcher_path=None):
     source = Path(source).absolute()
     root = Path(root).absolute()
+    project = root.parent.parent
+    manifest_path = Path(manifest_path) if manifest_path else project / "RSIFlow/configs/bwrap_isolation.json"
+    launcher_path = Path(launcher_path) if launcher_path else project / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         source_fd = os.open(source, flags)
@@ -94,6 +117,10 @@ def install(source, root):
             "source_sha256": source_hash,
             "destination_sha256": destination_hash,
             "version": version,
+            "manifest_path": "RSIFlow/configs/bwrap_isolation.json",
+            "manifest_sha256": _source_digest(manifest_path, "bwrap manifest"),
+            "launcher_path": "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py",
+            "launcher_sha256": _source_digest(launcher_path, "bwrap launcher"),
         }
         receipt_fd, receipt_name = tempfile.mkstemp(prefix=".receipt-", dir=root)
         try:
@@ -115,8 +142,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--launcher", type=Path)
     args = parser.parse_args()
-    install(args.source, args.root)
+    install(args.source, args.root, manifest_path=args.manifest, launcher_path=args.launcher)
 
 
 if __name__ == "__main__":

@@ -165,7 +165,7 @@
             <tbody>
               <tr><td>Task rollout</td><td>逻辑 0–3 · 每卡 ≥20,000 MiB 空闲</td><td>四个 BF16 服务，校验 checkpoint 与 weights manifest</td></tr>
               <tr><td>MODEL SFT</td><td>同一四卡 · 每卡 ≥40,000 MiB 空闲</td><td>停止推理后运行 4-rank DDP，再恢复选中 checkpoint</td></tr>
-              <tr><td>Meta / ACE API</td><td>无需额外本地 GPU</td><td>仍需外部 Codex / DeepSeek / 用户模拟凭据</td></tr>
+              <tr><td>Meta / ACE API</td><td>无需额外本地 GPU</td><td>host OpenAI/gpt-6-astra 凭据仅注入 host transport；ACE 用户模拟凭据需单独批准，当前跳过</td></tr>
               <tr><td>最终评估</td><td>选中 Task 的推理服务</td><td>六类官方评测器 + official specs</td></tr>
             </tbody>
           </table>

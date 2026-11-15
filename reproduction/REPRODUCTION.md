@@ -17,7 +17,7 @@ export RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1
 ```bash
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
-# 当前：277 passed, 2 skipped
+# 当前最终修复：297 passed, 2 skipped；综合聚焦：156 passed
 ```
 
 ## 2. 安装固定 bubblewrap 资产
@@ -30,7 +30,7 @@ PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/pyth
   --root "$PWD/assets/isolation"
 ```
 
-固定 binary SHA256 为 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`，manifest 为 `RSIFlow/configs/bwrap_isolation.json`。不要用未核验的下载物替换它，不要把二进制、凭据或私有输出纳入 Git/website。
+固定 binary SHA256 为 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`，manifest 为 `RSIFlow/configs/bwrap_isolation.json`。installer 还在 ignored `install-receipt.json` 中记录 manifest/launcher 的固定相对路径和 SHA256；candidate/native/Harness 默认 backend 每次 launch 都强制验证，tamper、receipt 缺失或 symlink 会在 spawn 前失败。Persistent Meta 继续使用 static trusted copies。不要用未核验的下载物替换资产，不要把二进制、凭据或私有输出纳入 Git/website。
 
 ## 3. 三类隔离 profile
 
@@ -46,7 +46,7 @@ PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/pyth
 
 真实 `OPENAI_API_KEY` 只存在于 host `ResponsesTransport`。sandbox 只收到 `RSIFLOW_RELAY_KEY=pipe-only`，通过私有 loopback 访问 host relay；provider 固定 `OpenAI`，model 固定 `gpt-6-astra`，upstream 固定 `http://token.acerobotics.com/v1`，不允许 fallback。不得在命令行、tracked config、网页或公开日志中放置 key。
 
-`codex_home`、thread ID 和 host-side durable jobs 在 app-server 重启后保留并采用；恢复时不得重复 bootstrap 或创建重复 job。host dynamic-tool 子进程继续剥离 provider 凭据。
+`codex_home`、thread ID 和 host-side durable jobs 在 app-server 重启后保留并采用；恢复时不得重复 bootstrap 或创建重复 job。生产 `prepare_codex_home()` 在 fresh path 原子创建 0644 `installation_id`，校验 UUID、no-follow regular file 和 mode，保留有效 inode/content；smoke 只调用该生产路径。`prepare_meta_storage()` 的 central `.run-owner.json` 绑定 resolved full run path：same-basename 不同 fresh run fail closed，same-path restart 不变，只有可证明 same-path 的 legacy links 可采用无 owner 旧目录。host dynamic-tool 子进程继续剥离 provider 凭据。
 
 Codex native-shell descendant hygiene 未验证：legacy Landlock 不可用，nested vendor bwrap 被 anti-escape seccomp 拒绝。当前批准的 smoke 使用 `shell_tool=false` 和 construction-level hygiene；不得放宽 seccomp 或宣称 native-shell 通过。
 

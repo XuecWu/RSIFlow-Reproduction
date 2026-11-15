@@ -231,3 +231,32 @@ def test_bwrap_native_still_reclaims_mismatched_output_entry(monkeypatch, tmp_pa
     with (output / "check.log").open("wb") as log:
         tool_sandbox.run_native(command, work, output, log, timeout=30)
     assert calls == [(existing, tool_sandbox.os.geteuid(), tool_sandbox.os.getegid(), False)]
+
+
+@pytest.mark.parametrize("asset", ["manifest", "launcher"])
+def test_native_tampered_security_asset_fails_before_spawn(monkeypatch, tmp_path, asset):
+    from rsiflow.task_meta.sandbox import SandboxUnavailable
+    from test_bwrap_backend import make_root, write_trust_receipt
+
+    root, manifest_path, _ = make_root(tmp_path)
+    write_trust_receipt(root)
+    target = manifest_path if asset == "manifest" else root / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py"
+    target.write_text(target.read_text() + "\n", encoding="utf-8")
+    monkeypatch.setattr(tool_sandbox, "PROJECT_ROOT", root, raising=False)
+    monkeypatch.setattr(
+        "rsiflow.task_meta.bwrap_backend.BubblewrapBackend._namespaces_available", lambda self: True,
+    )
+    work, output, command = native_files(tmp_path)
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("native Popen must not run after security-asset tampering")
+
+    monkeypatch.setattr(tool_sandbox.subprocess, "Popen", forbidden)
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", BACKEND)
+    with (tmp_path / "tampered.log").open("wb") as log, pytest.raises(
+        SandboxUnavailable, match=f"{asset}.*hash",
+    ):
+        tool_sandbox.run_native(command, work, output, log, timeout=30)
+    assert calls == []

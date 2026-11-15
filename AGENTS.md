@@ -125,6 +125,10 @@ python reproduction/scripts/install_bwrap.py \
 
 三类 profile 为 `candidate`（`candidate_session` 共用 seccomp）、`native_benchmark`、`persistent_meta`。候选只有专用 scratch 可写；native 仅保留两个 RPC FD、允许 thread-only clone/atomic rename；Meta 保留持久 `codex_home` 和 host-side jobs。真实 `OPENAI_API_KEY` 只在 host `ResponsesTransport`，sandbox 只有 `RSIFLOW_RELAY_KEY=pipe-only` 和私有 loopback relay。恢复必须采用同一 thread/job，不重复 bootstrap。
 
+installer 的 ignored `assets/isolation/install-receipt.json` 同时固定 manifest/launcher 的相对路径和 SHA256；candidate/native/Harness 默认 backend 每次 launch 都必须重新验证，tamper 或 receipt 缺失/符号链接均 fail closed。Persistent Meta 继续使用既有 static trusted copies 和强制 hash。不要用 diagnostics 或 writable source 中的常量替代 receipt。
+
+生产 `prepare_codex_home()` 必须以原子 no-follow 方式创建并验证 0644 `installation_id`，保留有效 inode/content，拒绝 symlink、非普通文件和非法 UUID；smoke 不另维护 helper。`prepare_meta_storage()` 以 central `.run-owner.json` 绑定 resolved full run path：same-basename 不同 fresh run fail closed，same-path restart 保留状态，只有可证明 same-path 的 legacy links 才可采用无 owner 的旧目录。不得删除或重写历史 artifacts。
+
 Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用，nested vendor bwrap 与已审阅 anti-escape seccomp 冲突。批准的 smoke 只覆盖 `shell_tool=false` 的 construction-level hygiene；不得放宽 seccomp 或宣称 native-shell 通过。完整命令与证据见 `reproduction/REPRODUCTION.md`。
 
 ## 8. 后续命令与运行边界
@@ -132,7 +136,7 @@ Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用�
 以下命令用于离线检查和后续完整实验；离线检查已执行不代表五轮已运行：
 
 ```bash
-# 完整离线测试（2026-11-15：277 passed, 2 skipped）
+# 完整离线测试（2026-11-15 最终修复：297 passed, 2 skipped）
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
 cd ..

@@ -15,8 +15,10 @@ import argparse
 import fcntl
 import json
 import os
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -67,13 +69,75 @@ def wait_for_idle_gpus(session_dir: Path, *, probe=None, pause=None, poll_second
         pause(poll_seconds)
 
 
+def _legacy_storage_links(run_dir, central):
+    for name in ("meta_session", "meta"):
+        legacy, destination = run_dir / name, central / name
+        if legacy.is_symlink() and legacy.resolve() == destination.resolve():
+            return True
+        if legacy.exists() and destination.is_symlink() and destination.resolve() == legacy.resolve():
+            return True
+    return False
+
+
+def _read_storage_owner(owner):
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        descriptor = os.open(owner, flags)
+    except OSError as exc:
+        raise FileExistsError(f"Meta storage owner must be a non-symlink regular file: {owner}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise FileExistsError(f"Meta storage owner must be a non-symlink regular file: {owner}")
+        with os.fdopen(descriptor, "r", encoding="utf-8", closefd=False) as stream:
+            payload = json.loads(stream.read(4097))
+    except (ValueError, OSError) as exc:
+        raise FileExistsError(f"Invalid Meta storage owner: {owner}") from exc
+    finally:
+        os.close(descriptor)
+    if not isinstance(payload, dict) or set(payload) != {"schema_version", "run_dir"}:
+        raise FileExistsError(f"Invalid Meta storage owner: {owner}")
+    return payload
+
+
+def _claim_meta_storage(run_dir, central, *, central_preexisting):
+    owner = central / ".run-owner.json"
+    expected = {"schema_version": 1, "run_dir": str(run_dir)}
+    if owner.exists() or owner.is_symlink():
+        if _read_storage_owner(owner) != expected:
+            raise FileExistsError(f"Meta records already belong to a different run: {central}")
+        return
+    if central_preexisting and not _legacy_storage_links(run_dir, central):
+        raise FileExistsError(f"Meta records already belong to a different run or lack ownership: {central}")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".run-owner-", dir=central)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump(expected, output, sort_keys=True)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+            os.fchmod(output.fileno(), 0o600)
+        try:
+            os.link(temporary, owner)
+        except FileExistsError:
+            pass
+    finally:
+        temporary.unlink(missing_ok=True)
+    if _read_storage_owner(owner) != expected:
+        raise FileExistsError(f"Meta records already belong to a different run: {central}")
+
+
 def prepare_meta_storage(run_dir: Path, meta_logs_root: Path | None = None) -> Path:
-    """Central Meta records; preserve live legacy directories without moving open files."""
+    """Central Meta records with fail-closed ownership and non-destructive legacy resume."""
     run_dir = Path(run_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
     root = Path(meta_logs_root or PROJECT_ROOT.parent / "Meta_logs").resolve()
     central = root / run_dir.name
+    central_preexisting = central.exists() or central.is_symlink()
+    if central.is_symlink():
+        raise FileExistsError(f"Meta central storage must not be a symlink: {central}")
     central.mkdir(parents=True, exist_ok=True)
+    _claim_meta_storage(run_dir, central, central_preexisting=central_preexisting)
     for name in ("meta_session", "meta"):
         legacy, destination = run_dir / name, central / name
         if legacy.exists():
@@ -113,6 +177,47 @@ def _autodl_key(env_name="AUTODL_API_KEY") -> str:
     raise RuntimeError(f"{env_name} is unset and no compatible provider key was found")
 
 
+def _validate_codex_installation_id(destination):
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    descriptor = os.open(destination, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"installation_id is not a regular file: {destination}")
+        with os.fdopen(descriptor, "r", encoding="utf-8", closefd=False) as stream:
+            value = stream.read(129)
+        value = value.strip()
+        if len(value) != 36 or str(uuid.UUID(value)) != value:
+            raise ValueError(f"invalid installation_id: {destination}")
+        os.fchmod(descriptor, 0o644)
+    except (ValueError, OSError) as exc:
+        raise type(exc)(f"invalid installation_id: {destination}") from exc
+    finally:
+        os.close(descriptor)
+
+
+def prepare_codex_installation_id(codex_home):
+    codex_home = Path(codex_home)
+    if codex_home.is_symlink():
+        raise ValueError(f"installation_id home must not be a symlink: {codex_home}")
+    destination = codex_home / "installation_id"
+    if not destination.exists() and not destination.is_symlink():
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".installation_id-", dir=codex_home)
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                output.write(str(uuid.uuid4()) + "\n")
+                output.flush()
+                os.fsync(output.fileno())
+                os.fchmod(output.fileno(), 0o644)
+            try:
+                os.link(temporary, destination)
+            except FileExistsError:
+                pass
+        finally:
+            temporary.unlink(missing_ok=True)
+    _validate_codex_installation_id(destination)
+
+
 def prepare_codex_home(run_dir: Path, *, host_path=None, catalog_path=None) -> Path:
     """Put Codex config and resumable thread state on the data disk."""
     codex_home = run_dir / "meta_session/codex_home"
@@ -130,6 +235,7 @@ def prepare_codex_home(run_dir: Path, *, host_path=None, catalog_path=None) -> P
     config_path = codex_home / "config.toml"
     if not config_path.exists():
         config_path.write_text(config, encoding="utf-8")
+    prepare_codex_installation_id(codex_home)
     return codex_home
 
 

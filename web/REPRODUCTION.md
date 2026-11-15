@@ -169,7 +169,9 @@ python reproduction/scripts/install_bwrap.py \
   --source /absolute/path/to/verified-bwrap-0.6.1 --root "$PWD/assets/isolation"
 ```
 
-binary SHA256 必须为 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`。三类 profile 是 candidate/session、native benchmark（恰好两个 RPC FD、thread-only clone）和 persistent Meta（持久 `codex_home`、host-side jobs、私有 loopback relay）。候选错误、sandbox/RPC infrastructure error 和模型答错必须分类记录。
+binary SHA256 必须为 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`。ignored installer receipt 同时固定 manifest/launcher 路径和 SHA256，candidate/native/Harness 每次 launch 都必须验证，tamper 在 spawn 前失败；persistent Meta 保持 static trusted-copy pinning。三类 profile 是 candidate/session、native benchmark（恰好两个 RPC FD、thread-only clone）和 persistent Meta（持久 `codex_home`、host-side jobs、私有 loopback relay）。候选错误、sandbox/RPC infrastructure error 和模型答错必须分类记录。
+
+生产 fresh home 原子创建并校验 0644 `installation_id`，保留有效 restart inode/content，拒绝 symlink/非普通文件/非法 UUID。central `.run-owner.json` 绑定 resolved full run path：same-basename 不同 fresh run fail closed，same-path 与可证明 legacy resume 不迁移、不覆盖历史状态。上述最终修复目前仅有本机/offline 证据，受影响 candidate/native/Harness/Meta SCO rerun 均待 controller。
 
 ```bash
 # Candidate

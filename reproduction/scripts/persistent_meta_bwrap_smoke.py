@@ -134,13 +134,6 @@ def offline_check(config_path):
     return result["ok"]
 
 
-def prepare_codex_installation_id(codex_home):
-    destination = Path(codex_home) / "installation_id"
-    if not destination.exists():
-        destination.write_text(str(uuid.uuid4()) + "\n", encoding="utf-8")
-    destination.chmod(0o644)
-
-
 def make_controller(run, meta):
     codex_home = run / "meta_session/codex_home"
     executor = SubprocessToolExecutor(
@@ -405,11 +398,10 @@ def run_smoke(config_path, run):
             raise FileExistsError("smoke run directory must be fresh")
         run.mkdir(parents=True)
         prepare_meta_storage(run, meta_logs_root=run / "Meta_logs")
-        codex_home = prepare_codex_home(
+        prepare_codex_home(
             run, host_path=PROJECT / "reproduction/configs/codex_host.toml",
             catalog_path=meta["model_catalog_json"],
         )
-        prepare_codex_installation_id(codex_home)
         fixture_path = run / "public_fixture.json"
         fixture_path.write_text(json.dumps(FIXTURE, indent=2) + "\n", encoding="utf-8")
         report["fixture"] = {"sha256": digest(fixture_path), "value": FIXTURE}

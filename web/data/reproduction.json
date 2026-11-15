@@ -27,8 +27,8 @@
     "verified": false
   },
   "current_execution": {
-    "status": "isolation_validated_pending_final_independent_security_review",
-    "phase": "task7_final_review_gate",
+    "status": "offline_final_fixes_validated_affected_sco_reruns_pending",
+    "phase": "final_fix_sco_and_independent_review_gate",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
@@ -41,18 +41,18 @@
     "skip_ace_744": {
       "status": "focused_and_full_suite_passed",
       "focused_tests": "6/6",
-      "full_suite": "277 passed, 2 skipped",
+      "full_suite": "297 passed, 2 skipped",
       "source": "RSIFlow/validation_skip.py",
       "evidence": "reproduction/audit/reviews/skip-ace-codex-r1.md"
     },
     "landlock": {
       "local_status": "unavailable_function_not_implemented",
       "legacy_sco_status": "unavailable_errno38",
-      "upstream_suite": "277 passed, 2 skipped with explicit bwrap real-isolation coverage",
+      "upstream_suite": "297 passed, 2 skipped with explicit bwrap real-isolation coverage",
       "meta_runtime_probe_job": "pt-4hdyar4r",
       "bwrap_candidate_probe_job": "pt-vcq25ldi",
       "candidate_status": "bwrap_integrated_and_real_smokes_passed",
-      "independent_security_review": "pending_controller_after_task7_commit",
+      "independent_security_review": "pending_controller_final_fix_rereview_and_sco",
       "evidence": "reproduction/audit/daily/2026-11-12.md"
     }
   },
@@ -66,6 +66,10 @@
     "danger_full_access": false,
     "provider_key_location": "host_ResponsesTransport_only",
     "native_shell_descendant_hygiene": "not_executed_shell_tool_false_construction_gate_only",
+    "production_installation_id": "atomic_validated_0644_no_follow_regular_file",
+    "meta_storage_ownership": "resolved_full_run_identity_fail_closed_with_legacy_same_path_resume",
+    "trusted_security_assets": "installer_receipt_manifest_and_launcher_hashes_required_every_default_launch",
+    "affected_path_sco_reruns": "pending_controller_no_new_job_in_final_fix_wave",
     "candidate": {
       "job_id": "pt-gyfupguq",
       "terminal": "SUCCEEDED",
@@ -130,8 +134,8 @@
     {
       "id": "offline_tests",
       "status": "completed",
-      "test_counts": "277 passed, 2 skipped",
-      "focused_counts": "79 passed",
+      "test_counts": "297 passed, 2 skipped",
+      "focused_counts": "156 passed",
       "evidence": "reproduction/audit/daily/2026-11-12.md"
     },
     {
@@ -218,6 +222,7 @@
     }
   ],
   "remaining_experiment_gates": [
+    "affected_candidate_native_Harness_Meta_SCO_reruns",
     "final_independent_security_review",
     "five_benchmark_minimum_smokes",
     "healthy_four_gpu_qwen_services_logical_gpu_0_to_3",

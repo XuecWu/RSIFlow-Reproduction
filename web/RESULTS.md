@@ -32,7 +32,7 @@
 
 ## 独立审阅与公开原则
 
-此前各任务的独立审阅及修复证据保存在 SDD ledger 和 audit operations；Task 7 的最终全分支安全审阅不在本实现任务内自行分派。公开状态只引用脱敏 report 路径、SHA256、job/terminal/resource 证据，不把 smoke 转换成模型分数。
+此前各任务的独立审阅及修复证据归档于 `../reproduction/audit/reviews/bwrap-sdd-progress.md`、`bwrap-task6-report.md`、`bwrap-task7-report.md` 和 audit operations；Task 7 的最终全分支安全审阅由未参与实现的 reviewer 执行。公开状态只引用脱敏 report 路径、SHA256、job/terminal/resource 证据，不把 smoke 转换成模型分数。
 
 ## 运行服务
 

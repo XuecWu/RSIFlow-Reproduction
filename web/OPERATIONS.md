@@ -143,3 +143,8 @@
 - 未参与实现的 reviewer 对 consolidated fix wave 复核：生产 installation_id、run ownership、全 profile 受信资产，以及测试计数和凭据措辞五项均为 ADDRESSED；无新增 Critical/Important，Ready to merge Yes。
 - 保留一个 Minor：非 UTF-8 installation_id 的异常类型可能为 TypeError 而非预期 ValueError；仍在 Codex 启动前拒绝且不改写文件，不影响隔离或状态安全。
 - controller 在最终 HEAD 再次运行完整测试：297 passed、2 skipped；网站 11/11、Node、diff 检查通过。cpolar 本地源切换到最终审阅工作树，公网内容另行核验。
+
+### 2026-11-15 当前公网服务核验
+
+- 最终 HTTP 持久任务为 `bash-38l47xmz` / PID `2157843`，工作目录为最终审阅工作树；cpolar 保持原持久任务 `bash-09cysqyj` / PID `2000586`。
+- 当前公网入口为 `https://5340b001.r36.cpolar.top`。本地 JSON 已断言独立审阅通过、Meta job `pt-x6b4ista` 和 297/2 测试计数；公网 `RESULTS.md` 已读取到相同审阅结论。

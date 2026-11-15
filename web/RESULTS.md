@@ -6,8 +6,8 @@
 - 当前隔离分支：`reproduction/4b-bwrap`；只进行本地 commit，未 push。
 - 当前范围：Qwen3-4B、公开数据同协议重构、Meta `OpenAI/gpt-6-astra`。正式实验规划仍为主分区 8×A800 仅用 GPU 0–3。
 - **尚未运行五轮演化、SFT 或最终 694/744 评估，没有任何模型 benchmark 分数。ACE 50、8B 和正式 Qwen 服务也未在本轮启动。**
-- **公网首页：** https://4a63b603.r36.cpolar.top
-- **过程审计：** https://4a63b603.r36.cpolar.top/process.html
+- **公网首页：** https://5340b001.r36.cpolar.top
+- **过程审计：** https://5340b001.r36.cpolar.top/process.html
 - **本地地址：** http://127.0.0.1:18000/
 
 ## 已验证的准备结果
@@ -38,7 +38,7 @@
 
 | 服务 | PID | 地址 | 原始日志（不公开） |
 | --- | ---: | --- | --- |
-| 静态 HTTP | 2000430 | `127.0.0.1:18000` | `web-runtime/logs/http-server.log` |
-| cpolar | 2000586 | `https://4a63b603.r36.cpolar.top` | `web-runtime/logs/cpolar.log` |
+| 静态 HTTP | 2157843 | `127.0.0.1:18000` | `web-runtime/logs/http-server.log` |
+| cpolar | 2000586 | `https://5340b001.r36.cpolar.top` | `web-runtime/logs/cpolar.log` |
 
 cpolar 临时地址可能变化。公开目录仅包含脱敏静态页面；原始操作证据和私有轨迹不放入 web 根目录。

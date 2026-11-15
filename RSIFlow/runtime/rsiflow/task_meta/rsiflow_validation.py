@@ -87,13 +87,17 @@ def validate_candidate(candidate_dir: Path, *, timeout: float = 300) -> Validati
             "NUMEXPR_NUM_THREADS": "1", "TOKENIZERS_PARALLELISM": "false",
             "CUDA_VISIBLE_DEVICES": "", "HF_HUB_OFFLINE": "1",
         }
-        if os.environ.get("RSIFLOW_SANDBOX_BACKEND") == "linux_bwrap_seccomp_v1":
+        backend = os.environ.get("RSIFLOW_SANDBOX_BACKEND", "linux_landlock_seccomp")
+        if backend == "linux_bwrap_seccomp_v1":
             command = _bwrap_command(scratch, copied, project, report_path, env, timeout)
-        else:
+        elif backend == "linux_landlock_seccomp":
             command = [
                 sys.executable, "-I", "-B", "-X", "faulthandler", str(Path(__file__).resolve()),
                 str(copied), str(project), str(report_path),
             ]
+        else:
+            from rsiflow.task_meta.sandbox import SandboxUnavailable
+            raise SandboxUnavailable(f"unknown sandbox backend: {backend}")
         with (scratch / "stdout.log").open("wb") as out, (scratch / "stderr.log").open("wb") as err:
             try:
                 process = subprocess.Popen(

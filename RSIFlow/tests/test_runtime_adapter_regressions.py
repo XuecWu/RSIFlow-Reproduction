@@ -96,6 +96,36 @@ def test_correct_function_is_not_excluded_from_success_sft():
     assert _structured_match(True, [True]) is False  # Former, incorrect call-site comparison.
 
 
+def test_validation_rejects_unknown_backend_before_isolation_or_spawn(tmp_path, monkeypatch):
+    from rsiflow.task_meta import rsiflow_validation
+    from rsiflow.task_meta.sandbox import SandboxUnavailable
+
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    monkeypatch.setattr(
+        "rsiflow.task_meta.rsiflow_manifest.HarnessBundleManifest.from_directory",
+        lambda path: SimpleNamespace(
+            materialize=lambda destination: Path(destination).mkdir(parents=True)
+        ),
+    )
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_typo")
+    calls = []
+
+    def forbidden(name):
+        def call(*args, **kwargs):
+            calls.append(name)
+            raise AssertionError(f"{name} must not be called for an invalid backend")
+        return call
+
+    monkeypatch.setattr(rsiflow_validation, "_worker", forbidden("legacy isolation"))
+    monkeypatch.setattr(rsiflow_validation, "_bwrap_command", forbidden("bwrap command"))
+    monkeypatch.setattr(rsiflow_validation.subprocess, "Popen", forbidden("Popen"))
+
+    with pytest.raises(SandboxUnavailable, match="unknown sandbox backend"):
+        rsiflow_validation.validate_candidate(candidate)
+    assert calls == []
+
+
 def test_real_isolated_harness_validation_ignores_host_directory_name(tmp_path, monkeypatch):
     monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
     sys.path.insert(0, str(ROOT))

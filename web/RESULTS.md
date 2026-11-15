@@ -27,7 +27,7 @@
 - 历史 Task 6 Meta 接受证据由外部 actor `huangsiyuan1` 提交，实际为 **8×A100**、N3lS+N2lS candidate specs、`root_mapping=true`，经用户授权接受；不是 `main-kimi` 提交。A800 r5/r6 `pt-7i4qertj` / `pt-44m6zkmx` 在启动前失败，**没有 A800 Meta pass**。当前最终 Meta gate 仅指上述 `pt-x6b4ista`。
 - 真实 `OPENAI_API_KEY` 仅在 host `ResponsesTransport`；sandbox 只有 dummy relay key。公开页不包含 raw prompts/responses、私有轨迹、凭据或大输出。
 - Codex native-shell descendant hygiene 未执行；legacy Landlock 不可用且 nested vendor bwrap 与 anti-escape seccomp 冲突。当前仅验证 `shell_tool=false` 的 construction-level hygiene，未放宽 seccomp。
-- 最终独立 re-review 仍由 controller 执行，当前 pending；作者自审不能替代它。combined `pt-v6m10c4t` 不得写成 SUCCEEDED。
+- 最终独立 re-review 已完成：三项生产修复与两项发布修复均为 ADDRESSED，无新增 Critical/Important，Ready to merge Yes。combined `pt-v6m10c4t` 仍不得写成 SUCCEEDED。
 - 五轮前仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review。
 
 ## 独立审阅与公开原则

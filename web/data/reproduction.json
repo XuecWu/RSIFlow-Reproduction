@@ -27,8 +27,8 @@
     "verified": false
   },
   "current_execution": {
-    "status": "final_a100_isolation_gates_passed_pending_independent_review",
-    "phase": "final_independent_review_gate",
+    "status": "final_a100_isolation_gates_and_independent_review_passed",
+    "phase": "isolation_ready_pending_experiment_preflight",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
@@ -52,7 +52,7 @@
       "meta_runtime_probe_job": "pt-4hdyar4r",
       "bwrap_candidate_probe_job": "pt-vcq25ldi",
       "candidate_status": "bwrap_integrated_and_real_smokes_passed",
-      "independent_security_review": "pending_controller_final_rereview",
+      "independent_security_review": "passed_ready_to_merge",
       "evidence": "reproduction/audit/daily/2026-11-12.md"
     }
   },
@@ -292,7 +292,6 @@
     }
   ],
   "remaining_experiment_gates": [
-    "final_independent_security_review",
     "five_benchmark_minimum_smokes",
     "healthy_four_gpu_qwen_services_logical_gpu_0_to_3",
     "current_694_python_RSIFlow_4B_launch.py_--check",

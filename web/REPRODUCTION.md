@@ -259,4 +259,4 @@ bash RSIFlow/watch_meta.sh --run-dir "$PWD/Rollout_logs/runs/rsiflow-4b" --once
 
 已决定：同协议重构、主分区八卡仅用 GPU 0–3、4B 先行、`gpt-6-astra`、ACE 跳过、4B 审阅后才讨论 8B。
 
-Meta 私有凭据已提供到 Git 忽略的 `assets/private/credentials.sh`（权限 600）；agent 不读取、打印或复制 key。真实 Codex dynamic tools/thread resume 和 candidate/EvalPlus/BFCL 最小 smoke 已有上述证据，但都不是模型分数。Task 7 最终独立安全审阅仍由 controller 执行；五轮还需五类 benchmark 最小 smoke、健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review。这些门槛完成前不启动五轮长任务。
+Meta 私有凭据已提供到 Git 忽略的 `assets/private/credentials.sh`（权限 600）；agent 不读取、打印或复制 key。真实 Codex dynamic tools/thread resume 和 candidate/EvalPlus/BFCL 最小 smoke 已有上述证据，但都不是模型分数。Task 7 最终独立安全审阅及修复后 re-review 已通过，无未关闭 Critical/Important；五轮还需五类 benchmark 最小 smoke、健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review。这些门槛完成前不启动五轮长任务。

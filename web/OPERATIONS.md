@@ -137,3 +137,9 @@
 - 唯一 Meta-only retry `pt-x6b4ista`（8xA100/root_mapping=false）SUCCEEDED/worker Succeeded/exit 0；report SHA256 `a177657dbf1e744f2d2be64d16c33bcda08102052a7ecd7486aebdd48cf64b66`。ok/completed、same thread、无重复 job/bootstrap、exact gpt-6-astra、3 dynamic calls、11 key hygiene + 7 cleanup、durable job 0、shell_tool=false；installation_id=0644 且 run-owner 精确匹配。
 - Task 6 外部 actor `pt-zj1l9q1t` 仅保留为历史证据；当前最终 Meta gate 为 `pt-x6b4ista`。EvalPlus 仍为历史 one-task smoke，未在 313b6bc 重跑。native-shell descendant validation 未执行，五轮/SFT/final eval/Qwen 服务未运行。
 - 本 publication step 未改生产代码/测试、未提交新 job、未启动训练、未 push；仅更新证据、audit 和公开状态。独立 re-review 仍为 controller gate。
+
+### 2026-11-15 最终独立审阅关闭
+
+- 未参与实现的 reviewer 对 consolidated fix wave 复核：生产 installation_id、run ownership、全 profile 受信资产，以及测试计数和凭据措辞五项均为 ADDRESSED；无新增 Critical/Important，Ready to merge Yes。
+- 保留一个 Minor：非 UTF-8 installation_id 的异常类型可能为 TypeError 而非预期 ValueError；仍在 Codex 启动前拒绝且不改写文件，不影响隔离或状态安全。
+- controller 在最终 HEAD 再次运行完整测试：297 passed、2 skipped；网站 11/11、Node、diff 检查通过。cpolar 本地源切换到最终审阅工作树，公网内容另行核验。

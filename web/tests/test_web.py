@@ -152,7 +152,7 @@ class WebsiteTests(unittest.TestCase):
         self.assertTrue(meta["root_mapping"])
         self.assertFalse(meta["a800_pass"])
         self.assertIn("not_executed", self.reproduction["bwrap_isolation"]["native_shell_descendant_hygiene"])
-        self.assertEqual("pending_controller_final_rereview", self.reproduction["compatibility_fixes"]["landlock"]["independent_security_review"])
+        self.assertEqual("passed_ready_to_merge", self.reproduction["compatibility_fixes"]["landlock"]["independent_security_review"])
         self.assertIn("completed_on_313b6bc", self.reproduction["bwrap_isolation"]["affected_path_sco_reruns"])
         self.assertIn("installer_receipt", self.reproduction["bwrap_isolation"]["trusted_security_assets"])
         gates = self.reproduction["bwrap_isolation"]["final_a100_gates"]

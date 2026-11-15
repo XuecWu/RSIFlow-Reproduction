@@ -40,7 +40,7 @@
 
 ## 当前剩余门槛
 
-- Task 7 的最终独立安全审阅由 controller 在本地 commit 后执行；当前不得把“作者自审”写成独立审阅关闭。
+- Task 7 最终独立安全审阅及 consolidated fix-wave re-review 已由未参与实现的 reviewer 关闭；全部 Critical/Important 已修复，结论为 Ready to merge Yes。保留一个仅影响非 UTF-8 installation_id 报错类型的 Minor 诊断项，不影响启动前拒绝和状态安全。
 - 五轮 preflight 仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 上健康的四卡 Qwen 服务、当前 694 配置 `python RSIFlow_4B/launch.py --check`，以及最终独立 experiment preflight review。
 - 五轮、SFT、最终 694/744、ACE 50、8B 和 Qwen 服务均未在本轮隔离任务中启动；没有模型 benchmark 分数。
 

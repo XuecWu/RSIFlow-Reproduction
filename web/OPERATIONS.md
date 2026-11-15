@@ -129,3 +129,11 @@
 - manifest/launcher tamper 与 missing receipt 先 `3 failed`；candidate/native/Harness no-spawn 联合 `9 failed`。ignored installer receipt 强制 pin 两类 security assets 后 `10 passed`；persistent Meta static-copy pinning 未改。
 - 综合 focused **156 passed in 50.41s**；完整 suite **297 passed, 2 skipped in 90.22s**。Ruff 修复两个新增 import-order 后仍有 18 个既有 legacy findings，不宣称 clean。
 - 当前公开计数已同步为 297/156。既有 SCO IDs/hash 不是新代码证据；受影响 candidate/native/Harness/Meta SCO rerun 和独立 re-review 均待 controller。本 wave 未提交 SCO job、未运行真实 provider smoke、未启动训练/评估、未 push。
+
+### 最终 A100 真实 gates 与 evidence publication
+
+- `313b6bc` combined `pt-v6m10c4t`（8xA100/root_mapping=false）整体/worker **FAILED** 仅因 Meta 外部 provider completion failure；candidate/Harness/BFCL exit 均 0。candidate SHA256 `56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63`，7/18/5/3 checks 全过且 infrastructure_error=null；Harness `1 passed in 23.26s`，log SHA256 `808285dc5c05709785e4d669e28882e5c496644bb1191a6301866325b2735f31`；BFCL 两次 RPC，receipt SHA256 `ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4`，key hygiene 全 true，SHA256 `fbe9b6386dd64f78e5eb72b7bbad9f88f2c39e218b93bd6ab049a0b97b20749d`。
+- combined Meta ordinal 0 HTTP 502、retry HTTP 200 incomplete SSE，failed report SHA256 `4f123a27dc415e2b99d63569fee30af2fce68bf3fda68da3653ee7e9e1db3d9c`；分类为外部 relay/provider completion failure，未改代码隐藏。
+- 唯一 Meta-only retry `pt-x6b4ista`（8xA100/root_mapping=false）SUCCEEDED/worker Succeeded/exit 0；report SHA256 `a177657dbf1e744f2d2be64d16c33bcda08102052a7ecd7486aebdd48cf64b66`。ok/completed、same thread、无重复 job/bootstrap、exact gpt-6-astra、3 dynamic calls、11 key hygiene + 7 cleanup、durable job 0、shell_tool=false；installation_id=0644 且 run-owner 精确匹配。
+- Task 6 外部 actor `pt-zj1l9q1t` 仅保留为历史证据；当前最终 Meta gate 为 `pt-x6b4ista`。EvalPlus 仍为历史 one-task smoke，未在 313b6bc 重跑。native-shell descendant validation 未执行，五轮/SFT/final eval/Qwen 服务未运行。
+- 本 publication step 未改生产代码/测试、未提交新 job、未启动训练、未 push；仅更新证据、audit 和公开状态。独立 re-review 仍为 controller gate。

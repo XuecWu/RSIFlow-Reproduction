@@ -171,7 +171,9 @@ python reproduction/scripts/install_bwrap.py \
 
 binary SHA256 必须为 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`。ignored installer receipt 同时固定 manifest/launcher 路径和 SHA256，candidate/native/Harness 每次 launch 都必须验证，tamper 在 spawn 前失败；persistent Meta 保持 static trusted-copy pinning。三类 profile 是 candidate/session、native benchmark（恰好两个 RPC FD、thread-only clone）和 persistent Meta（持久 `codex_home`、host-side jobs、私有 loopback relay）。候选错误、sandbox/RPC infrastructure error 和模型答错必须分类记录。
 
-生产 fresh home 原子创建并校验 0644 `installation_id`，保留有效 restart inode/content，拒绝 symlink/非普通文件/非法 UUID。central `.run-owner.json` 绑定 resolved full run path：same-basename 不同 fresh run fail closed，same-path 与可证明 legacy resume 不迁移、不覆盖历史状态。上述最终修复目前仅有本机/offline 证据，受影响 candidate/native/Harness/Meta SCO rerun 均待 controller。
+生产 fresh home 原子创建并校验 0644 `installation_id`，保留有效 restart inode/content，拒绝 symlink/非普通文件/非法 UUID。central `.run-owner.json` 绑定 resolved full run path：same-basename 不同 fresh run fail closed，same-path 与可证明 legacy resume 不迁移、不覆盖历史状态。
+
+`313b6bc` 最终 A100 gates 已完成（root_mapping=false）：combined `pt-v6m10c4t` 整体/worker **FAILED** 仅因 Meta 外部 provider completion failure；candidate/Harness/BFCL exit 均 0。candidate SHA256 `56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63`，Harness `1 passed in 23.26s`，BFCL `ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4` 且 key hygiene 通过。combined Meta ordinal 0 HTTP 502、retry HTTP 200 incomplete SSE，failed report `4f123a27dc415e2b99d63569fee30af2fce68bf3fda68da3653ee7e9e1db3d9c`。唯一 Meta retry `pt-x6b4ista` SUCCEEDED/worker Succeeded/exit 0，report `a177657dbf1e744f2d2be64d16c33bcda08102052a7ecd7486aebdd48cf64b66`；安装 ID 为 0644，run-owner 精确匹配。EvalPlus 未在本 commit 重跑，仍使用历史 one-task 证据。
 
 ```bash
 # Candidate

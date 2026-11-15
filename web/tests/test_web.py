@@ -152,9 +152,25 @@ class WebsiteTests(unittest.TestCase):
         self.assertTrue(meta["root_mapping"])
         self.assertFalse(meta["a800_pass"])
         self.assertIn("not_executed", self.reproduction["bwrap_isolation"]["native_shell_descendant_hygiene"])
-        self.assertEqual("pending_controller_final_fix_rereview_and_sco", self.reproduction["compatibility_fixes"]["landlock"]["independent_security_review"])
-        self.assertIn("pending_controller", self.reproduction["bwrap_isolation"]["affected_path_sco_reruns"])
+        self.assertEqual("pending_controller_final_rereview", self.reproduction["compatibility_fixes"]["landlock"]["independent_security_review"])
+        self.assertIn("completed_on_313b6bc", self.reproduction["bwrap_isolation"]["affected_path_sco_reruns"])
         self.assertIn("installer_receipt", self.reproduction["bwrap_isolation"]["trusted_security_assets"])
+        gates = self.reproduction["bwrap_isolation"]["final_a100_gates"]
+        self.assertEqual("313b6bcc00ee641ce99eee04fb9e4490dbb63929", gates["commit"])
+        self.assertFalse(gates["root_mapping"])
+        combined = gates["combined_job"]
+        self.assertEqual("FAILED", combined["terminal"])
+        self.assertEqual(0, combined["candidate"]["exit_code"])
+        self.assertEqual(0, combined["harness"]["exit_code"])
+        self.assertEqual(0, combined["bfcl"]["exit_code"])
+        self.assertEqual(1, combined["meta_attempt"]["exit_code"])
+        retry = gates["meta_retry"]
+        self.assertEqual("pt-x6b4ista", retry["job_id"])
+        self.assertEqual("SUCCEEDED", retry["terminal"])
+        self.assertEqual("Succeeded", retry["worker"])
+        self.assertEqual("0644", retry["installation_id_mode"])
+        self.assertTrue(retry["run_owner_exact"])
+        self.assertIn("not_rerun_on_313b6bc", gates["evalplus"])
 
     def test_local_assets_documents_and_anchors_resolve(self):
         missing = []

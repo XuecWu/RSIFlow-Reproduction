@@ -113,7 +113,11 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
 - BFCL `pt-fdvsxqax` SUCCEEDED/worker Succeeded；receipt `reproduction/logs/bfcl-bwrap-check-r2/check.json`，SHA256 `ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4`。只覆盖两次受控 native RPC。
 - Meta `pt-zj1l9q1t` SUCCEEDED/worker Succeeded；report `reproduction/logs/meta-bwrap-task6-r4-20261114T173158Z/run/report.json`，SHA256 `b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920`。
 
-Meta 证据由外部 actor `huangsiyuan1` 提交，实际为 8×A100、N3lS+N2lS candidate specs、`root_mapping=true`，经用户授权接受。A800 r5/r6 `pt-7i4qertj` / `pt-44m6zkmx` 在启动前失败；不得写成 A800 pass。
+Meta 证据由外部 actor `huangsiyuan1` 提交，实际为 8×A100、N3lS+N2lS candidate specs、`root_mapping=true`，经用户授权接受。A800 r5/r6 `pt-7i4qertj` / `pt-44m6zkmx` 在启动前失败；不得写成 A800 pass。该证据仅属历史。
+
+当前 `313b6bc` 最终 gates（均 8xA100/root_mapping=false）：combined `pt-v6m10c4t` 整体/worker **FAILED** 仅因 Meta provider completion failure；candidate/Harness/BFCL exit 均 0。Candidate report SHA256 `56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63`；Harness `1 passed in 23.26s`，log SHA256 `808285dc5c05709785e4d669e28882e5c496644bb1191a6301866325b2735f31`；BFCL 两次 RPC，receipt SHA256 `ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4`，key hygiene SHA256 `fbe9b6386dd64f78e5eb72b7bbad9f88f2c39e218b93bd6ab049a0b97b20749d`。combined Meta ordinal 0 HTTP 502、retry HTTP 200 incomplete SSE，failed report SHA256 `4f123a27dc415e2b99d63569fee30af2fce68bf3fda68da3653ee7e9e1db3d9c`，分类为外部 relay/provider completion failure。
+
+唯一 Meta-only retry `pt-x6b4ista` SUCCEEDED/worker Succeeded/exit 0；report `reproduction/logs/final-meta-a100-20261115T043755Z/run/report.json` SHA256 `a177657dbf1e744f2d2be64d16c33bcda08102052a7ecd7486aebdd48cf64b66`。ok/completed、same thread、无重复 job/bootstrap、exact gpt-6-astra、3 dynamic calls、11 key hygiene + 7 cleanup、durable job 0、shell_tool=false；installation_id=0644 且 run-owner 精确匹配。EvalPlus 保留上述历史 one-task smoke，未在 313b6bc 重跑。独立 re-review 仍待 controller。
 
 ## 7. 下一道实验门
 

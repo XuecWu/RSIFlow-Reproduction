@@ -184,7 +184,9 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python reproduction/scripts/persi
 
 主分区只提交合规的 8 卡及倍数任务。若使用主分区 8 卡，先解决双流水线 GPU 映射、端口、socket、服务 registry 和 output_root 隔离，否则不要并行。提交前做短时 probe，任务不使用 `sleep inf`，多次提交至少间隔 5 秒，结束或失败后确认资源释放。
 
-Task 6 的接受证据 `pt-zj1l9q1t` 是用户授权后的特殊 A100 smoke：外部 actor `huangsiyuan1` 提交，8×A100、N3lS+N2lS candidate specs、`root_mapping=true`，worker Succeeded；report SHA256 `b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920`。A800 r5/r6 `pt-7i4qertj` / `pt-44m6zkmx` 启动前失败，不得宣称 A800 pass 或把该提交归到 `main-kimi`。本任务不再提交 SCO job。
+Task 6 的接受证据 `pt-zj1l9q1t` 是用户授权后的特殊 A100 smoke：外部 actor `huangsiyuan1` 提交，8×A100、N3lS+N2lS candidate specs、`root_mapping=true`，worker Succeeded；report SHA256 `b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920`。A800 r5/r6 `pt-7i4qertj` / `pt-44m6zkmx` 启动前失败，不得宣称 A800 pass 或把该提交归到 `main-kimi`。它仅作历史证据。
+
+当前 `313b6bc` 的最终 A100 gates 已完成且 `root_mapping=false`：combined `pt-v6m10c4t` 整体/worker FAILED 仅因 Meta 外部 provider completion failure；candidate/Harness/BFCL exit 均 0。candidate SHA256 `56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63`，Harness `1 passed in 23.26s`，BFCL `ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4` 且两次 RPC/key hygiene 通过。combined Meta ordinal 0 HTTP 502、retry HTTP 200 incomplete SSE，failed report `4f123a27dc415e2b99d63569fee30af2fce68bf3fda68da3653ee7e9e1db3d9c`。唯一 Meta retry `pt-x6b4ista` SUCCEEDED/worker Succeeded/exit 0，report `a177657dbf1e744f2d2be64d16c33bcda08102052a7ecd7486aebdd48cf64b66`；0644 installation_id 与精确 run-owner 已验证。不得把 combined job 写成 SUCCEEDED。独立 re-review 仍待 controller。
 
 ## 10. 网站维护
 

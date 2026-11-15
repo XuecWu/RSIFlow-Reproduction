@@ -27,8 +27,8 @@
     "verified": false
   },
   "current_execution": {
-    "status": "offline_final_fixes_validated_affected_sco_reruns_pending",
-    "phase": "final_fix_sco_and_independent_review_gate",
+    "status": "final_a100_isolation_gates_passed_pending_independent_review",
+    "phase": "final_independent_review_gate",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3",
@@ -52,7 +52,7 @@
       "meta_runtime_probe_job": "pt-4hdyar4r",
       "bwrap_candidate_probe_job": "pt-vcq25ldi",
       "candidate_status": "bwrap_integrated_and_real_smokes_passed",
-      "independent_security_review": "pending_controller_final_fix_rereview_and_sco",
+      "independent_security_review": "pending_controller_final_rereview",
       "evidence": "reproduction/audit/daily/2026-11-12.md"
     }
   },
@@ -69,7 +69,74 @@
     "production_installation_id": "atomic_validated_0644_no_follow_regular_file",
     "meta_storage_ownership": "resolved_full_run_identity_fail_closed_with_legacy_same_path_resume",
     "trusted_security_assets": "installer_receipt_manifest_and_launcher_hashes_required_every_default_launch",
-    "affected_path_sco_reruns": "pending_controller_no_new_job_in_final_fix_wave",
+    "affected_path_sco_reruns": "completed_on_313b6bcc00ee641ce99eee04fb9e4490dbb63929",
+    "final_a100_gates": {
+      "commit": "313b6bcc00ee641ce99eee04fb9e4490dbb63929",
+      "resource": "8xA100",
+      "root_mapping": false,
+      "combined_job": {
+        "job_id": "pt-v6m10c4t",
+        "terminal": "FAILED",
+        "worker": "Failed",
+        "terminal_reason": "meta_external_provider_completion_failure_only",
+        "output": "reproduction/logs/final-bwrap-a100-20261115T043242Z/",
+        "candidate": {
+          "exit_code": 0,
+          "report": "reproduction/logs/final-bwrap-a100-20261115T043242Z/candidate.json",
+          "sha256": "56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63",
+          "ok": true,
+          "infrastructure_error": null,
+          "checks": {"functional": 7, "negative": 18, "timeout": 5, "session": 3}
+        },
+        "harness": {
+          "exit_code": 0,
+          "log": "reproduction/logs/final-bwrap-a100-20261115T043242Z/harness.stdout.log",
+          "sha256": "808285dc5c05709785e4d669e28882e5c496644bb1191a6301866325b2735f31",
+          "result": "1 passed in 23.26s"
+        },
+        "bfcl": {
+          "exit_code": 0,
+          "receipt": "reproduction/logs/final-bwrap-a100-20261115T043242Z/bfcl/check.json",
+          "sha256": "ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4",
+          "controlled_rpc_calls": 2,
+          "key_hygiene_log": "reproduction/logs/final-bwrap-a100-20261115T043242Z/bfcl/key_hygiene.log",
+          "key_hygiene_sha256": "fbe9b6386dd64f78e5eb72b7bbad9f88f2c39e218b93bd6ab049a0b97b20749d",
+          "key_hygiene_all_true": true
+        },
+        "meta_attempt": {
+          "exit_code": 1,
+          "report": "reproduction/logs/final-bwrap-a100-20261115T043242Z/meta/run/report.json",
+          "sha256": "4f123a27dc415e2b99d63569fee30af2fce68bf3fda68da3653ee7e9e1db3d9c",
+          "ordinal_0_http_status": 502,
+          "retry_http_status": 200,
+          "retry_completed": false,
+          "failure": "external_relay_provider_incomplete_completion"
+        }
+      },
+      "meta_retry": {
+        "job_id": "pt-x6b4ista",
+        "terminal": "SUCCEEDED",
+        "worker": "Succeeded",
+        "exit_code": 0,
+        "output": "reproduction/logs/final-meta-a100-20261115T043755Z/",
+        "report": "reproduction/logs/final-meta-a100-20261115T043755Z/run/report.json",
+        "sha256": "a177657dbf1e744f2d2be64d16c33bcda08102052a7ecd7486aebdd48cf64b66",
+        "ok": true,
+        "stage": "completed",
+        "same_thread": true,
+        "duplicate_jobs": [],
+        "bootstrap_repeated": false,
+        "returned_model": "gpt-6-astra",
+        "dynamic_tool_calls": 3,
+        "key_hygiene_checks": 11,
+        "cleanup_checks": 7,
+        "durable_job_returncode": 0,
+        "shell_tool": false,
+        "installation_id_mode": "0644",
+        "run_owner_exact": true
+      },
+      "evalplus": "historical_one_task_smoke_not_rerun_on_313b6bc"
+    },
     "candidate": {
       "job_id": "pt-gyfupguq",
       "terminal": "SUCCEEDED",
@@ -100,6 +167,8 @@
       "scope": "native_infrastructure_smoke_not_a_benchmark_score"
     },
     "persistent_meta": {
+      "historical_task6_only": true,
+      "current_final_gate": "final_a100_gates.meta_retry",
       "job_id": "pt-zj1l9q1t",
       "terminal": "SUCCEEDED",
       "terminal_time": "2026-11-14T17:33:42Z",
@@ -186,10 +255,11 @@
     {
       "id": "meta_api_smoke",
       "status": "completed_real_codex_bwrap_resume_smoke",
-      "evidence": "reproduction/logs/meta-bwrap-task6-r4-20261114T173158Z/run/report.json",
-      "sco_job_id": "pt-zj1l9q1t",
-      "sha256": "b1f1dbf35c09ee192c2199028ee984ba7068889bdf3f126cd52965732220f920",
-      "scope": "infrastructure_smoke_not_a_model_score"
+      "evidence": "reproduction/logs/final-meta-a100-20261115T043755Z/run/report.json",
+      "sco_job_id": "pt-x6b4ista",
+      "sha256": "a177657dbf1e744f2d2be64d16c33bcda08102052a7ecd7486aebdd48cf64b66",
+      "scope": "infrastructure_smoke_not_a_model_score",
+      "commit": "313b6bcc00ee641ce99eee04fb9e4490dbb63929"
     },
     {
       "id": "benchmark_smoke",
@@ -222,7 +292,6 @@
     }
   ],
   "remaining_experiment_gates": [
-    "affected_candidate_native_Harness_Meta_SCO_reruns",
     "final_independent_security_review",
     "five_benchmark_minimum_smokes",
     "healthy_four_gpu_qwen_services_logical_gpu_0_to_3",

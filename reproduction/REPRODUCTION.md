@@ -121,4 +121,16 @@ Meta 证据由外部 actor `huangsiyuan1` 提交，实际为 8×A100、N3lS+N2lS
 
 ## 7. 下一道实验门
 
-Task 7 的独立安全审阅及修复后 re-review 已由 controller 完成并通过。即使隔离审阅关闭，五轮前仍须完成五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review。不要从本手册的 smoke 命令直接跳入 A0+B1–B5、SFT 或最终评估。
+Task 7 的独立安全审阅及修复后 re-review 已由 controller 完成并通过。即使隔离审阅关闭，五轮前仍须完成五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 配置预检和独立 experiment preflight review。不要从本手册的 smoke 命令直接跳入 A0+B1–B5、SFT 或最终评估。
+
+当前 694 预检必须显式选择机器配置并使用 rsiflow 解释器（裸 `python RSIFlow_4B/launch.py --check` 会落到 `RSIFlow/configs/train_4b.json` 占位配置：`skip_acebench=false`、run name `eval744`、v1 data release，不能证明 694）：
+
+```bash
+cd /data/wuxuecheng/Hierarchical_level/RSI-Flow
+/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python RSIFlow_4B/launch.py \
+  --config /data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/train_4b.json --check
+```
+
+保存输出并确认 `config` 正是该机器文件，再独立核对有效 `PipelineConfig` 的 v4 frozen release、`skip_acebench=true`、694/744（五个 scored benchmark）、validation manifest 与输出目录。`--check` 本身只巡检路径存在性、rounds 与每轮任务数，不校验 skip-ACE、694 计数、manifest 内容、评测器可执行性、GPU 或 API，**返回 0 不等于该门通过**；该门当前仍未关闭。
+
+正式运行同样必须显式选择同一机器配置，且 ACP 控制器保持**前台**：`RSIFlow_4B/start_5round_600.sh` 固定加入 `--prepare-data --detach` 又不带 `--config`，不能直接依赖。五轮、SFT、最终 694/744、ACE 50、8B 与正式 Qwen 服务均未运行。

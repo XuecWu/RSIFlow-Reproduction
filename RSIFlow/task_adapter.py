@@ -70,6 +70,12 @@ class TaskAdapter:
             training_timeout_seconds=value.get("training_timeout_seconds", 604800),
             round_validation_config=str(self.project_root / value.get("validation_config", "configs/validation.json")),
         )
+        if "max_wall_seconds" in value:
+            base["max_wall_seconds"] = value["max_wall_seconds"]
+        if "meta_worker_socket" in value:
+            base["meta"]["remote_worker_socket"] = value["meta_worker_socket"]
+        if "meta_relay_socket" in value:
+            base["meta"]["remote_relay_socket"] = value["meta_relay_socket"]
         base["meta"]["run_mode"] = "full"
         base["training"].update(num_train_epochs=1, max_steps=-1,
                                 max_length=value.get("max_length", base["training"]["max_length"]),

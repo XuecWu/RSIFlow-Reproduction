@@ -89,6 +89,8 @@ A0 固定初始 Task/Meta 状态。B1–B5 每轮主线为：
 
 base JSON 中的 rank 16 和 learning rate `2e-5` 会被覆盖，不应写成最终有效值。
 
+同理，launcher JSON 的 `max_wall_seconds`、`meta_worker_socket`、`meta_relay_socket` 现在会进入有效配置：分别覆盖 base 的 `max_wall_seconds` 与 `meta.remote_worker_socket` / `meta.remote_relay_socket`；**launcher 未提供这三个键时保留 base 值**。因此全局 wall 预算与 Meta socket 身份必须以有效 `PipelineConfig` 为准，不能只读 launcher 或 base 任一侧 JSON；机器 JSON 里写了不同 socket 名也不等于已隔离，仍只允许单条 4B、逻辑 GPU 0–3 顺序流水线。
+
 GPU 是硬要求，无 CPU/mock 回退：
 
 - 四个推理 replica 必须是逻辑 GPU 0/1/2/3，各自加载 BF16 checkpoint。
@@ -140,13 +142,17 @@ Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用�
 以下命令用于离线检查和后续完整实验；离线检查已执行不代表五轮已运行：
 
 ```bash
-# 完整离线测试（2026-11-15 最终修复：297 passed, 2 skipped）
+# 完整离线测试（preflight 有效配置修复后实测：299 passed, 2 skipped；此前最终隔离修复为 297 passed, 2 skipped）
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
 cd ..
 
-# 当前 694 配置预检仍是五轮前门槛，本任务未重新执行
-python RSIFlow_4B/launch.py --check
+# 当前 694 配置预检仍是五轮前门槛，尚未通过。必须显式传绝对机器配置并使用 rsiflow 解释器；
+# 裸 `python RSIFlow_4B/launch.py --check` 会落到 RSIFlow/configs/train_4b.json 占位配置（skip_acebench=false、eval744、v1），不能证明 694。
+/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python RSIFlow_4B/launch.py \
+  --config /data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/train_4b.json --check
+# --check 只输出路径存在性/rounds/每轮任务数等 facts，不校验 skip-ACE、694 计数、validation manifest 内容、
+# 评测器可执行性、GPU 或 API；返回 0 不等于 694 协议或评估链路已验证，须另行核对有效配置。
 
 # 数据准备；需要真实 source manifests
 python RSIFlow/prepare_600_744.py --config /absolute/path/to/train_4b.json
@@ -173,7 +179,7 @@ PY
 PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python reproduction/scripts/persistent_meta_bwrap_smoke.py --check
 ```
 
-`start_5round_600.sh` 默认带 `--detach`。在 ACP 容器中，应让控制器以前台方式运行，否则脚本返回后作业可能结束并清理进程。每个 backbone 使用新的 run dir；相同命令和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。
+`start_5round_600.sh` 固定加入 `--prepare-data --detach`，且不带 `--config`，因此**不能直接用于 ACP 正式控制器**：默认 detach 会让脚本返回后作业结束并清理进程，默认配置又会落到上游占位 JSON。ACP 中必须让控制器**以前台方式**运行，并**显式传入绝对机器配置**（`reproduction/configs/train_4b.json`），例如以 rsiflow 解释器直接调用 `RSIFlow_4B/launch.py --config <绝对机器配置>`（不加 `--detach`；数据已冻结时不要加 `--prepare-data`）。每个 backbone 使用新的 run dir；相同命令、相同配置和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。五轮、SFT 与最终 694/744 仍未运行。
 
 典型输出：
 

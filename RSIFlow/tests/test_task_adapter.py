@@ -88,6 +88,37 @@ class TaskAdapterTests(unittest.TestCase):
         self.assertEqual({item["gpu"] for item in config.task_replicas}, {0, 1, 2, 3})
         self.assertTrue(config.task_checkpoint.endswith("Qwen3-4B"))
 
+    def test_launcher_wall_budget_reaches_effective_config(self):
+        launcher = json.loads((ROOT / "configs/train_4b.json").read_text(encoding="utf-8"))
+        base = json.loads((ROOT / "runtime/configs/base_4b.json").read_text(encoding="utf-8"))
+        declared = launcher["max_wall_seconds"]
+        # Equal values would let a dropped mapping pass unnoticed.
+        self.assertNotEqual(declared, base["max_wall_seconds"])
+        path = self.root / "launcher_wall.json"
+        path.write_text(json.dumps(launcher), encoding="utf-8")
+        self.assertEqual(self.adapter._config({"config_path": str(path)}).max_wall_seconds,
+                         declared)
+        del launcher["max_wall_seconds"]
+        path.write_text(json.dumps(launcher), encoding="utf-8")
+        self.assertEqual(self.adapter._config({"config_path": str(path)}).max_wall_seconds,
+                         base["max_wall_seconds"])
+
+    def test_launcher_meta_sockets_reach_effective_config(self):
+        launcher = json.loads((ROOT / "configs/train_4b.json").read_text(encoding="utf-8"))
+        base = json.loads((ROOT / "runtime/configs/base_4b.json").read_text(encoding="utf-8"))
+        launcher["meta_worker_socket"] = "/tmp/rsiflow_4b_meta_worker.sock"
+        launcher["meta_relay_socket"] = "/tmp/rsiflow_4b_meta_relay.sock"
+        path = self.root / "launcher_sockets.json"
+        path.write_text(json.dumps(launcher), encoding="utf-8")
+        meta = self.adapter._config({"config_path": str(path)}).meta
+        self.assertEqual(meta.remote_worker_socket, launcher["meta_worker_socket"])
+        self.assertEqual(meta.remote_relay_socket, launcher["meta_relay_socket"])
+        del launcher["meta_worker_socket"], launcher["meta_relay_socket"]
+        path.write_text(json.dumps(launcher), encoding="utf-8")
+        meta = self.adapter._config({"config_path": str(path)}).meta
+        self.assertEqual(meta.remote_worker_socket, base["meta"]["remote_worker_socket"])
+        self.assertEqual(meta.remote_relay_socket, base["meta"]["remote_relay_socket"])
+
     def test_rsiflow_materializes_one_complete_candidate(self):
         from types import SimpleNamespace
         from rsiflow.task_meta.rsiflow_manifest import load_manifest

@@ -223,3 +223,29 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
 - `clean_independence_audited=false`、`exposure_unknown` 与公开来源重构限制**原样保留**；v5 是「经 pinned BFCL v3 native-ID 对齐的同协议重构」，不是作者原队列精确复现。替换改变了 held-out 样本，v5 状态必须重新标注，不得把 v4 的 BFCL 证据当作 v5 结果。
 - 是否把五轮运行配置切换到 v5 由 controller 决定；`train_4b.json` 与 v4 目录本次未改。
 - 迁移回执与逐条 old→new 清单见 `reproduction/audit/reviews/bfcl-v5-report.md`。
+
+## 10. 训练侧最小真实 smoke（已实现并离线 plan，真实 GPU 阶段待单独授权）
+
+独立 runner `reproduction/scripts/training_side_smoke.py` 用**五条固定 mini-B1 任务**原样复用生产 `TaskAdapter.bootstrap/rollout/sft` 与四卡 GPU 相位，验证真实训练控制流；**不调用 `pipeline.run()`/Meta，不接受候选，不写正式 round complete 或 694 标记**。离线回归 `RSIFlow/tests/test_training_side_smoke.py`（**88 项**生产合同测试，含 mutation + legacy-contract RED + 真实进程树信号/`/proc` 归属测试；临时 fixture + mock，无 GPU/模型/API/SCO）。fix round 1 关闭 10 项、round 2 关闭 5 项、round 3 关闭 3+1 项；fix round 4 再关闭 re-review 两项：采样证据强制对账（`sft_selection.json`/`sft_positive.jsonl` 缺失/空、input/unique/positive_trajectories 不一致均 problem，禁止跳过）；discovery 扫描**所有存活进程**（不限组长），从存活 rank 的实际 cmdline + root request-dir 发现 PGID 并核验整组归属后清理，覆盖 leader 已退+无 receipt 组合与外部 rank 拒杀。详见 `reproduction/audit/reviews/training-side-smoke-report.md` §8–§11。
+
+五个子命令与阶段门：
+
+```text
+plan -> execute-rollout -> execute-sft -> execute-recovery -> status
+```
+
+- **只有 `plan` 创建输出根**，且必须是 PROJECT 内、尚不存在、Git 忽略的新目录（优先 `git check-ignore`，git 不可用时保守 `.gitignore` 祖先规则）；plan **无任何模型/服务调用**。
+- 每阶段不可变 receipt + stage lock（`O_EXCL`，禁止并发）+ 代码/config/selection/manifest/base-checkpoint 哈希绑定；绑定不符或存在 `started` 而无 final receipt → `requires_audit`，**不静默重跑、不删除重来**；final receipt 已存在 → 只校验并返回 `already_completed`。
+- 选择规则（看模型结果前固定）：按冻结 parent B1 原顺序取第一条 EnvScaler、DeepCoder/TACO STDIO、DeepCoder/TACO function、HotpotQA、2Wiki，恰好 5 个唯一 task；缺类/重复/空记录/错误 role/hash/offset 一律 fail closed；**禁止看结果换题**。
+- mini release 用原 `repack`/`native_index` 复制真实 record bytes，回读校验偏移/长度/哈希，并确认原 B1 pack 与检索索引哈希未变；`tasks.sqlite` 只含 5 条 `evolve_train`。
+- 派生 smoke-only launcher：`rounds=1`、`allocated_tasks=5`、`training_tasks_per_pass=5`、source quotas `1/2/1/1`（domain `1/2/2`）、独立 data/output/run roots；**保留真实 checkpoint、seed Harness、检索、seed 42、BF16、one-epoch LoRA 与固定 SFT preset**（`max_steps=-1`、lr 2e-6、rank 8/alpha 16/dropout 0.05、七个 target modules、max_length 16384），经原 `TaskAdapter._config()` 验证并冻结。
+- rollout 验收：5 条唯一 task、覆盖五类各一、role/purpose/round/stage/manifest 绑定一致、每条 `model_call_count>=1` 且有持久 trajectory 与 `verification.status=completed`、success 为布尔、无 infrastructure error。**模型答错但评分完成 = `completed_with_model_failures`（有效 smoke 结果）；缺失评分/infra 错误/错误 manifest = incomplete**。
+- **零正例**：用生产 `select_positive_rows(profile="multidomain")` 判定；无自然正例时 SFT = `blocked_no_positive_parent_trajectory`，总 smoke 不得 PASS，**不调用 trainer、不写 child、不换题/造标签/借 held-out**。
+- SFT 验收：正例仅来自本次 parent；`world_size=4`、ranks `{0,1,2,3}`、one epoch、preset 未被覆盖、loss 有限、LoRA/merged weights 确实改变；child 位于 smoke 输出树且不同于 base、base manifest 前后一致、Harness/artifacts 不变；`gpu_phase_receipt.status=completed` 且 `restored_checkpoint=child`、四 replica GPU 0–3；`verify_services` 绑定 child 后做一次真实短生成。
+- recovery：核对训练 receipt 哈希未变，`ensure_services`+`verify_services` 恢复同一 child、短生成、清理；**全程零次 SFT 调用**。
+- 所有阶段 `finally` 只停**本输出根**的 owned registry（`stop_services` 强制 GPU 0–3 各 ≥40,000 MiB）；无 registry 时记录"未创建 owned 服务"而不停其他 owner；**cleanup 失败则总结果失败**，即使 rollout/SFT 已完成。
+- 每个 receipt 均含 `smoke_only=true`、`selected_tasks=5`、`formal_round_completed=false`、`eligible_for_meta=false`、`eligible_for_candidate_acceptance=false`、原 B1 hash 与 mini manifest hash。
+
+真实资产离线 plan（`reproduction/logs/training-side-smoke-plan-r1`，Git 忽略、写入前 `test ! -e`）已验证：5 条真实 v4 B1 任务（`envscaler:env_154_rl:env_154_rl-task_47`、`deepcoder_taco:deepcoder-taco-424`、`deepcoder_taco:deepcoder-taco-2865`、`hotpotqa:5abaf8be5542992ccd8e7e85`、`2wiki:f96fae0a0bae11ebab90acde48001122`），记录字节/哈希与原 B1 **5/5 一致**，原资产未变，preset 与四卡 replica 完整，`model_calls=0`。
+
+**边界**：本任务实现阶段**未启动真实 GPU/SCO/模型/API/五轮/SFT**。S1 rollout、S2 SFT/merge/reload、S3 recovery 的真实执行需单独授权并在 SCO 前台顺序进行；`Scope.observed()` 的 `same_round_full_B_parent_child_v2` 在本 smoke 中只表示"完整五条 mini B1"，**绝不能据此宣称完成正式 600-task B1 或五轮协议**。五条 rollout 分数不是 benchmark，不产生模型提升结论。详见 `reproduction/audit/reviews/training-side-smoke-report.md`。

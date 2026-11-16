@@ -1,0 +1,44 @@
+{
+  "benchmark_ids": [
+    "bfcl_v3",
+    "acebench",
+    "humaneval_plus",
+    "mbpp_plus",
+    "hotpotqa_dev",
+    "2wiki_dev"
+  ],
+  "dynamic_predictions": true,
+  "feedback_to_training_or_meta": false,
+  "frequency": "after_final_round",
+  "official_specs": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/report-evaluators-v4.json",
+  "tool_benchmarks": {
+    "acebench": {
+      "category": "test_all",
+      "data_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/cohort/allocated/validation/acebench.jsonl",
+      "language": "en",
+      "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
+      "repository_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/acebench/AgentSuite/ACEBench",
+      "user_api_key_env": "ACE_USER_API_KEY",
+      "user_base_url_env": "ACE_USER_BASE_URL",
+      "user_model": "DeepSeek-V4.1-Flash",
+      "user_provider_model": "DeepSeek-V4.1-Flash"
+    },
+    "bfcl_v3": {
+      "categories": "all_v3",
+      "data_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/cohort-v5/bfcl-v5-migration-r1/allocated/validation/bfcl_v3.jsonl",
+      "python_executable": "/data/wuxuecheng/miniforge3/envs/rsiflow-bfcl/bin/python",
+      "repository_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/evaluators/bfcl-official/berkeley-function-call-leaderboard",
+      "official_commit": "ea13468e4423454d0c213704fb87cf7cb3990433",
+      "evaluator_archive_sha256": "c6c3b8ff8708eb93ed1fe236d55b5edf1e817530af53cdd6b958d04d8f486f21",
+      "version_prefix": "BFCL_v3"
+    }
+  },
+  "validation_limits": {
+    "bfcl_v3": 152,
+    "acebench": 50,
+    "humaneval_plus": 164,
+    "mbpp_plus": 178,
+    "hotpotqa_dev": 100,
+    "2wiki_dev": 100
+  }
+}

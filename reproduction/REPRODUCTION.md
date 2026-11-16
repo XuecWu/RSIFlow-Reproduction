@@ -185,3 +185,41 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
 - 真实 `OPENAI_API_KEY` 与 ACE 用户模拟凭据均**不需要**；不得读取或打印凭据。
 
 离线回归：`RSIFlow/tests/test_model_scoring_smoke.py`（temp dirs + monkeypatch 隔离 GPU/官方进程；合成回执仅为 test-only fixture，不是真实 smoke 证据）。
+
+## 9. BFCL v5 数据协议迁移（已生成并冻结，未执行；切换由 controller 决定）
+
+§8 末尾指出的阻塞——v4 frozen BFCL 152 队列中 19 个 native ID 不在 pinned official pool——已由**新建不可变 v5 release** 关闭数据侧缺口。v4 全程只读、逐字节保留；未降低 152 分母，未修改 official evaluator/data，未改生产 `validate.py` 或五轮运行配置 `train_4b.json`。
+
+迁移工具与产物：
+
+- 单用途脚本 `reproduction/scripts/migrate_bfcl_v5.py`；离线回归 `reproduction/tests/test_bfcl_v5_migration.py`（**33 项**，临时 fixture，无 GPU/网络/模型；含 4 组 mutation 验证，证明 official-ID/disjoint、quota、immutable、pinned-HEAD 守卫均为载荷性校验）。
+- **强制 pinned checkout 身份**：`--expected-official-commit` 为必填；工具同时核验 spec 声明的 commit、`repository_root` 的**真实 HEAD** 与 `native_layout` 解析出的 package root HEAD，三者必须一致。优先 `git rev-parse HEAD`；git 因跨 uid 属主拒绝时，只读解析 `.git/HEAD`/loose ref/`packed-refs` 得到同一 commit，**不修改任何 git trust 或全局配置**。回执记录 `verified_checkout_head`、`head_verification`、`package_root_head`。
+- 主工作树 Git 忽略的新版本目录 `assets/cohort-v5/bfcl-v5-migration-r1/`：`allocated/validation/bfcl_v3.jsonl`（152 行）、`validation_source_manifest.json`（744 条）、`bfcl_v5_migration_receipt.json`（机器可读迁移回执）。
+- 新 release：`RSIFlow/runtime/data/rounds_3000_5x600_v5/` 与 `RSIFlow/runtime/data/validation_744_v5/`，由**现有** `prepare_600_744.py` 生成，标准 READY schema 未扩展。
+- 新配置（仅指向 v5，未覆盖 v4）：`reproduction/configs/train_4b_v5.json`、`reproduction/configs/validation_744_v5.json`。相对**本工作树的 v4 配置**只改 `data_release`/`frozen_data_dir`/`validation_manifest`/`source_validation_manifest`/`validation_config`/`run_name`，以及 BFCL `data_path`；evaluator commit、`repository_root`、`official_specs`、ACE spec、各源 quota 全部不变。
+  - **ACE `data_path` 的基线差异须如实区分**：主工作树的 `reproduction/configs/validation_744.json` 仍指向旧占位路径 `assets/cohort/acebench/test.jsonl`（与 BFCL 同属早前已修的 data_path 缺口），而本工作树的 v4 配置已指向 `assets/cohort/allocated/validation/acebench.jsonl`。v5 沿用**本工作树 v4** 的 ACE 路径，因此相对本工作树 v4 **未变**，相对主工作树 v4 则是路径差异。两种基线下 ACE 的 50 条 validation 记录身份与字节都与 v4 相同，未替换任何 ACE 样本。
+
+选择规则（发布前固定、完全确定、不看模型结果）：
+
+- 保留 133 个已在 pinned `ea13468e4423454d0c213704fb87cf7cb3990433` official universe（17 类、4441 IDs）中的 BFCL 项，其身份/内容/字节不变。
+- 确定性替换 19 个无效项：17 个带 BFCL-v4 风格标签（`exec_simple`×6、`exec_parallel`×3、`exec_multiple`×1、`multi_turn_composite`×5、`rest`×1、`sql`×1），2 个原始行缺 native ID 而退化为 qhash。
+- **这些标签无一是 pinned v3 类别，不存在权威 crosswalk；回执显式记录 `category_crosswalk=unavailable_no_authoritative_mapping`，不伪造逐条类别等价。** 两条 qhash 项记 `removal_reason=missing_native_id_qhash_fallback`、`removed_category_label=null`。
+- 候选池 = pinned official 全集中排除现有 train/validation 的 native_id/task_id、content_hash 冲突、group_id 冲突与不完整记录后的 4270 条（排除 133 个既有 ID、38 个内容冲突）。
+- 19 个名额按**保留项类别分布的最大余数比例分配**，类内按 `fingerprint([seed=42, category, native_id])` 排序取前 N；候选按 v4 manifest 顺序填入被移除槽位。候选不足即 fail closed，绝不降配额。
+
+已验证的不变量（真实资产，离线）：
+
+- v4 release 30 个文件哈希不变（READY `07f07c61…`、frozen validation manifest `884f59d9…`）；v4 BFCL pack `eb4b048a…`、v4 source validation `manifest_hash 927a8606…` 未变。
+- v5 训练 20 个 pack 与 v4 **逐字节相同**；`source_training_hash` 仍为 `78863d14…`；5×600、每轮配额、Code 120 STDIO/80 function、跨轮 task/content disjoint 全部通过。
+- v5 验证 744 条：ACE 50、HumanEval+ 164、MBPP+ 178、HotpotQA 100、2Wiki 100 的身份与记录字节与 v4 **完全一致**；BFCL 仍 152、ACE 仍 50 pending、744 frozen / 694 scored 口径不变。
+- v5 BFCL 152 个 native ID **全部**属于 pinned official 集合且唯一；`assert_disjoint(train, validation)` 通过；`select_specs` 得 744/694。
+- `validate_tool_selection("bfcl_v3", …, 152 tasks)` 在 `formal_report_evaluation=true`、`purpose=report_only` 且 `evaluation_scope` 绑定一致时**接受 152 形式化队列**；selected IDs 与 frozen 队列一致，覆盖 14 个官方类别。该检查使用合成 binding，**未运行模型、未产生任何分数**。
+- `validation_sources.freeze/verify` 对 v5 settings 成功（284 个文件哈希，含新 BFCL pack）。
+- v5 READY：`status=prepared_not_executed`、`config_hash 32000098…` 与 `protocol.json` fingerprint 一致、`source_validation_hash 90ffe339…`。
+
+边界与待办：
+
+- **未执行任何模型/评估/五轮/SFT/SCO**；v5 只是冻结数据版本。没有 BFCL 分数、没有 694 结果、没有 A0 baseline。
+- `clean_independence_audited=false`、`exposure_unknown` 与公开来源重构限制**原样保留**；v5 是「经 pinned BFCL v3 native-ID 对齐的同协议重构」，不是作者原队列精确复现。替换改变了 held-out 样本，v5 状态必须重新标注，不得把 v4 的 BFCL 证据当作 v5 结果。
+- 是否把五轮运行配置切换到 v5 由 controller 决定；`train_4b.json` 与 v4 目录本次未改。
+- 迁移回执与逐条 old→new 清单见 `reproduction/audit/reviews/bfcl-v5-report.md`。

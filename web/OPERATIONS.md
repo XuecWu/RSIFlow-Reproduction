@@ -144,7 +144,60 @@
 - 保留一个 Minor：非 UTF-8 installation_id 的异常类型可能为 TypeError 而非预期 ValueError；仍在 Codex 启动前拒绝且不改写文件，不影响隔离或状态安全。
 - controller 在最终 HEAD 再次运行完整测试：297 passed、2 skipped；网站 11/11、Node、diff 检查通过。cpolar 本地源切换到最终审阅工作树，公网内容另行核验。
 
-### 2026-11-15 当前公网服务核验
+### 2026-11-15 公网服务核验（历史记录，服务其后已停止）
 
 - 最终 HTTP 持久任务为 `bash-38l47xmz` / PID `2157843`，工作目录为最终审阅工作树；cpolar 保持原持久任务 `bash-09cysqyj` / PID `2000586`。
-- 当前公网入口为 `https://5340b001.r36.cpolar.top`。本地 JSON 已断言独立审阅通过、Meta job `pt-x6b4ista` 和 297/2 测试计数；公网 `RESULTS.md` 已读取到相同审阅结论。
+- 当时公网入口为 `https://5340b001.r36.cpolar.top`。本地 JSON 已断言独立审阅通过、Meta job `pt-x6b4ista` 和 297/2 测试计数；公网 `RESULTS.md` 已读取到相同审阅结论。
+- **后续状态**：上述两个持久任务在上次会话关闭时被终止，本地 18000 连接拒绝、旧公网 URL 返回 404。该 URL 与 PID 自此只作历史留档，当前入口见下方 2026-11-16 节。
+
+## 2026-11-16
+
+### 授权与范围
+
+- 用户授权：本地把 `reproduction/4b-bwrap` fast-forward 合入 `reproduction/4b-main8`，推送两个复现分支到内部 GitLab 备份，整理多 agent 交付复盘，并从主工作树恢复公开展示。
+- 本阶段只做代码/文档交付、备份与网站恢复；**未启动新 SCO 作业、五轮演化、SFT、最终 694/744 评估或模型服务**。
+- 使用当前 Herdr tab 的 Qwen4-Max、Codex、Kimi 三方通道；主 agent 位于 `physical-rsi-selector`（client/server 0.9.5、protocol 22）。真实探针分别返回 `RSIFLOW_DELIVERY_KIMI_OK`、`RSIFLOW_QWEN4_DELIVERY_OK`、`RSIFLOW_DELIVERY_CODEX_OK`；Qwen 由 `qwen3.8-max` 切换为 `qwen4-max`，Codex 固定 `/data/wuxuecheng/npm-global/bin/codex`（`codex update` 后仍 0.169.0，按更新器要求在原 pane 重启，未信任 hooks）。
+
+### 合并前：账本保护与预检
+
+- 主工作树两份未提交追加账本 `reproduction/audit/operations.jsonl`、`key_results.jsonl` 与功能工作树的追加记录、`Meta_logs/` 全部保持原样：不 reset、不 clean、不 stage、不 commit、不删除。
+- 合并前主工作树 `operations.jsonl` SHA256 `ea9403380b77b5f1100c6bce5b66578cc3cf4e218ec9985bea8d2b7f0749858e`、`key_results.jsonl` SHA256 `82c10d582e9459d62d03c3b42c6ba9efaabdfd1254114519389259fd1ba92c0a`，两份均可逐行解析；**merge 后重算两值完全不变**。
+- 独立 Kimi 交付报告 `reproduction/audit/reviews/delivery-integration-kimi.md` 指出：两个工作树的 `operations.jsonl` 在 **sequence 581 之后分叉**（同号记录语义不同）。处置：两份原件均保留，**禁止覆盖或直接拼接**，跨工作树引用需逐条语义对账。该报告的 CHANGES 是"合并/GitLab/公网尚未执行"的过程门槛，不是代码审阅失败。
+- 功能工作树预合并验证：完整 Python `297 passed, 2 skipped in 92.22s`；website `11/11`；`node --check web/app.js`、`git diff --check` 通过。生产代码相对最终审阅 HEAD 未变。
+- `Meta_logs/` ignore 修复：**由 Codex 按主 agent 指令执行，且只修改 `.gitignore`**（增加 `Meta_logs/`）；主 agent 回源核验 `git check-ignore -v Meta_logs/example.json` 命中、功能工作树 status 不再显示该未跟踪目录；既有 `Rollout_logs/`、`local_baseline/` 规则不变。经独立 Kimi scoped re-review 为 PASS。
+
+### GitLab 备份推送与远端核对
+
+- `origin` 保持 GitHub 上游 `https://github.com/1HUAN1/RSI-Flow.git`，**未向其推送**；新增 `gitlab` 指向 `git@gitlab.acerobotics.com:wuxuecheng/rsiflow.git`，SSH 实测欢迎身份 `@wuxuecheng`。
+- 推送前 Codex 对 HEAD 及可达历史做体积与密钥形态扫描：无超过 50 MiB 的 blob、无已跟踪 symlink、常见私钥/token 形态未命中；报告 `reproduction/audit/reviews/delivery-gitlab-codex.md`。
+- GitLab 既有 `main` 为 `0c47d98df09327ba09f4fad9aaa9914837ffa280`，与本地历史无共同提交：**保留该分支，不强推、不覆盖、不建 MR**。
+- 初次备份仅新建并推送两个同名远端分支 `reproduction/4b-main8`、`reproduction/4b-bwrap`；**推送当时** `ls-remote` 两者均为 `3a66b655b764224acb21a108e59e7066f8503867`（即合并与初次备份点），与该时点本地 HEAD 一致。其后的发布文档提交与再次推送会推进两端 SHA，**当前分支与远端 SHA 以 `git log` / `git ls-remote` 实测为准**，本文不写死后续 SHA。**GitLab CI 未验证**，不宣称流水线通过。
+
+### 合并后主工作树：真实失败与恢复（不只记成功）
+
+- fast-forward 合并完成，交付分支为 `reproduction/4b-main8`；**合并与初次备份点 HEAD 为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`）。承载本次发布文档更新的提交在该点之后形成，当前 HEAD 以 `git log` 实测为准。
+- **失败**：合并后主工作树首次完整 pytest 为 `13 failed, 284 passed, 2 skipped`。逐项定位后确认全部失败源于主工作树缺少 Git-ignored 的 `assets/isolation/`（pinned bwrap 二进制与 installer receipt 不随 git 分发），**不是代码或测试回归**；未修改任何生产代码或测试断言来"修绿"。
+- **恢复**：用既有 `reproduction/scripts/install_bwrap.py`，以功能工作树的同一 pinned binary 为 `--source` 安装到主工作树 `assets/isolation/`。binary SHA256 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`；receipt 的 `manifest_path`/`manifest_sha256`（`RSIFlow/configs/bwrap_isolation.json`）与 `launcher_path`/`launcher_sha256`（`RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py`）均匹配。
+- **复验**：受影响测试 `51 passed in 48.77s`；随后完整 pytest **`297 passed, 2 skipped in 89.15s`**；website `11/11`、`node --check web/app.js`、`git diff --check` 全部通过。
+- 经验：Git-ignored 安全资产是**每个工作树的本地前置条件**，合并/克隆后必须先按 installer 重建并校验 receipt，再跑真实隔离测试；否则会把环境缺失误读成代码回归。
+
+### 公网服务恢复与实测
+
+- 旧服务状态如实记录：`bash-38l47xmz`（HTTP）与 `bash-09cysqyj`（cpolar）已因会话关闭终止，本地 18000 连接拒绝、旧公网 URL 404；不宣称旧服务仍运行。
+- 从**主工作树** `web/` 重新拉起持久服务：HTTP 任务 `bash-8s79760l` / PID `3697240`，`python3 -m http.server 18000 --bind 127.0.0.1 --directory <主工作树>/web`；cpolar 任务 `bash-be8pblb5` / PID `3697621`。
+- 从隧道日志读取**实际新 URL** `https://7b96aab1.r61.cpolar.top`（不沿用旧地址）。本地 `http://127.0.0.1:18000/` 返回 200。
+- 公网实测 10 个资源全部 200：`/`、`/styles.css`、`/app.js`、`/data/repository.json`、`/data/reproduction.json`、`/REPRODUCTION.md`、`/RESULTS.md`、`/README.md`、`/OPERATIONS.md`、`/process.html`；两个 JSON 按 UTF-8 解析成功，公网 `RESULTS.md` 关键事实（已合并/已备份、新入口、297/2、combined FAILED 与 Meta retry SUCCEEDED）检查通过。
+- 原始日志仍位于公开根目录之外的 `web-runtime/logs/`；既有 secret scan 与 raw-log/client-metadata 检查随 website 套件通过。
+
+### 多 agent 复盘与交叉审阅
+
+- Qwen4-Max 新建 `reproduction/RETROSPECTIVE.md`，覆盖阶段历程与 ruling、真实证据、失败根因（区分已确认根因与外部 provider/控制面故障）、可复用经验、五轮前置门与追踪方式。
+- 独立 Kimi 首轮任务审阅为 **Spec FAIL / CHANGES**：3 项 Important（旧 URL/PID 被写成当前入口、operations 分叉误写为"子集"、完整 pytest 的 commit 归属不清）+ 1 项 Minor（docs-only 提交列序把 HEAD 自身算作前序且漏 `861debd`）。
+- Qwen 仅修改复盘文档完成四项修复；Kimi scoped re-review 四项全部 **ADDRESSED**，无新增 Critical/Important，**Spec PASS、质量 PASS**。
+- 归属口径同步纠正：297/2 的完整套件执行分别归属功能工作树预检与合并后主工作树复验；2026-11-15 那次完整 pytest 对应 `861debd`，其后的 docs-only 提交只重检 website，不构成完整套件重跑；写作 agent 未运行的测试只能转引，不冒充自己执行。
+
+### 本次文档更新与边界
+
+- 本节与 `web/RESULTS.md`、`reproduction/PROGRESS.md`、`AGENTS.md`、`reproduction/audit/daily/2026-11-16.md` 的更新在上述实测**之后**形成；这些实测后的文档更新由主 agent 纳入后续文档提交，**具体 SHA 以 git 历史为准**，本文不预写或虚构任何后续 commit SHA。文中出现的 `3a66b655…` 一律指合并与初次备份点，不代表当前 HEAD。
+- 未改生产代码、测试、JSONL 账本或其他文件；未提交 SCO，未启动实验，未删除或清理任何文件，未停止仍在运行的服务。
+- 所有既有结论边界不变：combined `pt-v6m10c4t` 整体 FAILED（仅 Candidate/Harness/BFCL exit 0）、当前 Meta gate 为 `pt-x6b4ista`、无 A800 Meta pass、native-shell descendant hygiene 未验证、EvalPlus 为历史单任务 smoke、无五轮/SFT/最终评估/模型分数。

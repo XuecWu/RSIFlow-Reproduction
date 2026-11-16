@@ -1,6 +1,6 @@
 # RSI-Flow Agent 工作指南
 
-本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（`main`），当前隔离分支为 `reproduction/4b-bwrap`。环境、4B 模型、公开数据同协议重构与显式 bubblewrap 最小 smoke 已验证；尚未运行五轮演化、SFT、最终 694/744 或模型 benchmark。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准。
+本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**当前交付分支为 `reproduction/4b-main8`**，隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入；两个复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭；尚未运行五轮演化、SFT、最终 694/744 或模型 benchmark。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准，本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。具体 HEAD、服务 PID 与公网 URL 会随交付变化，一律以 `reproduction/PROGRESS.md`、`web/RESULTS.md`、`web/OPERATIONS.md` 的实测记录为准，不在本指南写死。
 
 ## 1. 项目是什么
 
@@ -27,6 +27,10 @@ RSI-Flow 用持久化 Meta agent 迭代改进 Task agent。Task 状态由模型 
 - `RSIFlow/tests/`：离线测试，覆盖协议、配置等价、技能记忆、控制工具、恢复和评估隔离；real-isolation 用例逐项显式选择 bwrap。
 - `RSIFlow_4B/`、`RSIFlow_8B/`：薄启动入口，最终都调用共享 `launcher.main()`。
 - `third_party/`：评测工具与 Codex provenance；保留对应许可证和 notices。
+- `reproduction/PROGRESS.md`、`reproduction/REPRODUCTION.md`：复现进度与显式 bwrap 隔离/smoke 手册（命令与已接受证据）。
+- `reproduction/RETROSPECTIVE.md`：本次调研、隔离修复、SCO 排障与交付复盘——阶段历程与 ruling、真实证据与计数归属、失败根因（区分已确认根因与外部 provider/控制面故障）、可复用经验、五轮前置门与追踪方式。
+- `reproduction/audit/`：追加式 `operations.jsonl`/`key_results.jsonl`、`daily/`、`reviews/`、`evidence-hashes.json` 与 release 对账文件。**审计单根在主 checkout**；其他工作树内的同名账本可能已分叉（同号 sequence 不同语义），引用前需逐条对账，禁止覆盖或拼接。
+- `reproduction/scripts/`：`audit_exec.py`/`record_operation.py`/`record_result.py` 审计包装、`build_status.py` 过程页快照、`install_bwrap.py` 与各最小 smoke 入口。
 - `web/`：本次新增的中文调研/复现展示站、实际结果和操作日志。
 
 ## 3. 实际控制流
@@ -198,7 +202,7 @@ node --check web/app.js
 python3 -m http.server 8000 --bind 127.0.0.1 --directory web
 ```
 
-cpolar 只暴露 `web/`。公开前运行密钥扫描，不能把私有轨迹、数据集、凭据或大体积 checkpoint 链入公开目录。操作写入 `web/OPERATIONS.md`，交付结论写入 `web/RESULTS.md`。
+cpolar 只暴露 `web/`。公开前运行密钥扫描，不能把私有轨迹、数据集、凭据或大体积 checkpoint 链入公开目录。操作写入 `web/OPERATIONS.md`，交付结论写入 `web/RESULTS.md`。当前公网 URL、本地端口与 HTTP/cpolar 的任务 ID/PID 只记录在这两份文件与 `reproduction/PROGRESS.md` 中，并须随每次重启重新实测；本指南不写死这些会变化的值，已停止的旧 URL/PID 一律标注为历史入口。
 
 ## 11. 修改要求
 

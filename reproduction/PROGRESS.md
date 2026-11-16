@@ -8,11 +8,14 @@
 - 公开数据同协议重构，不是作者原始 3000/744 队列的精确复现。
 - Meta 使用自定义 `gpt-6-astra`；ACE 50 跳过并标记 pending，计划评分 694/744。
 - 4B 审阅后才决定是否准备和运行 8B；尚未运行五轮演化、SFT、最终 694/744 评估或模型 benchmark 评分。
-- 当前分支为 `reproduction/4b-bwrap`。本页只发布脱敏状态，不公开 raw prompts/responses、私有轨迹、凭据或大日志。
+- 当前交付分支为 `reproduction/4b-main8`：隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入。**合并与初次备份点为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`），初次备份推送当时 `ls-remote` 两个远端复现分支同为该 SHA。两个复现分支已备份到内部 GitLab（`gitlab` remote，项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow ）；`origin` 仍是 GitHub 上游且未向其推送，GitLab 既有 `main`（`0c47d98df09327ba09f4fad9aaa9914837ffa280`）未强推/未覆盖/未建 MR，GitLab CI 未验证。承载发布文档更新的提交在合并与初次备份点之后由主 agent 纳入后续文档提交，**当前分支 HEAD 与远端 SHA 以 `git log` / `git ls-remote` 实测为准，本页不写死后续 SHA**。本页只发布脱敏状态，不公开 raw prompts/responses、私有轨迹、凭据或大日志。
 
 ## 已完成并验证
 
-- 历史复现分支 `reproduction/4b-main8` 的阶段 commit、追加式操作/关键结果账本、每日审计和 Herdr 三方通道已有记录；当前 bwrap 工作在其后续分支上。
+- 历史复现分支 `reproduction/4b-main8` 的阶段 commit、追加式操作/关键结果账本、每日审计和 Herdr 三方通道已有记录；bwrap 隔离工作已 fast-forward 合入该分支，并完成内部 GitLab 备份。
+- 合并复验（2026-11-16）：功能工作树预检 `297 passed, 2 skipped in 92.22s`、website `11/11`。**合并后主工作树首次完整 pytest 为 `13 failed, 284 passed, 2 skipped`**，逐项确认根因是主工作树缺少 Git-ignored 的 `assets/isolation/`，不是代码或测试回归。用既有 `reproduction/scripts/install_bwrap.py` 从功能工作树同一 pinned binary（SHA256 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`）安装并校验 manifest/launcher receipt 后，受影响测试 `51 passed in 48.77s`、完整 pytest **`297 passed, 2 skipped in 89.15s`**，website `11/11`、`node --check`、`git diff --check` 通过；全程未改生产代码或测试。
+- 账本保护：主工作树两份未提交追加 JSONL 在 merge 前后 SHA256 完全不变（`operations.jsonl` `ea9403380b77b5f1100c6bce5b66578cc3cf4e218ec9985bea8d2b7f0749858e`、`key_results.jsonl` `82c10d582e9459d62d03c3b42c6ba9efaabdfd1254114519389259fd1ba92c0a`）。两个工作树的 operations 在 **sequence 581 之后分叉**，原件均保留，禁止覆盖或直接拼接；bwrap 功能工作树与 `Meta_logs/` 一并保留。
+- 公网恢复：HTTP 与 cpolar 从主工作树 `web/` 重新拉起，公网 10 个资源全部 200，UTF-8 JSON 与 `RESULTS.md` 关键事实检查通过；旧 URL/PID 只作历史留档。
 - Python 3.11 生产与离线环境、依赖 lock、Qwen3-4B 13 文件/3 分片/hash、Codex 0.153.4 provenance hash 已核验。
 - 冻结 release `rounds_3000_5x600_v4`：3000 个训练任务（五轮各 600），744 个验证任务；Code 每轮 120 STDIO + 80 function。真实 release 与机器配置测试 4/4 通过，没有依赖上游占位配置中的 skip。v4 READY 记录 744 frozen、694 scored、50 pending，config hash `22305bf10342e11f76aab19df033ce6fedacee033ef4acbd043249b5c3caa231`。
 - `reproduction/audit/cohort-release-v4.json` 连接 source build、READY 和逐源对账；保留 `clean_independence_audited=false`、`exposure_unknown` 和两次隔离重建历史。
@@ -50,11 +53,13 @@
 - EvalPlus report：`reproduction/logs/evalplus-bwrap-smoke/20261113T035651Z/smoke_report.json`
 - BFCL receipt：`reproduction/logs/bfcl-bwrap-check-r2/check.json`
 - Meta report：`reproduction/logs/meta-bwrap-task6-r4-20261114T173158Z/run/report.json`
-- cpolar 过程页：https://4a63b603.r36.cpolar.top/process.html
+- cpolar 过程页：https://7b96aab1.r61.cpolar.top/process.html （公网首页 https://7b96aab1.r61.cpolar.top ；本地 http://127.0.0.1:18000/ ，由主工作树 `web/` 提供。历史入口 `4a63b603`/`5340b001` 及旧 PID 已停止，仅留档）
+- 交付复盘：`reproduction/RETROSPECTIVE.md`（阶段历程与 ruling、真实证据、失败根因、可复用经验、五轮前置门、追踪方式；经独立 Kimi 审阅 CHANGES→修复→scoped re-review 全 ADDRESSED，Spec/质量 PASS）
 - 数据 READY：`RSIFlow/runtime/data/rounds_3000_5x600_v4/READY.json`
 - 操作账本：`reproduction/audit/operations.jsonl`；关键结果：`reproduction/audit/key_results.jsonl`
 - 历史证据 hash：`reproduction/audit/evidence-hashes.json`；新操作另带 `evidence_sha256`。
-- 每日记录：`reproduction/audit/daily/2026-11-12.md`（含 2026-11-15 Task 7 追加节）
+- 每日记录：`reproduction/audit/daily/2026-11-12.md`（含 2026-11-15 Task 7 追加节）、`reproduction/audit/daily/2026-11-16.md`（合并、GitLab 备份、合并后测试失败与恢复、公网实测）
+- 交付审阅：`reproduction/audit/reviews/delivery-integration-kimi.md`、`delivery-gitlab-codex.md`
 
 Task 2R: Ruling: 2Wiki 保持上游 `official_2wiki_original_v1`，不为了使用 aliases 改协议 — 上游 spec 生成器和当前 HF 数据均无 answer_id/evidences_id — 若判断错误会偏离作者评测协议。
 Task 2R: Ruling: 历史 operations 用独立 SHA256 sidecar，新操作增加 evidence_sha256，不回写追加账本 — 保留审计历史并提高可核验性 — 原始日志仍需安全保留，sidecar 不能恢复被删除内容。

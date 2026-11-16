@@ -41,6 +41,8 @@ def serve_rpc(incoming,outgoing,handler,errors,workers=4):
             frame=json.loads(raw)
             if type(frame.get('rpc_id')) is not int or not isinstance(frame.get('request'),dict):
                 raise RuntimeError('Invalid RPC frame')
+            if frame.get('attribution') is not None:
+                frame['request'] = {**frame['request'], '_rsiflow_attribution': frame['attribution']}
             slots.acquire();pool.submit(reply,frame)
 
 def _run_native_landlock(command, work, output, log, handler=None, timeout=604800):

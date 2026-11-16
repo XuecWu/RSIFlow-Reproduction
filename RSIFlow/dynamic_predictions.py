@@ -13,6 +13,11 @@ from rsiflow.task_meta.report_predictions import public_final_task
 from rsiflow.task_meta.reporting import OfficialEvaluatorSpec
 
 
+def runtime_spec(spec):
+    """Remove the declarative benchmark label before adding the runtime identifier."""
+    return {key: value for key, value in spec.items() if key != 'benchmark'}
+
+
 def generate_dynamic(config, frozen_path, specs_path, output_dir):
     endpoints=[r['base_url'] if isinstance(r,dict) else r.base_url for r in config.task_replicas]
     if len(endpoints)!=4 or len(set(endpoints))!=4:
@@ -20,6 +25,7 @@ def generate_dynamic(config, frozen_path, specs_path, output_dir):
     configured=read(specs_path)['evaluators']
     if len(configured)!=1:raise ValueError('One benchmark per dynamic prediction stage')
     identifier,spec=next(iter(configured.items()))
+    spec = runtime_spec(spec)
     expected=OfficialEvaluatorSpec(**spec,benchmark=identifier).validate()
     source=Path(spec['data_path'])
     rows=read(source) if source.suffix=='.json' else [json.loads(line) for line in source.read_text().splitlines() if line.strip()]

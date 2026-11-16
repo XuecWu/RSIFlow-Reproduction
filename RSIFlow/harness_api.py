@@ -35,7 +35,10 @@ class HarnessAPI:
     def complete(self, body):
         from rsiflow.task_meta.seed import run_seed
         from rsiflow.task_meta.durable import value_hash
-        identity={'state_hash':self.frozen['state_hash'],'request':body,'protocol':'official_outer_saved_harness_inner_v1'}
+        request = {key: value for key, value in body.items() if key != '_rsiflow_attribution'}
+        identity={'state_hash':self.frozen['state_hash'],'request':request,'protocol':'official_outer_saved_harness_inner_v1'}
+        if body.get('_rsiflow_attribution') is not None:
+            identity['attribution'] = body['_rsiflow_attribution']
         if self.frozen.get('manifest_hash'):
             identity['evaluation_scope']={k:self.frozen[k] for k in ('manifest_hash','source_role','system_snapshot_sha256','evaluation_config_sha256')}
         key=value_hash(identity); path=self.directory/(key+'.json')

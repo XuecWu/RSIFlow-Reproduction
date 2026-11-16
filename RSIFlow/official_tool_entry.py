@@ -4,7 +4,11 @@ This file runs inside the tool benchmark sandbox. It has only inherited RPC
 pipes, never a Meta/provider key. Evaluation code and answer files are unchanged.
 """
 import copy
+import contextvars
 import dataclasses
+import functools
+import hashlib
+import inspect
 import json
 import os
 import runpy
@@ -14,6 +18,50 @@ from concurrent.futures import Future
 from itertools import count
 from pathlib import Path
 from types import SimpleNamespace
+
+PINNED_BFCL_COMMIT = 'ea13468e4423454d0c213704fb87cf7cb3990433'
+PINNED_BASE_HANDLER_SHA256 = '4a2f4e677d1f6930f396dbc92c50138f56268f970de7e4f815fb801607cafad1'
+
+_BFCL_ATTRIBUTION = contextvars.ContextVar('rsiflow_bfcl_attribution', default=None)
+
+
+def current_bfcl_attribution():
+    return _BFCL_ATTRIBUTION.get()
+
+
+def rpc_frame(rpc_id, request, attribution=None):
+    """Keep audit context outside the model-visible request payload."""
+    frame={'rpc_id':rpc_id,'request':request}
+    if attribution is not None: frame['attribution']=attribution
+    return frame
+
+
+def instrument_bfcl_handler(handler_class, selected_categories):
+    """Bind pinned BaseHandler calls to their current native test row."""
+    original=handler_class.inference
+    if getattr(original, '_rsiflow_attribution_wrapped', False): return handler_class
+    @functools.wraps(original)
+    def inference(self, test_entry, *args, **kwargs):
+        native_id=str(test_entry.get('id', ''))
+        category=selected_categories.get(native_id)
+        if category is None:
+            raise RuntimeError('BFCL official handler received a task outside the frozen selected queue')
+        token=_BFCL_ATTRIBUTION.set({'native_id':native_id,'category':category})
+        try:
+            return original(self,test_entry,*args,**kwargs)
+        finally:
+            _BFCL_ATTRIBUTION.reset(token)
+    inference._rsiflow_attribution_wrapped=True
+    handler_class.inference=inference
+    return handler_class
+
+
+def verify_pinned_handler_source(source_path, official_commit):
+    if official_commit != PINNED_BFCL_COMMIT:
+        raise RuntimeError('BFCL attribution hook only supports the pinned official commit')
+    source = Path(source_path)
+    if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != PINNED_BASE_HANDLER_SHA256:
+        raise RuntimeError('Pinned BFCL BaseHandler source hash mismatch; attribution hook is unavailable')
 
 def sdk_bridge():
     import openai
@@ -44,7 +92,7 @@ def sdk_bridge():
             if kwargs.get('stream'):raise ValueError('Streaming is not supported')
             with lock:
                 rpc_id=next(sequence);future=Future()
-                raw=json.dumps({'rpc_id':rpc_id,'request':plain(kwargs)}).encode()+b'\n'
+                raw=json.dumps(rpc_frame(rpc_id,plain(kwargs),_BFCL_ATTRIBUTION.get())).encode()+b'\n'
                 if len(raw)>8_000_000:raise ValueError('RPC request too large')
                 pending[rpc_id]=future
                 outgoing.write(raw);outgoing.flush()
@@ -75,8 +123,16 @@ def sdk_bridge():
         def __exit__(self,*args):pass
     openai.OpenAI=BoundClient
 
-def register_bfcl(alias):
+def register_bfcl(alias,spec,*,attribution_required=True):
     import bfcl_eval.constants.model_config as config
+    from bfcl_eval.model_handler.base_handler import BaseHandler
+    base_handler_path=Path(inspect.getfile(BaseHandler)).resolve()
+    verify_pinned_handler_source(base_handler_path, spec.get('official_commit'))
+    if attribution_required:
+        selected_categories=spec.get('selected_task_categories')
+        if not isinstance(selected_categories,dict) or not selected_categories:
+            raise RuntimeError('Frozen BFCL selected task/category contract is required for attribution')
+        instrument_bfcl_handler(BaseHandler,selected_categories)
     mappings=[v for v in vars(config).values() if isinstance(v,dict) and any(str(k).startswith('gpt-4o') and not str(k).endswith('FC') for k in v)]
     if not mappings:raise RuntimeError('Unsupported BFCL model registry; no compatible OpenAI prompt handler')
     for mapping in mappings:
@@ -110,7 +166,7 @@ def main():
         from bfcl_eval.constants.category_mapping import VERSION_PREFIX
         if VERSION_PREFIX != spec['version_prefix']:
             raise RuntimeError('BFCL source version differs from the requested v3 data')
-        register_bfcl(alias)
+        register_bfcl(alias,spec,attribution_required=phase!='check')
         from bfcl_eval.__main__ import cli
         if phase=='check':
             for command in ('generate','evaluate'):

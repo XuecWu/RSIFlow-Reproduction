@@ -6,6 +6,28 @@ import sys
 from pathlib import Path
 from common import ROOT, read, write, sha, immutable
 
+
+def required_final_rounds(config):
+    """Final evaluation must match the effective frozen pipeline protocol."""
+    if type(config.max_generations) is not int or config.max_generations < 1:
+        raise ValueError('Effective pipeline round count must be a positive integer')
+    return config.max_generations
+
+
+def _revalidate_tool_results(evaluate_tool, config, binding, settings, selected_manifest, output):
+    for identifier, base_spec in settings.get('tool_benchmarks', {}).items():
+        spec = base_spec
+        if selected_manifest:
+            tasks = [task for task in selected_manifest['tasks'] if task['source'] == identifier]
+            spec = {**base_spec, 'selected_tasks': tasks,
+                    'selected_task_ids': [native_id for task in tasks
+                                          for native_id in task.get('native_ids', [task['native_id']])]}
+        result = evaluate_tool(identifier, config, binding, spec,
+                               settings.get('tool_benchmarks', {}).get('acebench', {}),
+                               Path(output) / 'scores' / identifier)
+        if result.get('status') != 'completed' or result.get('state_hash') != binding['state_hash']:
+            raise ValueError('Completed validation tool result failed cache revalidation: ' + identifier)
+
 def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest_path=None, full_benchmark=False, skip_ace=False):
     sys.path.insert(0,str(ROOT/'runtime'))
     if skip_ace and (role!='independent_validation' or full_benchmark):
@@ -16,7 +38,7 @@ def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest
     from rsiflow.task_meta.storage import checkpoint_manifest
     from rsiflow.task_meta.gpu_phases import ensure_services, verify_services
     from parallel_predictions import generate_parallel
-    from dynamic_predictions import generate_dynamic
+    from dynamic_predictions import generate_dynamic, runtime_spec
     from rsiflow.task_meta.reporting import OfficialEvaluatorSpec,evaluate_official,BENCHMARK_IDS
     from tool_validation import evaluate_tool
     snapshot=read(snapshot_path);config=load_config(pipeline_path);settings=read(validation_path)
@@ -34,8 +56,8 @@ def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest
         selected_manifest,selected_specs=select_specs(settings,manifest_path,role,out/'inputs',full_benchmark=full_benchmark)
         if role=='final_test':
             final=read(Path(pipeline_path).parent/'final_state.json')
-            if final.get('rounds_completed')!=3 or final.get('status')!='completed':
-                raise ValueError('final_test requires completed, frozen three-round evolution')
+            if final.get('rounds_completed') != required_final_rounds(config) or final.get('status')!='completed':
+                raise ValueError('final_test requires completed evolution at the configured round count')
     state=load_task(snapshot['task_state'])
     binding={'task_state':snapshot['task_state'],'state_hash':task_hash(state),
              'checkpoint_files':checkpoint_manifest(state.checkpoint_path),
@@ -43,6 +65,10 @@ def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest
              'protocol_hash':sha(snapshot['source_round']),'status':'frozen_for_report_eval',
              'selection':{'rule':'committed_round_snapshot_without_external_score_selection','round':snapshot['round']},
              'validation_config_sha256':sha(validation_path),'explicit_full_benchmark':full_benchmark,
+             'formal_report_evaluation': bool(selected_manifest),
+             'evaluation_scope': ({'manifest_hash':selected_manifest['manifest_hash'],
+                                  'source_role':role,'system_snapshot_sha256':sha(snapshot_path),
+                                  'evaluation_config_sha256':sha(pipeline_path)} if selected_manifest else {}),
              **({'source_role':role,'purpose':'report_only','manifest_hash':selected_manifest['manifest_hash'],
                  'system_snapshot_sha256':sha(snapshot_path),'evaluation_config_sha256':sha(pipeline_path)} if selected_manifest else {})}
     immutable(out/'frozen_task.json',binding)
@@ -53,6 +79,7 @@ def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest
         if done['state_hash']!=binding['state_hash']:raise ValueError('Completed validation state changed')
         for path,digest in done['result_files'].items():
             if sha(out/path)!=digest:raise ValueError('Completed validation result modified')
+        _revalidate_tool_results(evaluate_tool,config,binding,settings,selected_manifest,out)
         return done
     ensure_services(config,state.checkpoint_path)
     immutable(out/'serving_fingerprint.json',verify_services(config,state.checkpoint_path))
@@ -69,16 +96,17 @@ def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest
         if skip_ace and identifier=='acebench':
             continue
         result_path=out/'scores'/identifier/'result.json'
-        if result_path.exists() and read(result_path).get('status')=='completed':
-            result=read(result_path)
-            if result.get('state_hash')!=binding['state_hash']:raise ValueError('Cached score state mismatch')
-        elif identifier in settings['tool_benchmarks']:
+        if identifier in settings['tool_benchmarks']:
             spec=settings['tool_benchmarks'][identifier]
             if selected_manifest:
                 tasks=[t for t in selected_manifest['tasks'] if t['source']==identifier]
                 spec={**spec,'selected_tasks':tasks,'selected_task_ids':[i for t in tasks for i in t.get('native_ids',[t['native_id']])]}
+            # Tool evaluators own cache verification, including native receipts and attribution.
             result=evaluate_tool(identifier,config,binding,spec,
-                                 settings['tool_benchmarks']['acebench'],result_path.parent)
+                                 settings['tool_benchmarks'].get('acebench',{}),result_path.parent)
+        elif result_path.exists() and read(result_path).get('status')=='completed':
+            result=read(result_path)
+            if result.get('state_hash')!=binding['state_hash']:raise ValueError('Cached score state mismatch')
         else:
             single=out/(identifier+'.spec.json')
             immutable(single,{'evaluators':{identifier:specs[identifier]}})
@@ -86,9 +114,11 @@ def validate(snapshot_path,pipeline_path,validation_path, *, role=None, manifest
             generator=generate_dynamic if skip_ace or settings.get('dynamic_predictions') else generate_parallel
             generator(config,out/'frozen_task.json',single,predictions/identifier)
             rows=[json.loads(line) for line in (predictions/identifier/(identifier+'.jsonl')).read_text().splitlines() if line.strip()]
-            result=evaluate_official(OfficialEvaluatorSpec(**{**specs[identifier],'benchmark':identifier}),rows,binding,result_path.parent)
+            normalized_spec=runtime_spec(specs[identifier])
+            evaluator=OfficialEvaluatorSpec(**normalized_spec,benchmark=identifier)
+            result=evaluate_official(evaluator,rows,binding,result_path.parent)
             from evaluation_results import official_task_scores
-            scores=official_task_scores(identifier,OfficialEvaluatorSpec(**{**specs[identifier],'benchmark':identifier}),rows,result_path.parent,binding) if result.get('status')=='completed' else {}
+            scores=official_task_scores(identifier,evaluator,rows,result_path.parent,binding) if result.get('status')=='completed' else {}
             result['task_results']=[dict(native_id=str(row['task_id']),
                 execution_status='completed',scoring_status='completed' if str(row['task_id']) in scores else 'pending',
                 **scores.get(str(row['task_id']),{'success':None,'native_scores':{}}),

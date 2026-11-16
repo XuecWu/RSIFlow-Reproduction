@@ -176,3 +176,156 @@ def test_six_benchmark_completion_uses_full_snapshot_without_gpu(tmp_path, monke
     assert result['completion']['n_scored'] == 744
     assert loaded == [state]
     assert read(out / 'frozen_task.json')['task_state'] == state
+
+
+def test_dynamic_spec_drops_duplicate_runtime_benchmark_key():
+    from dynamic_predictions import runtime_spec
+    source = {"benchmark": "HumanEval+", "data_path": "x", "entrypoint": "y"}
+    assert runtime_spec(source) == {"data_path": "x", "entrypoint": "y"}
+
+
+def test_tool_selection_keeps_daily_50_and_allows_formal_bound_152():
+    from tool_validation import validate_tool_selection
+    daily = {"source_role": "independent_validation", "purpose": "report_only",
+             "manifest_hash": "m", "system_snapshot_sha256": "s", "evaluation_config_sha256": "c",
+             "evaluation_scope": {"manifest_hash": "m", "source_role": "independent_validation",
+                                  "system_snapshot_sha256": "s", "evaluation_config_sha256": "c"}}
+    assert validate_tool_selection("bfcl_v3", daily, [{"task_id": str(i)} for i in range(50)]) == 50
+    formal = {**daily, "formal_report_evaluation": True}
+    assert validate_tool_selection("bfcl_v3", formal, [{"task_id": str(i)} for i in range(152)]) == 152
+    with pytest.raises(ValueError):
+        validate_tool_selection("bfcl_v3", {**formal, "evaluation_scope": {"manifest_hash": "other"}},
+                                [{"task_id": str(i)} for i in range(152)])
+    with pytest.raises(ValueError):
+        validate_tool_selection("acebench", formal, [{"task_id": str(i)} for i in range(152)])
+    with pytest.raises(ValueError):
+        validate_tool_selection("bfcl_v3", {"source_role": "independent_validation"}, [{"task_id": str(i)} for i in range(152)])
+
+
+def test_final_test_round_gate_uses_effective_pipeline_rounds():
+    from validate import required_final_rounds
+    class Config:
+        max_generations = 5
+    assert required_final_rounds(Config()) == 5
+    Config.max_generations = 3
+    assert required_final_rounds(Config()) == 3
+    Config.max_generations = 0
+    with pytest.raises(ValueError, match="positive integer"):
+        required_final_rounds(Config())
+
+
+def test_bfcl_attribution_requires_explicit_native_context():
+    from tool_validation import attribution_from_receipts
+    with pytest.raises(RuntimeError, match="attribution"):
+        attribution_from_receipts({}, {"n1": "missing"}, "state", ["n1"], {"n1": "simple"})
+
+
+def _patch_validate_scaffold(monkeypatch, tmp_path, settings, manifest, selected_specs):
+    from types import SimpleNamespace
+    import rsiflow.task_meta.pipeline as pipeline
+    import rsiflow.task_meta.durable as durable
+    import rsiflow.task_meta.storage as storage
+    import rsiflow.task_meta.rsiflow_manifest as harness
+    import rsiflow.task_meta.gpu_phases as gpu
+    import validation_sources, evaluation_manifest, evaluation_results
+
+    settings_path = tmp_path / "settings.json"
+    official_specs = tmp_path / "official-specs.json"
+    official_specs.write_text(json.dumps({"evaluators": {}}))
+    settings["official_specs"] = str(official_specs)
+    settings_path.write_text(json.dumps(settings))
+    out = tmp_path / "report"
+    out.mkdir()
+    selection = tmp_path / "selection.json"
+    selection.write_text("{}")
+    state = {"checkpoint_path": "/selected/model", "harness_path": "/selected/harness",
+             "artifacts": {"directory": "/selected/artifacts", "manifest": []}}
+    snapshot = out / "round_snapshot.json"
+    snapshot.write_text(json.dumps({"round": 5, "task_state": state, "meta_state": {"version": 5},
+                                   "source_round": str(selection), "chosen_component": "HARNESS"}))
+    pipeline_path = tmp_path / "config" / "pipeline.json"
+    pipeline_path.parent.mkdir()
+    pipeline_path.write_text("{}")
+    monkeypatch.setattr(pipeline, "load_config", lambda _: SimpleNamespace(output_root=tmp_path, round_protocol={"enabled": True}))
+    monkeypatch.setattr(durable, "load_task", lambda value: SimpleNamespace(**value))
+    monkeypatch.setattr(durable, "task_hash", lambda _: "selected-task")
+    monkeypatch.setattr(storage, "checkpoint_manifest", lambda _: [])
+    monkeypatch.setattr(harness, "load_manifest", lambda _: SimpleNamespace(identity="selected-harness"))
+    monkeypatch.setattr(validation_sources, "verify", lambda *args: None)
+    monkeypatch.setattr(gpu, "ensure_services", lambda *args: None)
+    monkeypatch.setattr(gpu, "verify_services", lambda *args: {"mock": True})
+    monkeypatch.setattr(evaluation_manifest, "select_specs", lambda *args, **kwargs: (manifest, selected_specs))
+    def publish(*args, **kwargs):
+        out = Path(args[4])
+        (out / "task_results.jsonl").write_text("")
+        (out / "task_metrics.json").write_text("{}")
+        return {"overall": {"complete": True}}
+    monkeypatch.setattr(evaluation_results, "publish", publish)
+    return snapshot, pipeline_path, settings_path, out
+
+
+def test_validate_rechecks_completed_tool_cache_through_evaluate_tool(tmp_path, monkeypatch):
+    import tool_validation
+    from validate import validate
+    settings = {"benchmark_ids": ["bfcl_v3"], "tool_benchmarks": {"bfcl_v3": {"repository_root": "/unused"}},
+                "official_specs": "/unused"}
+    manifest = {"manifest_hash": "manifest", "tasks": [{"source": "bfcl_v3", "task_id": "bfcl_v3:n1",
+                                                            "native_id": "n1"}]}
+    snapshot, pipeline_path, settings_path, out = _patch_validate_scaffold(
+        monkeypatch, tmp_path, settings, manifest, {})
+    score = out / "scores" / "bfcl_v3" / "result.json"
+    score.parent.mkdir(parents=True)
+    score.write_text(json.dumps({"status": "completed", "state_hash": "selected-task", "expected": 1,
+                                 "completed": 1, "task_results": []}))
+    from common import sha
+    (out / "complete.json").write_text(json.dumps({"status": "completed", "state_hash": "selected-task",
+                                                     "result_files": {"scores/bfcl_v3/result.json": sha(score)}}))
+
+    def reject_cache(*args, **kwargs):
+        raise RuntimeError("Completed BFCL cache lacks trusted task attribution")
+    monkeypatch.setattr(tool_validation, "evaluate_tool", reject_cache)
+    with pytest.raises(RuntimeError, match="lacks trusted task attribution"):
+        validate(snapshot, pipeline_path, settings_path, role="independent_validation", manifest_path="manifest")
+
+
+def test_selected_spec_is_preserved_while_generate_and_score_use_normalized_runtime_spec(tmp_path, monkeypatch):
+    from validate import validate
+    import dynamic_predictions, rsiflow.task_meta.reporting as reporting, evaluation_results
+    from common import sha
+    data = tmp_path / "tasks.json"
+    data.write_text("[]")
+    ids = tmp_path / "ids.json"
+    ids.write_text("[]")
+    entry = tmp_path / "entry.py"
+    entry.write_text("pass\n")
+    original = {"benchmark": "HumanEval+", "repository": "repo", "commit": "a" * 40,
+                "entrypoint": str(entry), "entrypoint_sha256": sha(entry), "python_executable": "python",
+                "data_path": str(data), "data_sha256": sha(data), "task_ids_path": str(ids),
+                "task_ids_sha256": sha(ids), "protocol": "test"}
+    manifest = {"manifest_hash": "manifest", "tasks": []}
+    settings = {"benchmark_ids": ["humaneval_plus"], "tool_benchmarks": {}, "official_specs": "/unused",
+                "dynamic_predictions": True}
+    snapshot, pipeline_path, settings_path, out = _patch_validate_scaffold(
+        monkeypatch, tmp_path, settings, manifest, {"humaneval_plus": original})
+    seen = {}
+
+    def generate(config, frozen, spec_path, output):
+        raw = json.loads(Path(spec_path).read_text())
+        seen["persisted_spec"] = raw["evaluators"]["humaneval_plus"]
+        seen["persisted_spec_sha256"] = sha(spec_path)
+        prediction = Path(output) / "humaneval_plus.jsonl"
+        prediction.parent.mkdir(parents=True, exist_ok=True)
+        prediction.write_text(json.dumps({"task_id": "humaneval_plus:n1"}) + "\n")
+    monkeypatch.setattr(dynamic_predictions, "generate_dynamic", generate)
+
+    def evaluate(spec, rows, binding, output):
+        seen["score_benchmark"] = spec.benchmark
+        return {"status": "completed", "state_hash": binding["state_hash"], "expected": 0,
+                "completed": 0, "task_results": []}
+    monkeypatch.setattr(reporting, "evaluate_official", evaluate)
+    monkeypatch.setattr(evaluation_results, "official_task_scores", lambda *args: {})
+    result = validate(snapshot, pipeline_path, settings_path, role="independent_validation", manifest_path="manifest")
+    assert result["status"] == "completed"
+    assert seen["persisted_spec"] == original
+    assert seen["score_benchmark"] == "HumanEval+"
+    assert seen["persisted_spec_sha256"] == sha(out / "humaneval_plus.spec.json")

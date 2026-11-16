@@ -1,0 +1,34 @@
+# 真实 Qwen 最小评分 smoke：只读设计
+
+结论：可以以独立 smoke runner 组合现有接口，不修改或调用完整 `validate()`，但必须先固定明确的 54 个完整任务、验证 evaluator 能在该子集上给出可核对的官方分母，并隔离运行目录。此设计不是 694/744 评分、A0 baseline、五轮或模型 benchmark；不可用于 Meta、训练、候选接受或选择 checkpoint。当前只是设计，未运行模型、API、SCO 或评分。
+
+## 输入与固定范围
+
+- 使用机器配置 `reproduction/configs/train_4b.json` 经 `TaskAdapter._config()` 得到实际有效配置，而非直接把 `base_4b.json` 当作最终配置：前者 ports 为 8271–8274，后者副本端口为 8071/8074/8072/8073。显式核实四个不同 endpoint 映射 GPU 0–3、实际 Python 可执行文件、Qwen3-4B checkpoint、检索库、各 evaluator 与 bwrap receipt。配置目前包含主工作树绝对路径，作业必须确认共享挂载可访问且身份一致，不能假设相对工作树自动重定位。四服务每卡 20,000 MiB 起步；主分区 8 卡规范仍须遵守，只使用 0–3。
+- 原始 `validation_744_v4/manifest.json` 角色为 `independent_validation`，当前含 BFCL 152、ACE 50、HumanEval+ 164、MBPP+ 178、HotpotQA 100、2Wiki 100，原 manifest hash `94d5e8af7eb0e32854116307299093360d96bd44fa37837c3315c1b080b42b7e`；此哈希是本次读取时的观察值，运行时必须重新验证。冻结前用 `evolution_protocol.manifest` 校验 role/hash，再按预先声明的确定性规则选四种各一条及 BFCL 50 个不同 `task_id`，列出完整有序 ID、原 manifest hash、选择规则及子集文件 hash；禁止看模型结果再重选。BFCL 是 50 个完整 manifest task，展开 `native_ids`（若有）否则 `native_id`，不得将 50 误写为必定 50 个 native 行；核验无重复、存在于 pinned native data 且多轮完整。当前抽查前几条没有 `native_ids`，不能据此推断全部。每条保持 `source`、`task_id`、`native_id`/`native_ids`、`role`、`purpose`、`record_file`、`record_offset`、`record_length`、`record_sha256`、`content_hash`、`source_sha256`、`group_id` 与 exposure 元数据；按 pack hash 验证、seek 读取对应记录，不以原始全量数据首行代替冻结任务。不要修改正式 manifest 或伪装成完整冻结 release。
+- 每个 Code/QA 生成仅一条 subset data（Code JSONL、QA JSON 数组）和有序 native ID JSON；保留原 spec 的 repository、40 位 commit、entrypoint/hash、python、protocol、release_version、timeout、metadata，替换 data/ID 路径和 SHA256 并标注 smoke 与父 manifest hash。`OfficialEvaluatorSpec.validate()` 要求文件 hash、唯一非空 ID，QA `_id` 集合与 gold 精确相等；EvalPlus 的 `eval` ID 必须精确匹配。保留 2Wiki `official_2wiki_original_v1`，不自行引入 aliases。既有 `select_specs()` 强制全部六类和配置配额，不能直接以 54 子集调用或更改正式限额来声称通过。
+- 冻结一个预先指定的 Task snapshot，加载 `task_state`，保留 checkpoint path 与 `checkpoint_manifest`、`task_hash`、`load_manifest(harness_path).identity`、artifacts manifest、source_round 文件 hash、snapshot/config/settings hash、原 manifest hash 和独立 smoke subset hash。构造与 `validate.py` 相同的 `frozen_task.json` 所需字段：`task_state`、`state_hash`、`checkpoint_files`、`task_harness_identity`、`protocol_hash`、`status=frozen_for_report_eval`、`selection`、`validation_config_sha256`、`explicit_full_benchmark=false`、`source_role=independent_validation`、`purpose=report_only`、`manifest_hash`、`system_snapshot_sha256`、`evaluation_config_sha256`。绑定原始 manifest hash，另记子集 hash，不将子集冒充原 manifest。若没有合法、事先指定的 snapshot/source_round，先构造明确的 smoke-only 初始状态并记录来源，不应虚构已完成五轮或正式 snapshot；验证 `load_task` 接受的 state 序列化及 artifacts 身份。
+
+## 最小执行设计
+
+1. 新增独立脚本，例如 `reproduction/scripts/model_scoring_smoke.py`，以独立空 output root、独立 registry/端口、明确 snapshot/config/manifest 和显式执行开关运行；默认只做离线计划/校验。创建不可变子集与绑定、保留 source/spec/配置和代码版本 hash；不复用正式 validation 缓存，不创建 `complete.json` 或 694 完成标记。
+2. 参考 `model_service_smoke.py`，`start_services(config, checkpoint)` 后 `verify_services`，保存四卡 GPU、checkpoint 路径和 weights manifest 指纹。每个 Code/QA 子集写单 benchmark spec，调用 `generate_dynamic(config, frozen_path, single_spec, output)`，读取其 JSONL，校验唯一预期 ID、record_hash、state_hash、`report_eval`、每任务恰好一个非空字符串及至少一次真实完成的模型调用，再调用 `evaluate_official(OfficialEvaluatorSpec(...), rows, binding, output)`。注意 `export_predictions` 当前只检查字符串类型，不保证非空，smoke 必须额外检查；真实调用与 transport receipt 必须能证明来源，不能接受预置或旧缓存。
+3. BFCL 调用 `evaluate_tool('bfcl_v3', config, binding, spec_with_selected_tasks_and_selected_task_ids, ace_spec, output)`：既有代码对 independent_validation 非 full 严格要求恰好 50 个唯一完整 task，内部在临时副本过滤官方 prompts/同名答案、核验 native 队列，`HarnessAPI` 经 frozen harness 和本地真实 Qwen、官方 runner 的 native RPC 生成并评分。ACE spec 仅用于接口参数，smoke 不调用 ACE 或用户模拟 API；必须断言 `user_simulator=false`、不创建 user client/receipt。BFCL 官方 category metrics 由 `metric_rows` 验证预测 ID、`total_count`、失败列表和正确数，并记录分类预测/score hash。新增后验校验每个 native task 有真实非空输出及已完成模型调用；核对多轮、格式失败和空响应的细节，不能仅靠 result `completed` 推断。BFCL 的 native 输出格式可能是结构化调用而非文本：按其原生格式检查有效非空提交，而不是硬编码字符串。若官方 runner 的结果不能建立每任务到真实调用的映射，标记证据不足/blocked，不宣称成功。
+4. Code/QA 保留 `result.json`、官方原始输出、官方导出的预测、source/spec、invocation 及其哈希，采用 `official_task_scores` 及必要的 ID 校验核对逐任务评分；结果分母分别 1，BFCL 报告完整 task 数 50 与实际展开 native 分母及每分类分母，禁止跨 benchmark 汇总为 54 的准确率。输出 smoke 专属报告：scope、各任务 ID、状态、预期/完成/官方计数、官方原始分数/哈希、预测 hash、真实调用证据、服务指纹、ACE skipped（50 pending，仅说明原 744 协议）、清理状态。质量错误或错误答案可正常计入官方失败；空预测、缺 ID、异常、官方分母不一致、服务/隔离失败为 incomplete/blocked，不赋零分。不能将原 694 分母套给 54 项 smoke。
+5. `try/finally` 停止仅本 runner 拥有的服务并记录停止/显存验证；启动中途失败也要处理已有 registry。`stop_services` 校验进程身份并要求四卡各 40,000 MiB 空闲；此检查失败需单独报告 cleanup infrastructure failure，不覆盖原异常或虚报释放。超时/取消及 SIGTERM/SIGINT 应触发清理；不可误杀别的 registry 或盲目重启/重试已 dispatch 的调用。若硬杀/节点丢失，报告 cleanup unknown，后续人工核验。
+
+## 分类与隔离陷阱
+
+- `evaluate_official` 将部分错误包装成 `partial`/`blocked`，其他如初始 spec/binding 异常可直接抛出；`evaluate_tool` 和动态 worker 也会抛异常，需在 runner 边界记录阶段、异常类型、受影响 IDs、pending/blocked 与证据路径。官方模型错误（包含合法但错误的程序、答案或工具调用）是评分结果；服务中断、超时、模型空输出、缺少 bwrap/receipt、evaluator 崩溃、输入 hash/denominator 不符、未完成 RPC 为基础设施或证据失败，绝不写为模型零分。`HarnessAPI` 的 `requires_audit` 和 dynamic `.calls` 不完整必须保留，不可盲重试。
+- 设置 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1`，验证当前工作树安装 receipt、pinned binary/manifest/launcher。EvalPlus candidate 必须通过现有隔离 runner；BFCL 通过 `run_native`；不得用 host 执行或降级。检索生成会读取 `config.data_dir/search.sqlite` 及 manifest，而不仅是 `retrieval_index` 配置项；确认有效配置和实际路径绑定、hash。`validation_sources.verify()` 需要既有 source snapshot，且会遍历所有配置 benchmark 包括 ACE；应先检查可用性或设计只读 smoke 专属来源清单，但不能把缩减的检查称作完整 694 preflight。
+- 生成流程将固定任务公开字段传给 Task，gold 保留给 evaluator；禁止把完整记录、答案、评估分数回传模型或 Meta。`evaluate_tool` 会复制 native repo 并过滤 scratch，确认使用的同名 gold 文件实际均被过滤、分母与 task family 语义不变；若 BFCL 中完整任务不能无歧义映射到原生 runner，不运行并先修复映射，不得放宽 50 校验。预先确认 pinned EvalPlus 的 subset runner 不要求完整原始数据集且官方输出的 IDs/分母确为 1，否则停止并调查，不能改官方结果使其通过。
+- 这里读取到现有冻结队列为公开数据同协议重构、`clean_independence_audited=false`/exposure unknown；它不能证明作者原队列或独立最终 benchmark。提前消费这些 held-out 条目可能污染后续正式评估，必须记录暴露并与实验隔离；若不能接受该污染，不应使用正式 held-out 样本，应先单独批准另一份 smoke 数据，不能声称是同一 frozen 子集。
+
+## 离线测试（临时目录、无 GPU/API）
+
+- 建立最小 JSON/JSONL packs 与完整 manifest fixtures（四类各多条、BFCL 至少 50 完整 tasks 含 native_ids 家族），验证确定性选择、source hash/offset、ID 不重复、固定 50、原/子集 hash 绑定、修改数据或分裂 family fail closed；正式输入只读且不变。测试 `OfficialEvaluatorSpec.validate` 的 QA ID、hash 和 evaluator 字段；覆盖错误配置和空列表。
+- 通过依赖注入/monkeypatch 替代服务启动、Qwen 调用和官方进程，仅在测试中生成具有合法记录 hash 的合成 receipt；验证真实 runner 的阶段顺序、四个独立 endpoint 约束、50/展开计数、ACE 不触发、官方错误答案可完成、空回答/缺失预测、重复 ID、错误 state hash、旧缓存、返回 blocked、部分 RPC 与 evaluator 异常均不产生成功标记或伪分数。mock 结果必须标记 test-only，不能作为真实 smoke 证据。
+- 构造官方 category 预测/score fixture 调 `metric_rows`，覆盖计数、ID、correct_count、坏分数及缺文件；测试 QA/Code 官方输出 ID 对账与 hash 变化。使用 fake isolator 的单元测试不能证明真实隔离；另外复用已有的离线 bwrap/evaluator smoke 验证真实候选隔离（若系统支持），仍不需要 GPU。
+- 模拟 start 部分失败、模型异常、SIGTERM、stop 失败，验证只停止自有 registry、保留原异常及 cleanup 状态；重启时对未完成调用 fail closed。所有 fixture/输出在临时目录，绝不修改正式 snapshot、训练目录、冻结数据、配置、账本或已有结果。
+
+本报告基于当前代码与机器配置的只读检查；未实测 BFCL 50 的 category/家族兼容性、真实 evaluator 子集、模型服务、SCO 容器挂载或 API，因此这些均是实现前必须验证的门槛。

@@ -136,3 +136,52 @@ cd /data/wuxuecheng/Hierarchical_level/RSI-Flow
 保存输出并确认 `config` 正是该机器文件，再独立核对有效 `PipelineConfig` 的 v4 frozen release、`skip_acebench=true`、694/744（五个 scored benchmark）、validation manifest 与输出目录。`--check` 本身只巡检路径存在性、rounds 与每轮任务数，不校验 skip-ACE、694 计数、manifest 内容、评测器可执行性、GPU 或 API，**返回 0 不等于该门通过**；该门当前仍未关闭。
 
 正式运行同样必须显式选择同一机器配置，且 ACP 控制器保持**前台**：`RSIFlow_4B/start_5round_600.sh` 固定加入 `--prepare-data --detach` 又不带 `--config`，不能直接依赖。五轮、SFT、最终 694/744、ACE 50、8B 与正式 Qwen 服务均未运行。
+
+## 8. 真实 Qwen 最小评分 smoke（已实现，待 controller 审阅后执行）
+
+独立 runner `reproduction/scripts/model_scoring_smoke.py` 组合现有接口，**不调用完整 `validate()`**。它不是 694/744 评分、不是 A0 baseline、不是五轮、不是模型 benchmark，也不得用于 Meta 学习、训练、候选接受或 checkpoint 选择。
+
+固定范围（选择规则在任何模型输出之前声明，禁止看结果重选）：
+
+- HumanEval+ / MBPP+ / HotpotQA-dev / 2Wiki-dev：各取父 manifest 原顺序中**第 1 个完整 task**（共 4 个，每个官方分母 1）。
+- BFCL-v3：取原顺序中**前 50 个**其 native IDs 全部存在于 pinned official `native_layout` 的完整 task；不足 50 或 ID/family 不明确即 fail closed。
+- 父 manifest 中未被官方识别的 BFCL 条目记录为**父 manifest 协议缺口**，不静默修复、不宣称完整 694。
+- ACE **不执行**，不触发用户模拟 API；父协议的 50 条保持 pending。
+
+离线计划（默认模式，不启动服务、不调用模型、不需要 GPU）：
+
+```bash
+cd /data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight
+TMPDIR=/tmp PYTHONDONTWRITEBYTECODE=1 RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1 \
+PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
+/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python reproduction/scripts/model_scoring_smoke.py \
+  --output-root reproduction/logs/model-scoring-smoke-plan-new \
+  --config "$PWD/reproduction/configs/train_4b.json" \
+  --manifest /data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/validation_744_v4/manifest.json \
+  --settings "$PWD/reproduction/configs/validation_744.json"
+```
+
+真实执行（**必须显式 `--execute`，output root 必须不存在，必须在有 4 张可用 GPU 的授权作业中**；本开发机 NVML 不可用，不能在此执行）：
+
+```bash
+TMPDIR=/tmp PYTHONDONTWRITEBYTECODE=1 RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1 \
+PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
+/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python reproduction/scripts/model_scoring_smoke.py \
+  --output-root reproduction/logs/model-scoring-smoke-execute-new --execute \
+  --config "$PWD/reproduction/configs/train_4b.json" \
+  --manifest /data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/validation_744_v4/manifest.json \
+  --settings "$PWD/reproduction/configs/validation_744.json"
+```
+
+执行语义与边界：
+
+- 经 `TaskAdapter._config()` 使用机器配置与 8271–8274 四个 endpoint（GPU 0–3）；`start_services` → `verify_services` 校验 GPU/checkpoint/weights manifest；`try/finally` 只停止本 runner 拥有的 registry（`<output-root>/services/four_gpu_services.json`），并记录四卡释放（`stop_services` 强制每卡 ≥40,000 MiB）。cleanup 失败单独报告，不覆盖原异常、不虚报释放。
+- Code/QA 复用 `generate_dynamic` + `evaluate_official` + `official_task_scores`；BFCL 复用 `evaluate_tool`（`selected_tasks`/`selected_task_ids`，严格 50 个不同完整 task）。
+- 每任务必须有**真实非空预测**与**已完成的本地模型调用**；模型答错可成为官方 FAIL，但空预测、缺 ID、重复 ID、异常、分母不符、未完成 RPC、服务或隔离失败一律 incomplete/blocked，**绝不记模型零分**。
+- **BFCL 逐任务证据（fix round 1 强化，fix round 2 再强化可信绑定）**：除官方 `completed`、ID 覆盖与分母对账外，还必须对每个 selected native ID 核验（a）官方 category 预测文件中**唯一且非空**的 native submission（结构化调用或文本均可，但只接受一个无歧义非空字段），以及（b）**可归属且可信的已完成本地 Qwen 调用回执**。归属产物 `<output>/task_call_attribution.json` 必须：声明 `generator=evaluate_tool_native_request_attribution_v1`、绑定 frozen `state_hash`、声明 `selected_task_ids` 及其 `selected_task_ids_sha256`（runner 用 `durable.value_hash` 重算核对）、`tasks` 精确覆盖全部 selected IDs；**并且官方 `evaluate_tool` 的 `result.json` 必须内含 `task_call_attribution = {generator, path, sha256}` 明确绑定**，runner 重新计算该文件 SHA256 并核对，路径不得逃出该 benchmark 输出目录。每个归属条目必须是 `{receipt_key, request_sha256}`，runner 按对应 `transport/<key>.json` 的 `identity.request` **重算请求内容 hash** 并核对，同时要求回执 `status=completed`、`user_simulator=false`、`identity.state_hash` 匹配、`calls` 全部 completed，且同一回执键不得归属两个任务。缺可信 generator、缺 result 绑定、文件被篡改（hash 不符）、请求 hash 不符、伪造或手写映射文件 → 该 benchmark **blocked**，不按顺序猜测、不伪造归属、不只信 JSON 中声称的 native ID。BFCL 的已完成调用数计入报告 `model_calls` 总数。
+- **已知上游限制（fail closed，不放宽）**：当前 `HarnessAPI` 的 transport 回执以请求体哈希为键、**不含 native task ID**，`evaluate_tool` 既不产出逐任务归属文件，也不在 `result.json` 中绑定它。因此在真实执行中，BFCL 会按上述规则**判为 blocked/incomplete**，而不是 scored。关闭该缺口需要上游以可信 generator 产出归属并在官方 result 中绑定 path/SHA256/generator、且为每个回执绑定请求内容 hash（由 controller 另行立项）；本 runner 不修改生产代码、不以启发式匹配或手写文件代替证据。
+- **输出根目录校验（plan 与 execute 均执行）**：必须是 **PROJECT 内、尚不存在、且 Git 忽略**的新目录；优先用 `git check-ignore` 权威判定，git 不可用时（如跨 uid 属主问题）退回到保守的 `.gitignore` 祖先目录规则（`**/logs/` 等），任何 negation 触及该子树即拒绝。可跟踪路径（如 `reproduction/configs/…`、`RSIFlow/tests/…`）一律拒绝；校验方式记录在回执 `output_root_validation`。原始正式数据只读；不写 `complete.json`，不产生跨 benchmark 汇总准确率，不把 54 项冒充 694/744。
+- 消费正式 held-out 条目会记录为 exposure，必须与后续正式评估隔离；`clean_independence_audited=false`、`exposure_unknown` 的保留意见不变。
+- 真实 `OPENAI_API_KEY` 与 ACE 用户模拟凭据均**不需要**；不得读取或打印凭据。
+
+离线回归：`RSIFlow/tests/test_model_scoring_smoke.py`（temp dirs + monkeypatch 隔离 GPU/官方进程；合成回执仅为 test-only fixture，不是真实 smoke 证据）。

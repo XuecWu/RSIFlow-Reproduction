@@ -14,6 +14,7 @@ credentials.json
 
 # Runtime outputs and environments (keep source config below runs explicitly)
 Rollout_logs/
+Meta_logs/
 local_baseline/
 **/__pycache__/
 **/.pytest_cache/

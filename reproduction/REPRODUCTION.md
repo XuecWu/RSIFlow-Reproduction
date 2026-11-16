@@ -106,6 +106,8 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
   --run-dir reproduction/logs/meta-bwrap-new/run
 ```
 
+`reproduction/configs/validation_744.json` 中 BFCL 与 ACEBench 的 `data_path` 指向冻结 allocated validation 输入 `assets/cohort/allocated/validation/{bfcl_v3,acebench}.jsonl`（分别 152/50 条），与 validation v4 pack 字节一致；这是来源快照输入，不替代官方 runner 自己使用的固定数据。`RSIFlow/validation_sources.py` 仍冻结并验证 official specs、native evaluator checkout 中相关 Python/JSON/JSONL 文件，以及配置的所有 benchmark data path 哈希；不得删除或缩窄该来源校验。BFCL manifest 中另有 19 个 ID 不在官方 runner 中，这是独立协议 blocker，本路径修复不改变 ID 或评分口径。
+
 ## 6. 已接受的真实 SCO 证据
 
 - Candidate `pt-gyfupguq` SUCCEEDED/worker Succeeded；report `reproduction/logs/candidate_bwrap_smoke_sco_r3.json`，SHA256 `56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63`。

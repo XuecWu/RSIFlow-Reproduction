@@ -83,3 +83,17 @@ def test_real_frozen_release_has_complete_counts_and_partial_scope(tmp_path):
     assert len(selected["tasks"]) == 744
     assert set(specs) == {"humaneval_plus", "mbpp_plus", "hotpotqa_dev", "2wiki_dev"}
     assert sum(row["source"] != "acebench" for row in selected["tasks"]) == 694
+
+
+def test_tool_validation_inputs_match_allocated_frozen_packs():
+    settings = read(ROOT / "reproduction/configs/validation_744.json")
+    config = read(CONFIG)
+    frozen = Path(config["validation_manifest"]).parent
+    allocated = Path(config["source_validation_manifest"]).parent / "allocated/validation"
+    for name, expected in (("bfcl_v3", 152), ("acebench", 50)):
+        source = Path(settings["tool_benchmarks"][name]["data_path"])
+        assert source.is_file(), f"Missing configured validation input: {source}"
+        assert source == allocated / f"{name}.jsonl"
+        data = source.read_bytes()
+        assert sum(bool(line.strip()) for line in data.splitlines()) == expected
+        assert data == (frozen / f"{name}.jsonl").read_bytes()

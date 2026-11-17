@@ -179,7 +179,8 @@ def test_canary_launcher_preserves_training_count_consistency(tmp_path, override
 
 def test_canary_schedule_excludes_all_validation_milestones(tmp_path):
     (tmp_path / "workflow_policy.json").write_text(json.dumps({
-        "rounds": 1, "evaluation_schedule": "none", "retry_rejected_from_round": 2,
+        "rounds": 1, "experiment_scope": "deepcoder_canary",
+        "evaluation_schedule": "none", "retry_rejected_from_round": 2,
     }), encoding="utf-8")
 
     state = ExperimentProgress(tmp_path, rounds=1).rebuild()
@@ -210,7 +211,8 @@ def test_final_only_schedule_retains_validation_milestones_only_at_b5(tmp_path):
 
 def test_canary_rejection_can_finish_without_reselection(tmp_path):
     (tmp_path / "workflow_policy.json").write_text(json.dumps({
-        "rounds": 1, "evaluation_schedule": "none", "retry_rejected_from_round": 2}))
+        "rounds": 1, "experiment_scope": "deepcoder_canary",
+        "evaluation_schedule": "none", "retry_rejected_from_round": 2}))
     progress = ExperimentProgress(tmp_path, rounds=1)
 
     def record(number, operation, round_number, **request):
@@ -250,7 +252,8 @@ def _write_canary_policy(run):
     session = run / "meta_session"
     session.mkdir(parents=True, exist_ok=True)
     (session / "workflow_policy.json").write_text(json.dumps({
-        "rounds": 1, "evaluation_schedule": "none", "retry_rejected_from_round": 2,
+        "rounds": 1, "experiment_scope": "deepcoder_canary",
+        "evaluation_schedule": "none", "retry_rejected_from_round": 2,
     }), encoding="utf-8")
     return session
 
@@ -308,13 +311,63 @@ def test_canary_prompt_has_terminal_retain_and_no_validation_or_retry(tmp_path):
         assert forbidden not in prompt
 
 
-@pytest.mark.parametrize("configured_retry, expected", [(2, 2), (None, 1)])
+def test_five_round_multidomain_none_prompt_fails_closed(tmp_path):
+    config_path = PROJECT / "reproduction/configs/train_4b_v5.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["evaluation_schedule"] = "none"
+
+    with pytest.raises(ValueError, match="evaluation_schedule=none.*deepcoder_canary"):
+        experiment_prompt(config_path, config, tmp_path / "run")
+
+
+def test_five_round_multidomain_none_progress_fails_closed(tmp_path):
+    (tmp_path / "workflow_policy.json").write_text(json.dumps({
+        "rounds": 5,
+        "experiment_scope": "multidomain",
+        "evaluation_schedule": "none",
+        "retry_rejected_from_round": 1,
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evaluation_schedule=none.*deepcoder_canary"):
+        ExperimentProgress(tmp_path, rounds=5).rebuild()
+    assert not (tmp_path / "workflow_state.json").exists()
+
+
+@pytest.mark.parametrize("scope", ["multidomain", "envscaler_validation"])
+def test_non_canary_none_launcher_check_fails_closed(tmp_path, scope):
+    value = json.loads((PROJECT / "reproduction/configs/train_4b_v5.json").read_text(
+        encoding="utf-8"))
+    value.update(experiment_scope=scope, evaluation_schedule="none")
+    config_path = tmp_path / f"{scope}.json"
+    config_path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evaluation_schedule=none.*deepcoder_canary"):
+        main(["--config", str(config_path), "--check"])
+
+
+def test_one_round_multidomain_none_retry_two_does_not_unlock_canary_instructions():
+    policy = {
+        "rounds": 1,
+        "experiment_scope": "multidomain",
+        "evaluation_schedule": "none",
+        "retry_rejected_from_round": 2,
+    }
+
+    assert not persistent_meta._single_attempt_canary(policy)
+    assert persistent_meta.persistent_instructions(policy) == persistent_meta.PERSISTENT_META_INSTRUCTIONS
+    assert persistent_meta.mainline_reminder(policy) == persistent_meta.MAINLINE_REMINDER
+
+
+@pytest.mark.parametrize("configured_retry, expected, schedule", [
+    (2, 2, "none"),
+    (None, 1, "after_each_committed_round"),
+])
 def test_launcher_preserves_retry_boundary_and_defaults_to_one(
-        tmp_path, configured_retry, expected):
+        tmp_path, configured_retry, expected, schedule):
     from unittest.mock import patch
 
     value = _canary_launcher_value(tmp_path)
-    value["evaluation_schedule"] = "none"
+    value["evaluation_schedule"] = schedule
     if configured_retry is not None:
         value["retry_rejected_from_round"] = configured_retry
     config_path = tmp_path / f"launcher-{expected}.json"
@@ -342,8 +395,9 @@ def test_launcher_preserves_retry_boundary_and_defaults_to_one(
     policy = json.loads((run_dir / "meta_session/workflow_policy.json").read_text())
     assert policy == {
         "rounds": 1,
+        "experiment_scope": "deepcoder_canary",
         "retry_rejected_from_round": expected,
-        "evaluation_schedule": "none",
+        "evaluation_schedule": schedule,
     }
     assert _prompt_protocol(captured["prompt"])["workflow_policy"] == policy
 

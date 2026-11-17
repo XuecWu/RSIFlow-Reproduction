@@ -1,6 +1,6 @@
 # RSI-Flow Agent 工作指南
 
-本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**当前交付分支为 `reproduction/4b-main8`**，隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入；两个复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭。**DeepCoder function 16 真实单域单轮单候选 canary 已完成并接受 HARNESS，3/16→4/16，但 4 新成功伴随 3 回归且因果归因受限；独立审阅 Spec PASS / Quality DONE_WITH_CONCERNS。** 当前完整离线套件为 **517 passed, 2 skipped**。尚未运行五轮演化、正式 SFT、最终 694/744、独立 benchmark 或作者原始实验复现。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准，本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。具体 HEAD、服务 PID 与公网 URL 会随交付变化，一律以 `reproduction/PROGRESS.md`、`web/RESULTS.md`、`web/OPERATIONS.md` 的实测记录为准，不在本指南写死。
+本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**当前交付分支为 `reproduction/4b-main8`**，隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入；两个复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭。**DeepCoder function 16 真实单域单轮单候选 canary 已完成并接受 HARNESS，3/16→4/16，但 4 新成功伴随 3 回归且因果归因受限；独立审阅 Spec PASS / Quality DONE_WITH_CONCERNS。** 当前完整离线套件为 **522 passed, 2 skipped**。尚未运行五轮演化、正式 SFT、最终 694/744、独立 benchmark 或作者原始实验复现。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准，本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。具体 HEAD、服务 PID 与公网 URL 会随交付变化，一律以 `reproduction/PROGRESS.md`、`web/RESULTS.md`、`web/OPERATIONS.md` 的实测记录为准，不在本指南写死。
 
 ## 1. 项目是什么
 
@@ -134,7 +134,7 @@ python reproduction/scripts/install_bwrap.py \
 
 installer 的 ignored `assets/isolation/install-receipt.json` 同时固定 manifest/launcher 的相对路径和 SHA256；candidate/native/Harness 默认 backend 每次 launch 都必须重新验证，tamper 或 receipt 缺失/符号链接均 fail closed。Persistent Meta 继续使用既有 static trusted copies 和强制 hash。不要用 diagnostics 或 writable source 中的常量替代 receipt。
 
-Persistent Meta 在旧内核上只对 `pidfd_open=ENOSYS` 启用后备：绑定 owned `start_new_session` PGID，使用 `/proc` PGID/start_ticks 双快照和逐 PID 信号前后核验，其他 errno 继续 fail closed，不回退 host 或宽泛 `killpg/pkill`。只有 ENOENT/zombie 算确认退出，未知读取或解析错误向上传播。`/proc` 后备仍有最终检查到信号之间的 PID 复用窗口；post-check 失败可能已发出部分信号并留下进程，必须按 runbook 做外部 identity-checked 调和。dev4 Linux 4.18 真实修复链路仍待实测，根因、提交和 scoped PASS 边界见 `reproduction/audit/reviews/dev4-pidfd-enosys-fix.md`。
+Persistent Meta 在旧内核上只对 `pidfd_open=ENOSYS` 启用后备：绑定 owned `start_new_session` PGID，使用 `/proc` PGID/start_ticks 双快照和逐 PID 信号前后核验，其他 errno 继续 fail closed，不回退 host 或宽泛 `killpg/pkill`。只有 ENOENT/zombie 算确认退出，未知读取或解析错误向上传播。`/proc` 后备仍有最终检查到信号之间的 PID 复用窗口；post-check 失败可能已发出部分信号并留下进程，必须按 runbook 做外部 identity-checked 调和。后续 dev4 Linux 4.18 真实 app-server、同 thread 恢复和完整 canary 均已实测完成；根因、提交、scoped PASS 与保留风险见 `reproduction/audit/reviews/dev4-pidfd-enosys-fix.md`。
 
 生产 `prepare_codex_home()` 必须以原子 no-follow 方式创建并验证 0644 `installation_id`，保留有效 inode/content，拒绝 symlink、非普通文件和非法 UUID；smoke 不另维护 helper。`prepare_meta_storage()` 以 central `.run-owner.json` 绑定 resolved full run path：same-basename 不同 fresh run fail closed，same-path restart 保留状态，只有可证明 same-path 的 legacy links 才可采用无 owner 的旧目录。不得删除或重写历史 artifacts。
 
@@ -145,7 +145,7 @@ Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用�
 以下命令用于离线检查和后续完整实验；离线检查已执行不代表五轮已运行：
 
 ```bash
-# 完整离线测试（DeepCoder canary 当前实测：517 passed, 2 skipped；此前兼容性修复为 516 passed, 2 skipped，Task 4 为 489 passed, 2 skipped）
+# 完整离线测试（DeepCoder canary 当前实测：522 passed, 2 skipped；此前兼容性修复为 516 passed, 2 skipped，Task 4 为 489 passed, 2 skipped）
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
 cd ..

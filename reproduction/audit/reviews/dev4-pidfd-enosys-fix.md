@@ -52,4 +52,4 @@ Round 1 scoped re-review 对 `8241eed..eef0a50` 给出：
 - `/proc` 最后 identity 检查到 `os.kill` 之间仍存在理论 PID 复用窗口；双快照和 start_ticks 核验不能宣称达到 pidfd 等价保证。
 - 信号循环不是原子的。post-check 可能在部分 TERM 已发出后发现新成员或歧义并抛出异常；`close()` 的 finally 会清空追踪状态，同一对象不能据此重试。fail closed 不等于零信号或完整清理。
 - 上述失败可能留下 owned processes，必须按 runbook 使用记录的 PGID/start identity 做外部 identity-checked 调和/清理，不得改用宽泛 `pkill` 或按端口杀进程。
-- 本机 ENOSYS 注入和真实无害进程测试不是 dev4 Linux 4.18 实测。修复后的真实 4.18 syscall/应用链路及新的真实 canary 仍需在获得明确 GO 后按既有 runbook 验证；不得重复或覆盖已调和的历史 attempt，也不得把离线 PASS 记为 canary 完成。
+- 后续实测已完成：修复后的 dev4 Linux 4.18 真实 app-server 成功启动并保持同一 Astra thread，supervision 0002 从 `candidate_built` 恢复，完整 16-task HARNESS canary 完成 accept、state COMPLETE、9 个 durable jobs 最终回执和四卡 cleanup。证据见 `deepcoder-canary-real-results.md` 第 1、7 节；这些后续事实不回写或覆盖历史 attempt，也不消除上述理论竞态边界。

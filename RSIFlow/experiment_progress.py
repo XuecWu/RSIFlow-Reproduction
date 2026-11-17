@@ -15,6 +15,25 @@ from pathlib import Path
 from typing import Any
 
 
+CANARY_SCOPE = "deepcoder_canary"
+NONE_SCHEDULE_ERROR = (
+    "evaluation_schedule=none requires experiment_scope=deepcoder_canary, "
+    "rounds=1, and retry_rejected_from_round>1"
+)
+
+
+def validate_workflow_policy(policy: dict[str, Any]) -> None:
+    if policy.get("evaluation_schedule") != "none":
+        return
+    try:
+        rounds = int(policy.get("rounds", 3))
+        retry_from = int(policy.get("retry_rejected_from_round", 1))
+    except (TypeError, ValueError):
+        raise ValueError(NONE_SCHEDULE_ERROR) from None
+    if policy.get("experiment_scope") != CANARY_SCOPE or rounds != 1 or retry_from <= 1:
+        raise ValueError(NONE_SCHEDULE_ERROR)
+
+
 SCHEMA_VERSION = 1
 MAINLINE_GOAL = (
     "Complete A0 independent validation, then B1-B{rounds} evolution rounds.  In each "
@@ -264,11 +283,13 @@ class ExperimentProgress:
 
     def rebuild(self) -> dict[str, Any]:
         policy = _read_object(self.meta_session / "workflow_policy.json") or {}
+        validate_workflow_policy(policy)
         self.rounds = int(policy.get("rounds", self.rounds))
         stages = _stage_template(self.rounds)
         evaluation_schedule = policy.get('evaluation_schedule')
         final_only = evaluation_schedule == 'final_only'
-        no_validation = evaluation_schedule == 'none'
+        no_validation = (evaluation_schedule == 'none'
+                         and policy.get('experiment_scope') == CANARY_SCOPE)
         if final_only:
             for stage in stages:
                 if stage['round'] != self.rounds:

@@ -182,7 +182,7 @@ git add RSIFlow/experiment_progress.py RSIFlow/launch_meta.py \
 git commit -m "feat: 增加单轮无独立评估 canary 进度"
 ```
 
-### Task 3: Build the Frozen Eight-Task Function Release and Machine Config
+### Task 3: Build the Frozen Sixteen-Task Function Release and Machine Config
 
 **Files:**
 - Create: `reproduction/scripts/prepare_deepcoder_canary.py`
@@ -240,7 +240,7 @@ Run the builder against v5 B1, then `RSIFlow_4B/launch.py --config <canary-confi
 ```bash
 git add reproduction/scripts/prepare_deepcoder_canary.py \
   reproduction/configs/train_4b_deepcoder_canary.json RSIFlow/tests/test_deepcoder_canary.py
-git commit -m "feat: 冻结 DeepCoder function 八任务 canary"
+git commit -m "feat: 冻结 DeepCoder function 16 任务 canary"
 ```
 
 ### Task 4: Whole-Branch Offline Review and Execution Runbook

@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from experiment_progress import CANARY_SCOPE, validate_workflow_policy
 from persistent_meta import PersistentMeta, mainline_reminder, persistent_instructions
 from skill_memory import DEFAULT_CONTEXT_CHARS, DEFAULT_PER_CATEGORY, SKILL_GUIDANCE, SkillMemory, write_json
 
@@ -326,6 +327,15 @@ class SubprocessToolExecutor:
                     "stdout_path": str(stdout_path), "stderr_path": str(stderr_path)}
 
 
+def _workflow_policy(config: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "rounds": config.get("rounds", 3),
+        "experiment_scope": config.get("experiment_scope", "multidomain"),
+        "retry_rejected_from_round": config.get("retry_rejected_from_round", 1),
+        "evaluation_schedule": config.get("evaluation_schedule", "after_each_committed_round"),
+    }
+
+
 def experiment_prompt(config_path: Path, config: dict[str, Any], run_dir: Path) -> str:
     quotas = config.get("train_quotas_per_round", {})
     total = config.get("training_tasks_per_pass", sum(quotas.values()))
@@ -334,7 +344,11 @@ def experiment_prompt(config_path: Path, config: dict[str, Any], run_dir: Path) 
                  / config.get("base_config", "configs/base.json")).resolve()
     base = json.loads(base_path.read_text(encoding="utf-8")) if base_path.is_file() else {}
     policy_path = run_dir / "meta_session/workflow_policy.json"
-    policy = json.loads(policy_path.read_text()) if policy_path.is_file() else {"retry_rejected_from_round": 1}
+    configured_policy = _workflow_policy(config)
+    validate_workflow_policy(configured_policy)
+    policy = (json.loads(policy_path.read_text()) if policy_path.is_file()
+              else configured_policy)
+    validate_workflow_policy(policy)
     protocol = {
         "config_path": str(config_path), "run_dir": str(run_dir),
         "workspace_root": str(PROJECT_ROOT.parent), "project_root": str(PROJECT_ROOT),
@@ -482,7 +496,8 @@ def experiment_prompt(config_path: Path, config: dict[str, Any], run_dir: Path) 
             "After the A0 snapshot start round 1; do not prepare or run A0 validation.")
         prompt = prompt.replace("Only after acceptance request prepare_validation_snapshot with",
                                 "Only after FINAL-round acceptance and snapshot request prepare_validation_snapshot with")
-    if config.get("evaluation_schedule") == "none":
+    if (config.get("evaluation_schedule") == "none"
+            and config.get("experiment_scope") == CANARY_SCOPE):
         prompt = prompt.replace(
             "A0: freeze the initial Task/Meta state and complete independent baseline validation.",
             "A0: freeze the initial Task/Meta state; do not run baseline validation.")
@@ -538,6 +553,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config_path = args.config.resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    configured_policy = _workflow_policy(config)
+    validate_workflow_policy(configured_policy)
     if args.skill_seed:
         config["meta_skill_seed_path"] = str(args.skill_seed.resolve())
     seed = config.get("meta_skill_seed_path")
@@ -571,12 +588,10 @@ def main(argv: list[str] | None = None) -> int:
     session_dir = run_dir / "meta_session"
     session_dir.mkdir(exist_ok=True)
     policy_path = session_dir / "workflow_policy.json"
-    if not policy_path.exists():
-        policy_path.write_text(json.dumps({
-            "rounds": config.get("rounds", 3),
-            "retry_rejected_from_round": config.get("retry_rejected_from_round", 1),
-            "evaluation_schedule": config.get("evaluation_schedule", "after_each_committed_round"),
-        }, indent=2) + "\n", encoding="utf-8")
+    if policy_path.exists():
+        validate_workflow_policy(json.loads(policy_path.read_text(encoding="utf-8")))
+    else:
+        policy_path.write_text(json.dumps(configured_policy, indent=2) + "\n", encoding="utf-8")
     if args.detach:
         log_path = session_dir / "launcher.log"
         argv = [sys.executable, "-u", str(PROJECT_ROOT / "launch_meta.py"),

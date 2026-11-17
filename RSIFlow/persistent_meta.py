@@ -15,7 +15,7 @@ import time
 import uuid
 from pathlib import Path
 
-from experiment_progress import ExperimentProgress
+from experiment_progress import CANARY_SCOPE, ExperimentProgress, validate_workflow_policy
 from meta_loop import MAINLINE_REMINDER, render_receipt_for_codex
 from skill_memory import SKILL_GUIDANCE
 from meta_chat import ChatMailbox
@@ -493,6 +493,7 @@ def _read_workflow_policy(meta_session: Path) -> dict:
 def _single_attempt_canary(policy: dict | None) -> bool:
     policy = policy or {}
     return (policy.get('evaluation_schedule') == 'none'
+            and policy.get('experiment_scope') == CANARY_SCOPE
             and int(policy.get('rounds', 3)) == 1
             and int(policy.get('retry_rejected_from_round', 1)) > 1)
 
@@ -568,6 +569,7 @@ class PersistentMeta:
         self.workspace = project.resolve().parent
         self.journal = run / 'meta_session'
         self.policy = _read_workflow_policy(self.journal)
+        validate_workflow_policy(self.policy)
         self.progress = ExperimentProgress(self.journal, rounds=rounds)
         self.tools = NativeExperimentTools(project=project, run=run, executor=executor,
                                            progress=self.progress, policy=self.policy)

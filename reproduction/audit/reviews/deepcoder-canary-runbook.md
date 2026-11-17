@@ -1,11 +1,13 @@
 # DeepCoder function 16 canary：dev4 执行 runbook
 
-> 状态：**仅完成离线实现、配置、审查和文档；本 runbook 的真实远端 canary 尚未执行。**
-> 真实执行需要单独 GO。任何红测试、未关闭的 Critical/Important、目标 HEAD 不一致、凭据缺失或 bwrap 校验失败都阻止启动。
+> 状态：**真实 dev4 canary 已完成。** 当前 workspace run 的 supervision 0002 同 thread 恢复后 exit 0、reconcile complete，HARNESS accept/activate、state COMPLETE、9 个 durable jobs 最终回执和四卡 cleanup 均已完成；结果为 3/16→4/16，质量限制见 `deepcoder-canary-real-results.md`。
+> 当前 `state.json.status=complete` 的 run 不得重新启动或覆盖。任何新的真实执行都需要单独 GO；任何红测试、未关闭的 Critical/Important、目标 HEAD 不一致、凭据缺失或 bwrap 校验失败都阻止启动。
 
 ## 1. 范围与证据边界
 
-- 机器配置：`reproduction/configs/train_4b_deepcoder_canary.json`。
+- 机器配置：`reproduction/configs/train_4b_deepcoder_canary_workspace.json`。
+- 当前 output/run 由该配置自然派生：`output_root=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight/Rollout_logs/deepcoder_canary_16_v1`，`run_name=deepcoder_function_16_canary_workspace_v1`；下文 monitor、stop、cleanup 和 resume 均使用这一对路径。
+- 旧 `train_4b_deepcoder_canary.json` 指向 preflight native workspace 外的 output/run，真实启动已被 host-side 写门正确拒绝；该 blocked 历史保留，但不再是任何操作命令的默认目标。
 - 冻结输入：`reproduction/logs/deepcoder-canary-16-v1/release/`，固定为父 B1 原顺序前 16 条 `deepcoder_taco` function 记录，不是看结果重选。
 - 一轮 A0+B1；A0 不做 baseline validation，B1 只有一个 attempt，候选仍在相同 16 条任务上配对比较。
 - `experiment_scope=deepcoder_canary`，有效 domain 只有 `code`，runtime quotas 精确为 `tool_use/code/searchqa = 0/16/0`。这不是放宽其他 scope 的零配额规则。
@@ -41,9 +43,9 @@ DEV4_SSH=(ssh -i "$DEV4_IDENTITY" -p "$DEV4_PORT" \
 set -euo pipefail
 ROOT=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight
 PYTHON=/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python
-CONFIG="$ROOT/reproduction/configs/train_4b_deepcoder_canary.json"
-OUTPUT_ROOT=/data/wuxuecheng/Hierarchical_level/RSI-Flow/Rollout_logs/deepcoder_canary_16_v1
-RUN_DIR="$OUTPUT_ROOT/runs/deepcoder_function_16_canary_v1"
+CONFIG="$ROOT/reproduction/configs/train_4b_deepcoder_canary_workspace.json"
+OUTPUT_ROOT="$ROOT/Rollout_logs/deepcoder_canary_16_v1"
+RUN_DIR="$OUTPUT_ROOT/runs/deepcoder_function_16_canary_workspace_v1"
 LAUNCH_LOG="$RUN_DIR/meta_session/launcher.log"
 REVIEWED_HEAD='<GO 时批准的完整 reviewed commit>'
 
@@ -228,9 +230,9 @@ SSH 断开不应停止该 session；4 小时到期由远端 `timeout` 独立监�
 ```bash
 ROOT=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight
 PYTHON=/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python
-OUTPUT_ROOT=/data/wuxuecheng/Hierarchical_level/RSI-Flow/Rollout_logs/deepcoder_canary_16_v1
-RUN_DIR="$OUTPUT_ROOT/runs/deepcoder_function_16_canary_v1"
-ATTEMPT=0001
+OUTPUT_ROOT="$ROOT/Rollout_logs/deepcoder_canary_16_v1"
+RUN_DIR="$OUTPUT_ROOT/runs/deepcoder_function_16_canary_workspace_v1"
+ATTEMPT=0002
 ATTEMPT_DIR="$RUN_DIR/meta_session/supervision/$ATTEMPT"
 
 # 单次快照
@@ -250,7 +252,7 @@ ATTEMPT_DIR="$RUN_DIR/meta_session/supervision/$ATTEMPT"
 - `$RUN_DIR/controller_receipts/`：控制器事实回执。
 - `$RUN_DIR/round_1/`、`$RUN_DIR/snapshots/`、`$RUN_DIR/meta/skills.jsonl`、`$RUN_DIR/meta/context.json`：父子轨迹、decision/selection、候选、经验和快照。
 - `$OUTPUT_ROOT/services/four_gpu_services.json`：本 output root 拥有的四卡服务 registry。
-- `$ROOT/Meta_logs/deepcoder_function_16_canary_v1/`：集中 Meta 记录及部分到 Rollout_logs 的链接。
+- `$ROOT/Meta_logs/deepcoder_function_16_canary_workspace_v1/`：集中 Meta 记录及部分到 Rollout_logs 的链接。
 - `$ATTEMPT_DIR/kind`、`identity.json`、`stop-requested`、`reconcile.json`、`exit`：本次 launcher 监督与同 PGID 调和状态。旧 attempt 的文件永不作为本次 exit/reconcile。
 
 `launch_requested`、`already_running`、进程 alive、transport success 或 launcher exit 0 均不等于实验 PASS。完成至少需要 `state.json.status=complete`、`workflow_state.finish_allowed=true`、A0/B1 必需 milestones 齐全，并逐项复核真实回执。若 retain，必须有 terminal-retain 证据且没有后续 attempt/activation/validation；若 accept，必须有 Meta 显式选择和严格正增益的完整同批比较。模型失败、候选执行失败与 infrastructure error 分开报告。
@@ -275,8 +277,8 @@ ATTEMPT_DIR="$RUN_DIR/meta_session/supervision/$ATTEMPT"
 set -euo pipefail
 ROOT=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight
 PYTHON=/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python
-OUTPUT_ROOT=/data/wuxuecheng/Hierarchical_level/RSI-Flow/Rollout_logs/deepcoder_canary_16_v1
-RUN_DIR="$OUTPUT_ROOT/runs/deepcoder_function_16_canary_v1"
+OUTPUT_ROOT="$ROOT/Rollout_logs/deepcoder_canary_16_v1"
+RUN_DIR="$OUTPUT_ROOT/runs/deepcoder_function_16_canary_workspace_v1"
 ATTEMPT='<本次 detached supervision attempt>'
 ATTEMPT_DIR="$RUN_DIR/meta_session/supervision/$ATTEMPT"
 test -d "$ROOT" && test -x "$PYTHON" && test -d "$ATTEMPT_DIR"
@@ -349,9 +351,9 @@ PY
 set -euo pipefail
 ROOT=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight
 PYTHON=/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python
-CONFIG="$ROOT/reproduction/configs/train_4b_deepcoder_canary.json"
-OUTPUT_ROOT=/data/wuxuecheng/Hierarchical_level/RSI-Flow/Rollout_logs/deepcoder_canary_16_v1
-RUN_DIR="$OUTPUT_ROOT/runs/deepcoder_function_16_canary_v1"
+CONFIG="$ROOT/reproduction/configs/train_4b_deepcoder_canary_workspace.json"
+OUTPUT_ROOT="$ROOT/Rollout_logs/deepcoder_canary_16_v1"
+RUN_DIR="$OUTPUT_ROOT/runs/deepcoder_function_16_canary_workspace_v1"
 ATTEMPT='<本次 supervision attempt>'
 ATTEMPT_DIR="$RUN_DIR/meta_session/supervision/$ATTEMPT"
 for name in ROOT PYTHON CONFIG OUTPUT_ROOT RUN_DIR ATTEMPT ATTEMPT_DIR; do
@@ -480,10 +482,10 @@ fi
 
 ## 7. Resume
 
-- Resume 使用**相同 reviewed code、相同 config、相同 run dir、相同 bwrap backend**，但每次必须递增 supervision attempt（如 `0002`），新建对应 `ATTEMPT_DIR` 并使用第 4.2 节的 detached supervisor 命令；不得复用/删除旧 `identity.json`、`reconcile.json`、`exit` 或 `stop-requested`。monitor/cleanup 只接受当前 attempt 的状态。
+- Resume 使用**相同 reviewed code、相同 config、相同 run dir、相同 bwrap backend**，但每次必须递增 supervision attempt（如 `0002`），新建对应 `ATTEMPT_DIR` 并使用第 4.1 节的 detached supervisor 命令；不得复用/删除旧 `identity.json`、`reconcile.json`、`exit` 或 `stop-requested`。monitor/cleanup 只接受当前 attempt 的状态。
 - 新 attempt 启动前核验上一 attempt exit、complete reconcile、最终 PGID 为空、state、jobs、app-server 和 registry。launcher 或 Codex PID 仍存活时不得另起 attempt；`already_running` 不是完成。
 - Active durable job 必须等待自然最终回执，或由仍存在的既有 owner 通过生产 `job_status`/`wait_job` 和 start identity 调和。**未调和前禁止新 resume，也禁止 cleanup completed。** 没有安全取消机制时只等待，不发明 job kill。
 - 若所有 jobs 已有最终回执且 launcher/app-server 已停，可按生产恢复路径使用同一 thread/job 记录继续；不要重复 bootstrap、重复 rollout、重放 skill seed。registry 必须属于同一 output root 并明确是复用已验证服务还是已停止后恢复，不能在 active job 使用时清理。
 - 每次新 attempt 仍是新的 launcher 前台进程 4 小时监督边界，并需明确授权；它不自动限制独立 session 的 jobs/services/app-server。
-- `workflow_policy.json` 只在不存在时创建。确认既有 policy 仍为 rounds=1、schedule=none、retry=2；不要靠修改配置期待覆盖已有 policy，也不要删除它来“重置”实验。
+- `workflow_policy.json` 只在不存在时创建。新建或既有 incomplete run 的 policy 必须为 `experiment_scope=deepcoder_canary`、rounds=1、schedule=none、retry=2；不要靠修改配置期待覆盖已有 policy，也不要删除它来“重置”实验。历史 complete run 的文件不回写。
 - `state.json.status=complete` 的 run 不重新启动。incomplete/disconnected 必须保留原状态和历史，修复对应基础设施问题后再按同路径恢复。

@@ -655,7 +655,7 @@ def test_machine_config_changes_only_canary_fields_and_is_accepted(tmp_path):
         "scope_probe_limit": 16,
         "meta_skill_seed_path": None,
         "data_release": "deepcoder_function_16_canary_v1",
-        "frozen_data_dir": str(PROJECT / "reproduction/logs/deepcoder-canary-16-v1/release"),
+        "frozen_data_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight/reproduction/logs/deepcoder-canary-16-v1/release",
         "output_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/Rollout_logs/deepcoder_canary_16_v1",
         "run_name": "deepcoder_function_16_canary_v1",
     }

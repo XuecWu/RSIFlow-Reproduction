@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from experiment_progress import ExperimentProgress
 from launch_meta import experiment_prompt, main
+import persistent_meta
 from rsiflow.task_meta.data import DOMAINS
 from rsiflow.task_meta.pipeline import PipelineConfig, active_domains
 from rsiflow.task_meta.types import TaskAgentState
@@ -236,17 +237,53 @@ def test_canary_rejection_can_finish_without_reselection(tmp_path):
     assert progress.rebuild()["finish_allowed"] is True
 
 
+def _write_canary_policy(run):
+    session = run / "meta_session"
+    session.mkdir(parents=True, exist_ok=True)
+    (session / "workflow_policy.json").write_text(json.dumps({
+        "rounds": 1, "evaluation_schedule": "none", "retry_rejected_from_round": 2,
+    }), encoding="utf-8")
+    return session
+
+
+def _prompt_protocol(prompt):
+    payload = prompt.split("Experiment facts and required sequence:\n", 1)[1]
+    return json.loads(payload.split("\nMainline stages:\n", 1)[0])
+
+
+def _assert_canary_runtime_instructions(text):
+    assert "completed_retained" in text
+    for forbidden in (
+        "Rejection retains the parent and returns to component selection",
+        "There is no fixed retry limit",
+        "The next attempt/round reads relevant entries",
+        "Finish only through finish_experiment after all required rounds, snapshots and validations",
+        "Rejection returns to component selection",
+        "return to step 3 on this SAME round/batch",
+        "Meta chooses again after rejection",
+        "Continue to the next round",
+        "then advance to fresh next-round tasks",
+        "Run independent validation only when due under the configured evaluation schedule",
+        "Reuse unchanged parent results across rejected attempts",
+    ):
+        assert forbidden not in text
+
+
 def test_canary_prompt_has_terminal_retain_and_no_validation_or_retry(tmp_path):
     config = _canary_launcher_value(tmp_path)
     config.update(evaluation_schedule="none", retry_rejected_from_round=2)
+    run = tmp_path / "run"
+    _write_canary_policy(run)
 
-    prompt = experiment_prompt(tmp_path / "launcher.json", config, tmp_path / "run")
+    prompt = experiment_prompt(tmp_path / "launcher.json", config, run)
 
+    assert _prompt_protocol(prompt)["workflow_policy"]["retry_rejected_from_round"] == 2
     assert "single-domain engineering canary" in prompt
     assert "one attempt" in prompt
     assert "retain_parent is terminal" in prompt
     assert "completed_retained" in prompt
     assert "without activation or reselection" in prompt
+    _assert_canary_runtime_instructions(prompt)
     for forbidden in (
         "complete independent baseline validation",
         "Begin with A0 independent evaluation",
@@ -256,12 +293,7 @@ def test_canary_prompt_has_terminal_retain_and_no_validation_or_retry(tmp_path):
         "Only after FINAL-round acceptance",
         "744-task cohort",
         "After rejection keep the parent, read the failure evidence and choose again",
-        "Rejection returns to component selection",
-        "return to step 3 on this SAME round/batch",
-        "Meta chooses again after rejection",
-        "Continue to the next round",
-        "then advance to fresh next-round tasks",
-        "Run independent validation only when due under the configured evaluation schedule",
+        "structured handoff for the next round",
     ):
         assert forbidden not in prompt
 
@@ -278,12 +310,14 @@ def test_launcher_preserves_retry_boundary_and_defaults_to_one(
     config_path = tmp_path / f"launcher-{expected}.json"
     config_path.write_text(json.dumps(value), encoding="utf-8")
     run_dir = tmp_path / f"run-{expected}"
+    captured = {}
 
     class FakeLoop:
         def __init__(self, **kwargs):
             pass
 
         def run_experiment(self, prompt):
+            captured["prompt"] = prompt
             return {"status": "complete", "thread_id": "offline", "summary": "done"}
 
     with (patch("launch_meta._autodl_key", return_value="offline-test"),
@@ -301,3 +335,103 @@ def test_launcher_preserves_retry_boundary_and_defaults_to_one(
         "retry_rejected_from_round": expected,
         "evaluation_schedule": "none",
     }
+    assert _prompt_protocol(captured["prompt"])["workflow_policy"] == policy
+
+
+class _OfflineExecutor:
+    def execute(self, request):
+        operation = request["operation"]
+        receipt = {"operation": operation, "status": {
+            "compare_scores": "compared", "snapshot_task_meta": "snapshotted",
+            "write_text": "written",
+        }.get(operation, "completed")}
+        if operation == "sft":
+            receipt["candidate_state_path"] = "candidate.json"
+        return receipt
+
+
+def _real_persistent_meta(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    run = tmp_path / "run"
+    _write_canary_policy(run)
+    return persistent_meta.PersistentMeta(
+        project=project, run=run, codex_home=run / "meta_session/codex_home",
+        executor=_OfflineExecutor(),
+        meta_config={"model": "offline-model", "provider": "offline-provider"}, rounds=1,
+    )
+
+
+def test_real_persistent_meta_initial_developer_and_resume_instructions(tmp_path, monkeypatch):
+    loop = _real_persistent_meta(tmp_path)
+    config = _canary_launcher_value(tmp_path)
+    config.update(evaluation_schedule="none", retry_rejected_from_round=2)
+    initial = experiment_prompt(tmp_path / "launcher.json", config, loop.run)
+    captured = {"requests": [], "turns": []}
+
+    class Server:
+        def __init__(self, **kwargs):
+            self.process = type("Process", (), {"pid": 12345})()
+
+        def start(self):
+            return self
+
+        def request(self, method, params):
+            captured["requests"].append((method, params))
+            return {"thread": {"id": "thread-offline"}}
+
+        def turn(self, thread_id, prompt, environments):
+            captured["turns"].append(prompt)
+            if len(captured["turns"]) == 2:
+                loop.tools.finished = True
+                loop.tools.summary = "offline complete"
+            return {"id": f"turn-{len(captured['turns'])}",
+                    "status": "failed" if len(captured["turns"]) == 1 else "completed"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(persistent_meta, "CodexAppServer", Server)
+    monkeypatch.setattr(persistent_meta.time, "sleep", lambda seconds: None)
+
+    result = loop.run_experiment(initial)
+
+    assert result["status"] == "complete"
+    assert captured["requests"][0][0] == "thread/start"
+    developer = captured["requests"][0][1]["developerInstructions"]
+    assert len(captured["turns"]) == 2
+    for text in (developer, captured["turns"][0], captured["turns"][1]):
+        _assert_canary_runtime_instructions(text)
+    assert _prompt_protocol(captured["turns"][0])["workflow_policy"][
+        "retry_rejected_from_round"] == 2
+
+
+def test_real_native_tool_retain_response_uses_canary_reminder(tmp_path):
+    loop = _real_persistent_meta(tmp_path)
+    assert isinstance(loop.tools, persistent_meta.NativeExperimentTools)
+
+    def complete_job(request, turn_dir):
+        return {"status": "completed", "result": loop.tools.executor.execute(request)}
+
+    loop.tools.jobs.start = complete_job
+    operations = [
+        ("bootstrap", 0, {}), ("snapshot_task_meta", 0, {}),
+        ("run_parent", 1, {}), ("prepare_meta_evidence", 1, {}),
+        ("write_text", 1, {"path": str(loop.run / "round_1/attempts/attempt_1/decision.json")}),
+        ("sft", 1, {}), ("run_candidate", 1, {}), ("compare_scores", 1, {}),
+    ]
+    for operation, round_number, extra in operations:
+        loop.tools("experiment", {"request": {
+            "operation": operation, "round_number": round_number, **extra,
+        }})
+    assert loop.progress.rebuild()["next_milestone"] == "selection_recorded"
+
+    response = loop.tools("experiment", {"request": {
+        "operation": "write_text", "round_number": 1,
+        "path": str(loop.run / "round_1/attempts/attempt_1/selection.json"),
+        "content": json.dumps({"accept_or_retain": "retain_parent"}),
+    }})
+
+    assert loop.progress.rebuild()["next_milestone"] == "skills_appended"
+    assert "<MAINLINE_PROGRESS>" in response
+    _assert_canary_runtime_instructions(response)

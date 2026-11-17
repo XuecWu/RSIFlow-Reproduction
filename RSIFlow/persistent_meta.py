@@ -346,8 +346,9 @@ def dynamic_tools():
 class NativeExperimentTools:
     """Optional experiment helpers alongside native Codex coding tools."""
 
-    def __init__(self, *, project, run, executor, progress):
+    def __init__(self, *, project, run, executor, progress, policy=None):
         self.project, self.run, self.executor, self.progress = project, run, executor, progress
+        self.policy = policy
         self.workspace = project.resolve().parent
         self.jobs = ExperimentJobs(project, run)
         self.finished = False
@@ -416,7 +417,10 @@ class NativeExperimentTools:
         failed = str(receipt.get('status', '')).endswith(('error', 'failed'))
         text = render_receipt_for_codex(receipt, turn_dir / 'receipt.json')
         if anchor != self.anchor or failed:
-            text += '\n' + MAINLINE_REMINDER + '\n' + self.progress.compact_status_block()
+            policy = self.policy
+            if policy is None:
+                policy = _read_workflow_policy(self.run / 'meta_session')
+            text += '\n' + mainline_reminder(policy) + '\n' + self.progress.compact_status_block()
             self.anchor = anchor
         return text
 
@@ -478,11 +482,75 @@ milestone unless the user explicitly changes the task. Do not start a second exp
 """
 
 
-def native_thread_parameters(workspace: Path, meta_config: dict):
+def _read_workflow_policy(meta_session: Path) -> dict:
+    try:
+        value = json.loads((meta_session / 'workflow_policy.json').read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _single_attempt_canary(policy: dict | None) -> bool:
+    policy = policy or {}
+    return (policy.get('evaluation_schedule') == 'none'
+            and int(policy.get('rounds', 3)) == 1
+            and int(policy.get('retry_rejected_from_round', 1)) > 1)
+
+
+def persistent_instructions(policy: dict | None = None) -> str:
+    if not _single_attempt_canary(policy):
+        return PERSISTENT_META_INSTRUCTIONS
+    text = PERSISTENT_META_INSTRUCTIONS.replace(
+        "Generate one candidate PER ATTEMPT. Rejection retains the parent and returns to component selection\n"
+        "on the same round and task batch, after saving failure experience. Do not independently validate or\n"
+        "advance a round after rejection. Use a fresh round_N/attempts/attempt_K directory for each attempt;\n"
+        "reuse unchanged parent results and preserve every earlier attempt. Pass output_dir explicitly for\n"
+        "each candidate build/SFT/rollout so retries do not overwrite prior attempts. There is no fixed retry limit.",
+        "Generate one candidate for the sole attempt. retain_parent is terminal: a rejected attempt finishes as\n"
+        "completed_retained after comparison, skills, context and snapshot, without activation or reselection.\n"
+        "Do not choose another component, create another attempt, independently validate, or advance to another round.\n"
+        "Use one round_N/attempts/attempt_1 directory, preserve the parent results and pass output_dir explicitly.")
+    text = text.replace(
+        "The next attempt/round reads relevant entries from the accumulated ledger and the structured context.",
+        "The completed canary preserves relevant entries in the accumulated ledger and structured context.")
+    text = text.replace(
+        "compose_task can combine model_001 with harness_002 for later report-only evaluation; it never deploys.",
+        "compose_task never deploys and is not needed by this canary.")
+    return text.replace(
+        "Finish only through finish_experiment after all required rounds, snapshots and validations.",
+        "Finish only through finish_experiment after the sole attempt's comparison, skills, context and snapshot; "
+        "no validations are required or permitted.")
+
+
+def mainline_reminder(policy: dict | None = None) -> str:
+    if not _single_attempt_canary(policy):
+        return MAINLINE_REMINDER
+    text = MAINLINE_REMINDER.replace(
+        "If rejected, keep the\n   parent and return to step 3 on this SAME round/batch; do not go to validation or the next round.",
+        "If rejected, keep the\n   parent and finish as completed_retained after skills, context, and snapshot; "
+        "do not reselect, validate, or start another attempt.")
+    text = text.replace(
+        "9. Run independent validation only when due under the configured evaluation schedule; for final_only, only after the final round.",
+        "9. Do not run independent validation in this no-validation canary.")
+    text = text.replace(
+        "10. Continue to the next round, carrying evidence and artifacts through the configured final stage.",
+        "10. Finish after the sole attempt's snapshot; there is no next round in this canary.")
+    text = text.replace(
+        "MODEL uses successful-parent SFT. Reuse unchanged parent results across rejected attempts.",
+        "MODEL uses successful-parent SFT.")
+    text = text.replace(
+        "never overwrite earlier attempts. No fixed retry count is imposed; Meta chooses again after rejection.",
+        "never overwrite the attempt record. The sole rejected attempt is terminal; Meta does not choose again.")
+    return text.replace(
+        "After acceptance, activate and snapshot, independently validate only when due under the configured schedule, then advance to fresh next-round tasks.",
+        "After acceptance, activate and snapshot, then finish without independent validation or a next round.")
+
+
+def native_thread_parameters(workspace: Path, meta_config: dict, policy: dict | None = None):
     """Keep legacy Landlock compatibility inside the selected outer sandbox."""
     return {'model': meta_config['model'], 'modelProvider': meta_config['provider'],
             'cwd': str(workspace), 'approvalPolicy': 'never', 'sandbox': 'workspace-write',
-            'developerInstructions': PERSISTENT_META_INSTRUCTIONS + '\n' + SKILL_GUIDANCE,
+            'developerInstructions': persistent_instructions(policy) + '\n' + SKILL_GUIDANCE,
             'config': {'features.shell_tool': True, 'features.use_legacy_landlock': True,
                        'features.multi_agent': False, 'features.multi_agent_v2': False,
                        'sandbox_workspace_write.network_access': False,
@@ -499,8 +567,10 @@ class PersistentMeta:
         self.writable_outputs = writable_outputs
         self.workspace = project.resolve().parent
         self.journal = run / 'meta_session'
+        self.policy = _read_workflow_policy(self.journal)
         self.progress = ExperimentProgress(self.journal, rounds=rounds)
-        self.tools = NativeExperimentTools(project=project, run=run, executor=executor, progress=self.progress)
+        self.tools = NativeExperimentTools(project=project, run=run, executor=executor,
+                                           progress=self.progress, policy=self.policy)
 
     def run_experiment(self, prompt):
         state_path = self.journal / 'state.json'
@@ -563,7 +633,7 @@ class PersistentMeta:
             if sandbox is not None:
                 state['sandbox_backend'] = 'linux_bwrap_seccomp_v1'
                 write_json(self.journal / 'app_server/execution_host.json', sandbox.identity())
-            parameters = native_thread_parameters(self.workspace, self.meta_config)
+            parameters = native_thread_parameters(self.workspace, self.meta_config, self.policy)
             write_json(self.journal / 'app_server/thread_parameters.json', parameters)
             if thread_id:
                 reply = server.request('thread/resume', {**parameters, 'threadId': thread_id,
@@ -586,7 +656,7 @@ class PersistentMeta:
                     write_json(state_path, state)
                     time.sleep(30)
                 prompt = ('Continue the existing experiment in this same conversation using native tools. '
-                          'Inspect active jobs before launching anything again.\n' + MAINLINE_REMINDER + '\n'
+                          'Inspect active jobs before launching anything again.\n' + mainline_reminder(self.policy) + '\n'
                           + self.progress.compact_status_block())
                 write_json(state_path, state)
             state.update(status='complete', summary=self.tools.summary, updated_at=time.time())

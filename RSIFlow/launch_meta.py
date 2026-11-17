@@ -24,8 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from meta_loop import MAINLINE_REMINDER
-from persistent_meta import PERSISTENT_META_INSTRUCTIONS, PersistentMeta
+from persistent_meta import PersistentMeta, mainline_reminder, persistent_instructions
 from skill_memory import DEFAULT_CONTEXT_CHARS, DEFAULT_PER_CATEGORY, SKILL_GUIDANCE, SkillMemory, write_json
 
 
@@ -363,7 +362,7 @@ def experiment_prompt(config_path: Path, config: dict[str, Any], run_dir: Path) 
         "run_status": str(run_dir / "meta_session/RUN_STATUS.md"),
         "workflow_policy": policy,
     }
-    prompt = (PERSISTENT_META_INSTRUCTIONS + "\n" + SKILL_GUIDANCE + "\n" + MAINLINE_REMINDER
+    prompt = (persistent_instructions(policy) + "\n" + SKILL_GUIDANCE + "\n" + mainline_reminder(policy)
             + "\nExperiment facts and required sequence:\n"
             + json.dumps(protocol, ensure_ascii=False, indent=2)
             + "\nMainline stages:\n"
@@ -519,28 +518,12 @@ def experiment_prompt(config_path: Path, config: dict[str, Any], run_dir: Path) 
             "and manifest overrides; prepare_evaluation can inspect the budget.",
             "Do not run A0 or 744 validation. Never request prepare_validation_snapshot or evaluate for this canary.")
         prompt = prompt.replace(
+            "structured handoff for the next round, preserving evidence paths.",
+            "structured final handoff, preserving evidence paths.")
+        prompt = prompt.replace(
             "Call finish_experiment only after all configured rounds and available independent validations are complete.",
             "Call finish_experiment after the one attempt has recorded its selection, skills, context and snapshot; "
             "a retained attempt is completed_retained and no independent validation remains.")
-        prompt = prompt.replace(
-            "If rejected, keep the\n   parent and return to step 3 on this SAME round/batch; do not go to validation or the next round.",
-            "If rejected, keep the\n   parent and finish as completed_retained after skills, context, and snapshot; "
-            "do not reselect, validate, or start another attempt.")
-        prompt = prompt.replace(
-            "9. Run independent validation only when due under the configured evaluation schedule; for final_only, only after the final round.",
-            "9. Do not run independent validation in this no-validation canary.")
-        prompt = prompt.replace(
-            "10. Continue to the next round, carrying evidence and artifacts through the configured final stage.",
-            "10. Finish after the sole attempt's snapshot; there is no next round in this canary.")
-        prompt = prompt.replace(
-            "MODEL uses successful-parent SFT. Reuse unchanged parent results across rejected attempts.",
-            "MODEL uses successful-parent SFT.")
-        prompt = prompt.replace(
-            "never overwrite earlier attempts. No fixed retry count is imposed; Meta chooses again after rejection.",
-            "never overwrite the attempt record. The sole rejected attempt is terminal; Meta does not choose again.")
-        prompt = prompt.replace(
-            "After acceptance, activate and snapshot, independently validate only when due under the configured schedule, then advance to fresh next-round tasks.",
-            "After acceptance, activate and snapshot, then finish without independent validation or a next round.")
     return prompt
 
 

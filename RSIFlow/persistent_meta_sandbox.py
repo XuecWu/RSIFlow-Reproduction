@@ -95,6 +95,7 @@ class PersistentMetaSandbox:
         self.relay_socket = None
         self.processes = []
         self.process_groups = {}
+        self.process_identities = {}
 
     def _validated_outputs(self, declarations):
         run = self.run.resolve()
@@ -291,7 +292,20 @@ class PersistentMetaSandbox:
     def _track_process(self, process):
         self.processes.append(process)
         try:
-            self.process_groups[process.pid] = _pidfd_open(process.pid)
+            try:
+                descriptor = _pidfd_open(process.pid)
+            except OSError as exc:
+                if exc.errno != errno.ENOSYS:
+                    raise
+                leader = _process_group_stat(process.pid)
+                if leader is None or leader[0] != process.pid:
+                    raise RuntimeError("owned process group leader identity unavailable")
+                if _process_group_stat(process.pid) != leader:
+                    raise RuntimeError("ambiguous process group leader identity")
+                self.process_groups[process.pid] = None
+                self.process_identities[process.pid] = leader[1]
+            else:
+                self.process_groups[process.pid] = descriptor
         except BaseException:
             self._signal_group(process.pid, signal.SIGKILL)
             if process.poll() is None:
@@ -299,7 +313,49 @@ class PersistentMetaSandbox:
             self.processes.remove(process)
             raise
 
+    def _signal_group_without_pidfd(self, pgid, leader_start, sig):
+        expected_leader = (pgid, leader_start)
+
+        def check_leader():
+            current = _process_group_stat(pgid)
+            if current is not None and current != expected_leader:
+                raise RuntimeError("process group leader identity changed")
+
+        check_leader()
+        listed = _group_members(pgid)
+        members = set(listed)
+        if len(members) != len(listed):
+            raise RuntimeError("ambiguous process group membership")
+        expected = {pid: (pgid, start_time) for pid, start_time in members}
+        for pid, identity in expected.items():
+            if _process_group_stat(pid) != identity:
+                raise RuntimeError("process is not in the owned group or its identity changed")
+        if set(_group_members(pgid)) != members:
+            raise RuntimeError("ambiguous process group membership snapshot")
+        check_leader()
+        for pid, identity in expected.items():
+            current = _process_group_stat(pid)
+            if current is None:
+                continue
+            if current != identity:
+                raise RuntimeError("process is not in the owned group or its identity changed")
+            try:
+                os.kill(pid, sig)
+            except OSError as exc:
+                if exc.errno == errno.ESRCH:
+                    continue
+                raise
+            current = _process_group_stat(pid)
+            if current is not None and current != identity:
+                raise RuntimeError("process identity changed after signal")
+        if not set(_group_members(pgid)).issubset(members):
+            raise RuntimeError("ambiguous process group membership after signal")
+        check_leader()
+
     def _signal_group(self, pgid, sig):
+        if pgid in self.process_identities:
+            self._signal_group_without_pidfd(pgid, self.process_identities[pgid], sig)
+            return
         for pid, start_time in _group_members(pgid):
             try:
                 descriptor = _pidfd_open(pid)
@@ -333,13 +389,16 @@ class PersistentMetaSandbox:
                 if process.poll() is None:
                     process.wait(timeout=10)
                 descriptor = self.process_groups.pop(pgid, None)
+                self.process_identities.pop(pgid, None)
                 if descriptor is not None:
                     os.close(descriptor)
         finally:
             self.processes.clear()
             for descriptor in self.process_groups.values():
-                os.close(descriptor)
+                if descriptor is not None:
+                    os.close(descriptor)
             self.process_groups.clear()
+            self.process_identities.clear()
             if self.transport is not None:
                 self.transport.close()
                 self.transport = None

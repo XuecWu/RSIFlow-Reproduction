@@ -266,6 +266,127 @@ def test_persistent_meta_uses_namespace_codex_and_closes_sandbox(tmp_path, monke
     assert created['server_closed'] is True and created['closed'] is True
 
 
+def test_start_failure_persists_selected_backend_before_server_start(tmp_path, monkeypatch):
+    import persistent_meta
+    import persistent_meta_sandbox
+
+    project = tmp_path / 'repository/RSIFlow'
+    project.mkdir(parents=True)
+    run = tmp_path / 'run'
+    session = run / 'meta_session'
+    session.mkdir(parents=True)
+    observed = []
+
+    class Sandbox:
+        def __init__(self, **kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    class Server:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            state_path = session / 'state.json'
+            observed.append(json.loads(state_path.read_text()) if state_path.exists() else {})
+            raise RuntimeError('controlled start failure')
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(persistent_meta_sandbox, 'PersistentMetaSandbox', Sandbox)
+    monkeypatch.setattr(persistent_meta, 'CodexAppServer', Server)
+    loop = persistent_meta.PersistentMeta(
+        project=project, run=run, codex_home=session / 'codex_home', executor=object(),
+        meta_config={'model': 'gpt-6-astra', 'provider': 'OpenAI'},
+        sandbox_backend='linux_bwrap_seccomp_v1',
+    )
+    with pytest.raises(RuntimeError, match='controlled start failure'):
+        loop.run_experiment('start')
+    assert observed[0]['sandbox_backend'] == 'linux_bwrap_seccomp_v1'
+    state = json.loads((session / 'state.json').read_text())
+    assert state['status'] == 'disconnected'
+    assert state['sandbox_backend'] == 'linux_bwrap_seccomp_v1'
+    assert state['last_error'] == 'RuntimeError: controlled start failure'
+
+
+def test_legacy_start_failure_persists_legacy_backend_before_server_start(tmp_path, monkeypatch):
+    import persistent_meta
+
+    project = tmp_path / 'repository/RSIFlow'
+    project.mkdir(parents=True)
+    run = tmp_path / 'run'
+    session = run / 'meta_session'
+    session.mkdir(parents=True)
+    observed = []
+
+    class Server:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            state_path = session / 'state.json'
+            observed.append(json.loads(state_path.read_text()) if state_path.exists() else {})
+            raise RuntimeError('controlled legacy start failure')
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(persistent_meta, 'CodexAppServer', Server)
+    loop = persistent_meta.PersistentMeta(
+        project=project, run=run, codex_home=session / 'codex_home', executor=object(),
+        meta_config={'model': 'gpt-6-astra', 'provider': 'OpenAI'}, sandbox_backend=None,
+    )
+    with pytest.raises(RuntimeError, match='controlled legacy start failure'):
+        loop.run_experiment('start')
+    assert observed[0]['sandbox_backend'] == 'legacy_host'
+    state = json.loads((session / 'state.json').read_text())
+    assert state['status'] == 'disconnected'
+    assert state['sandbox_backend'] == 'legacy_host'
+
+
+def test_legacy_resume_without_recorded_backend_stays_legacy(tmp_path, monkeypatch):
+    import persistent_meta
+
+    project = tmp_path / 'repository/RSIFlow'
+    project.mkdir(parents=True)
+    run = tmp_path / 'run'
+    session = run / 'meta_session'
+    session.mkdir(parents=True)
+    (session / 'state.json').write_text(json.dumps({
+        'transport': 'app_server', 'status': 'running', 'thread_id': 'thread-existing',
+    }))
+    requests = []
+
+    class Server:
+        def __init__(self, **kwargs):
+            self.process = type('Process', (), {'pid': 12345})()
+
+        def start(self):
+            return self
+
+        def request(self, method, params):
+            requests.append((method, params))
+            return {'thread': {'id': 'thread-existing'}}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(persistent_meta, 'CodexAppServer', Server)
+    loop = persistent_meta.PersistentMeta(
+        project=project, run=run, codex_home=session / 'codex_home', executor=object(),
+        meta_config={'model': 'gpt-6-astra', 'provider': 'OpenAI'}, sandbox_backend=None,
+    )
+    loop.tools.finished = True
+    result = loop.run_experiment('continue')
+    assert result['status'] == 'complete'
+    assert result['sandbox_backend'] == 'legacy_host'
+    assert requests[0][0] == 'thread/resume'
+    assert json.loads((session / 'state.json').read_text())['sandbox_backend'] == 'legacy_host'
+
+
 def test_bwrap_resume_rejects_missing_backend_before_server_construction(tmp_path, monkeypatch):
     import persistent_meta
 

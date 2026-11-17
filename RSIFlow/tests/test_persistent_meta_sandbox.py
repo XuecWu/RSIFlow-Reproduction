@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import json
 import os
@@ -384,6 +385,146 @@ def test_close_kills_descendants_after_group_leader_exits(tmp_path, monkeypatch)
     finally:
         if process_group_members(process.pid):
             os.killpg(process.pid, signal.SIGKILL)
+
+
+def test_enosys_fallback_close_signals_and_reaps_real_process_group(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    real_pidfd_open = sandbox_module._pidfd_open
+
+    def pidfd_unavailable(pid):
+        raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
+
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", pidfd_unavailable)
+    process = subprocess.Popen(
+        ["/bin/sh", "-c", "sleep 30 & wait"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        sandbox._track_process(process)
+        assert process.pid in process_group_members(process.pid)
+        sandbox.close()
+        assert process.poll() is not None
+        assert process_group_members(process.pid) == []
+        assert sandbox.processes == []
+        assert sandbox.process_groups == {}
+    finally:
+        if process_group_members(process.pid):
+            os.killpg(process.pid, signal.SIGKILL)
+        if process.poll() is None:
+            process.wait(timeout=5)
+        monkeypatch.setattr(sandbox_module, "_pidfd_open", real_pidfd_open)
+        sandbox.close()
+
+
+def test_non_enosys_pidfd_error_never_uses_proc_fallback(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    real_pidfd_open = sandbox_module._pidfd_open
+
+    def pidfd_denied(pid):
+        raise OSError(errno.EPERM, os.strerror(errno.EPERM))
+
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", pidfd_denied)
+    process = subprocess.Popen(
+        ["/bin/sh", "-c", "sleep 30 & wait"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        with pytest.raises(OSError) as caught:
+            sandbox._track_process(process)
+        assert caught.value.errno == errno.EPERM
+        assert process.poll() is None
+    finally:
+        monkeypatch.setattr(sandbox_module, "_pidfd_open", real_pidfd_open)
+        sandbox.close()
+        if process_group_members(process.pid):
+            os.killpg(process.pid, signal.SIGKILL)
+        if process.poll() is None:
+            process.wait(timeout=5)
+
+
+def test_enosys_fallback_rejects_changed_real_leader_identity(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    real_pidfd_open = sandbox_module._pidfd_open
+    real_stat = sandbox_module._process_group_stat
+
+    def pidfd_unavailable(pid):
+        raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
+
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", pidfd_unavailable)
+    process = subprocess.Popen(
+        ["/bin/sh", "-c", "sleep 30 & wait"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        sandbox._track_process(process)
+
+        def changed_leader_identity(pid):
+            current = real_stat(pid)
+            if pid == process.pid and current is not None:
+                return current[0], "different-start-ticks"
+            return current
+
+        monkeypatch.setattr(sandbox_module, "_process_group_stat", changed_leader_identity)
+        with pytest.raises(RuntimeError, match="leader identity"):
+            sandbox.close()
+        assert process.poll() is None
+        assert process.pid in process_group_members(process.pid)
+    finally:
+        monkeypatch.setattr(sandbox_module, "_process_group_stat", real_stat)
+        if process_group_members(process.pid):
+            os.killpg(process.pid, signal.SIGKILL)
+        if process.poll() is None:
+            process.wait(timeout=5)
+        monkeypatch.setattr(sandbox_module, "_pidfd_open", real_pidfd_open)
+        sandbox.close()
+
+
+def test_enosys_fallback_rejects_ambiguous_real_group_snapshot(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    real_pidfd_open = sandbox_module._pidfd_open
+    real_group_members = sandbox_module._group_members
+    real_kill = sandbox_module.os.kill
+
+    def pidfd_unavailable(pid):
+        raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
+
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", pidfd_unavailable)
+    process = subprocess.Popen(
+        ["/bin/sh", "-c", "sleep 30 & wait"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        sandbox._track_process(process)
+        members = real_group_members(process.pid)
+        snapshots = iter((members, [*members, (999999, "ambiguous-start")]))
+        signals = []
+        monkeypatch.setattr(sandbox_module, "_group_members", lambda pgid: next(snapshots))
+        monkeypatch.setattr(sandbox_module.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+        with pytest.raises(RuntimeError, match="ambiguous"):
+            sandbox._signal_group(process.pid, signal.SIGTERM)
+        assert signals == []
+        assert process.poll() is None
+    finally:
+        monkeypatch.setattr(sandbox_module, "_group_members", real_group_members)
+        monkeypatch.setattr(sandbox_module.os, "kill", real_kill)
+        if process_group_members(process.pid):
+            os.killpg(process.pid, signal.SIGKILL)
+        if process.poll() is None:
+            process.wait(timeout=5)
+        monkeypatch.setattr(sandbox_module, "_pidfd_open", real_pidfd_open)
+        sandbox.close()
 
 
 def test_group_signal_rejects_pid_reuse_before_signaling(tmp_path, monkeypatch):

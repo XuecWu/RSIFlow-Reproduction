@@ -592,6 +592,7 @@ class PersistentMeta:
         state = {**(previous if native else {}), 'transport': 'app_server', 'status': 'starting',
                  'launcher_pid': os.getpid(), 'workspace_root': str(self.workspace),
                  'capability_revision': 'native_coding_v1', 'interactive_chat': True,
+                 'sandbox_backend': self.sandbox_backend or 'legacy_host',
                  'chat_path': str(self.journal / 'chat')}
         if previous and not native:
             state['previous_thread_id'] = previous.get('thread_id')
@@ -627,11 +628,11 @@ class PersistentMeta:
                                 journal=self.journal / 'app_server', on_tool=self.tools,
                                 executable='/codex' if sandbox is not None else None,
                                 chat=ChatMailbox(self.journal / 'chat'), process_launcher=sandbox)
+        write_json(state_path, state)
         try:
             server.start()
             state['codex_pid'] = server.process.pid
             if sandbox is not None:
-                state['sandbox_backend'] = 'linux_bwrap_seccomp_v1'
                 write_json(self.journal / 'app_server/execution_host.json', sandbox.identity())
             parameters = native_thread_parameters(self.workspace, self.meta_config, self.policy)
             write_json(self.journal / 'app_server/thread_parameters.json', parameters)

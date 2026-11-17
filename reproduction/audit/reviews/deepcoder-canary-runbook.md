@@ -124,7 +124,7 @@ echo "Launcher supervision attempt $ATTEMPT returned $rc; reconcile jobs/app-ser
 
 ### 4.2 远端 detached，本机 monitor
 
-当前 CLI 虽有 `--detach`，但它创建的 child 会脱离启动命令。**禁止使用 `timeout 4h … --detach`**。以下方式不传给 launcher `--detach`，而用 `nohup setsid` 创建独立 session，并用 `timeout --foreground` 保持 wrapper、timeout 和 launcher 在同一个已记录 PGID。wrapper 捕获整组 TERM，使其在 timeout/launcher 退出后原子写本次 attempt 的 exit：
+当前 CLI 虽有 `--detach`，但它创建的 child 会脱离启动命令。**禁止使用 `timeout 4h … --detach`**。以下方式不传给 launcher `--detach`，而用 `nohup setsid` 创建独立 session，并用 `timeout --foreground` 保持 wrapper、timeout、直接 launcher 及其实际控制子进程在同一个已记录 PGID。**不假设 `--foreground` 递归杀子进程**：timeout 返回后，wrapper 先对同 PGID 做有界 TERM，再仅对重新核验 PID/PGID/start identity 的剩余成员逐个 KILL；调和器自身忽略 TERM，wrapper 保留 trap，因而能写 `reconcile.json` 和原始 launcher exit。独立 session durable jobs/services/app-server 不属于该 PGID，不在扫描或信号范围内：
 
 ```bash
 printf '%s\n' detached > "$ATTEMPT_DIR/kind"
@@ -136,6 +136,71 @@ nohup setsid bash -c '
     "$PYTHON" -u "$ROOT/RSIFlow_4B/launch.py" \
     --config "$CONFIG" --run-dir "$RUN_DIR"
   rc=$?
+
+  # timeout --foreground 只保证直接命令收到 timeout 信号，不假设递归终止其子进程。
+  # timeout 返回后，仅对已经验证的 launcher PGID 做有界 TERM/KILL 调和。
+  "$PYTHON" - "$ATTEMPT_DIR" "$$" 30 <<'PY'
+import json
+import os
+from pathlib import Path
+import signal
+import sys
+import time
+
+attempt_dir = Path(sys.argv[1])
+wrapper_pid = int(sys.argv[2])
+grace = float(sys.argv[3])
+helper_pid = os.getpid()
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+def members():
+    result = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+            pid = int(entry.name)
+            if (int(stat[2]) == wrapper_pid and stat[0] != "Z"
+                    and pid not in {wrapper_pid, helper_pid}):
+                result.append({"pid": pid, "start_ticks": stat[19]})
+        except (FileNotFoundError, PermissionError):
+            pass
+    return result
+
+initial = members()
+if initial:
+    os.killpg(wrapper_pid, signal.SIGTERM)
+deadline = time.monotonic() + grace
+while time.monotonic() < deadline and members():
+    time.sleep(0.05)
+remaining = members()
+killed = []
+for item in remaining:
+    try:
+        stat = Path(f"/proc/{item['pid']}/stat").read_text().rsplit(")", 1)[1].split()
+        if (int(stat[2]) == wrapper_pid and stat[19] == item["start_ticks"]
+                and stat[0] != "Z"):
+            os.kill(item["pid"], signal.SIGKILL)
+            killed.append(item["pid"])
+    except (FileNotFoundError, ProcessLookupError):
+        pass
+deadline = time.monotonic() + grace
+while time.monotonic() < deadline and members():
+    time.sleep(0.05)
+remaining = members()
+report = {"status": "complete" if not remaining else "failed",
+          "term_targets": [item["pid"] for item in initial],
+          "kill_targets": killed, "remaining": remaining}
+temporary = attempt_dir / "reconcile.json.tmp"
+temporary.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+os.replace(temporary, attempt_dir / "reconcile.json")
+raise SystemExit(bool(remaining))
+PY
+  reconcile_rc=$?
+  if [ "$reconcile_rc" -ne 0 ]; then
+    echo "Launcher PGID reconciliation failed; cleanup and resume remain blocked."
+  fi
   printf "%s\n" "$rc" > "$ATTEMPT_DIR/exit.tmp"
   mv "$ATTEMPT_DIR/exit.tmp" "$ATTEMPT_DIR/exit"
   exit "$rc"
@@ -202,7 +267,7 @@ ATTEMPT_DIR="$RUN_DIR/meta_session/supervision/$ATTEMPT"
 - `$RUN_DIR/round_1/`、`$RUN_DIR/snapshots/`、`$RUN_DIR/meta/skills.jsonl`、`$RUN_DIR/meta/context.json`：父子轨迹、decision/selection、候选、经验和快照。
 - `$OUTPUT_ROOT/services/four_gpu_services.json`：本 output root 拥有的四卡服务 registry。
 - `$ROOT/Meta_logs/deepcoder_function_16_canary_v1/`：集中 Meta 记录及部分到 Rollout_logs 的链接。
-- `$ATTEMPT_DIR/kind`、`identity.json`、`stop-requested`、`exit`：本次 launcher 监督状态。旧 attempt 的文件永不作为本次 exit。
+- `$ATTEMPT_DIR/kind`、`identity.json`、`stop-requested`、`reconcile.json`、`exit`：本次 launcher 监督与同 PGID 调和状态。旧 attempt 的文件永不作为本次 exit/reconcile。
 
 `launch_requested`、`already_running`、进程 alive、transport success 或 launcher exit 0 均不等于实验 PASS。完成至少需要 `state.json.status=complete`、`workflow_state.finish_allowed=true`、A0/B1 必需 milestones 齐全，并逐项复核真实回执。若 retain，必须有 terminal-retain 证据且没有后续 attempt/activation/validation；若 accept，必须有 Meta 显式选择和严格正增益的完整同批比较。模型失败、候选执行失败与 infrastructure error 分开报告。
 
@@ -214,9 +279,9 @@ ATTEMPT_DIR="$RUN_DIR/meta_session/supervision/$ATTEMPT"
 
 | 结束原因 | launcher / attempt | durable jobs | Meta app-server | owned service registry |
 | --- | --- | --- | --- | --- |
-| 正常完成 | 当前 attempt 有 exit；核对 state=complete 和完整回执，exit 0 单独不算 PASS | 每个 job 必须有自然最终 result/receipt；active/incomplete 则完成结论不成立并继续等待/调和 | 生产 `server.close()` 后核验记录的 Codex PID 已不存在；存活则 cleanup blocked | 核验预期绝对路径；已 stopped/无 registry 才可记对应清理事实，仍有 owned 服务则通过下方门后调用 `stop_services` |
-| launcher timeout | 当前 attempt exit 通常为 124/137；核验 PGID/launcher 已停 | 独立 session 可能继续运行；等待自然最终回执或用既有 identity-checked owner 调和，不能按 124 推断结束 | 另建 session，不能假定已停；检查 state 的 Codex PID，存活则 cleanup/resume blocked | 可能继续服务 durable job；job 未调和前不得停服务或记 cleanup completed |
-| 手动提前停止 | 先写当前 attempt `stop-requested`，核验 identity 后向记录的 PGID 发 TERM；等待当前 exit，探针语义为 143 | 与 timeout 相同；无安全取消时等待自然最终回执 | 与 timeout 相同，必须实际核验 | 与 timeout 相同；只有 launcher/app-server 停止且 jobs 全部调和后才可清理 |
+| 正常完成 | 当前 attempt 有 exit；detached 还须有 complete reconcile；核对 state=complete 和完整回执，exit 0 单独不算 PASS | 每个 job 必须有自然最终 result/receipt；active/incomplete 则完成结论不成立并继续等待/调和 | 生产 `server.close()` 后核验记录的 Codex PID 已不存在；存活则 cleanup blocked | 核验预期绝对路径；已 stopped/无 registry 才可记对应清理事实，仍有 owned 服务则通过下方门后调用 `stop_services` |
+| launcher timeout | 当前 attempt exit 通常为 124/137；wrapper 已做有界 PGID TERM/KILL，仍须核验 complete reconcile 和最终 PGID 为空 | 独立 session 可能继续运行；等待自然最终回执或用既有 identity-checked owner 调和，不能按 124 推断结束 | 另建 session，不能假定已停；检查 state 的 Codex PID，存活则 cleanup/resume blocked | 可能继续服务 durable job；job 未调和前不得停服务或记 cleanup completed |
+| 手动提前停止 | 先写当前 attempt `stop-requested`，核验 identity 后向记录的 PGID 发 TERM；等待 current exit 与 complete reconcile，探针语义为 143 | 与 timeout 相同；无安全取消时等待自然最终回执 | 与 timeout 相同，必须实际核验 | 与 timeout 相同；只有 launcher/app-server 停止且 jobs 全部调和后才可清理 |
 
 ### 6.1 手动停止 detached launcher
 
@@ -258,6 +323,7 @@ PY
 )"
 kill -TERM -- "-$SUPERVISOR_PID"
 "$PYTHON" - "$SUPERVISOR_PID" "$ATTEMPT_DIR" <<'PY'
+import json
 from pathlib import Path
 import sys
 import time
@@ -276,12 +342,16 @@ while time.monotonic() < deadline:
                 active.append(int(entry.name))
         except (FileNotFoundError, PermissionError):
             pass
-    if not active and (attempt_dir / "exit").is_file():
-        print(f"launcher PGID stopped; attempt exit={(attempt_dir / 'exit').read_text().strip()}")
+    reconcile_path = attempt_dir / "reconcile.json"
+    if not active and (attempt_dir / "exit").is_file() and reconcile_path.is_file():
+        reconciliation = json.loads(reconcile_path.read_text())
+        if reconciliation.get("status") != "complete" or reconciliation.get("remaining"):
+            raise RuntimeError("launcher PGID reconciliation did not complete")
+        print(f"launcher PGID stopped/reconciled; attempt exit={(attempt_dir / 'exit').read_text().strip()}")
         break
     time.sleep(0.5)
 else:
-    raise RuntimeError("launcher PGID/exit not reconciled; cleanup and resume remain forbidden")
+    raise RuntimeError("launcher PGID/exit/reconcile not complete; cleanup and resume remain forbidden")
 PY
 ```
 
@@ -335,6 +405,9 @@ def stat_for(pid):
     return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
 
 if kind == "detached":
+    reconciliation = json.loads((attempt_dir / "reconcile.json").read_text())
+    if reconciliation.get("status") != "complete" or reconciliation.get("remaining"):
+        raise RuntimeError("launcher PGID reconciliation incomplete; cleanup refused")
     identity = json.loads((attempt_dir / "identity.json").read_text())
     if identity["run_dir"] != str(run_dir) or identity["attempt_dir"] != str(attempt_dir):
         raise RuntimeError("cleanup supervisor identity path mismatch")
@@ -423,8 +496,8 @@ fi
 
 ## 7. Resume
 
-- Resume 使用**相同 reviewed code、相同 config、相同 run dir、相同 bwrap backend**，但每次必须递增 supervision attempt（如 `0002`），新建对应 `ATTEMPT_DIR` 并使用第 4.2 节的 detached supervisor 命令；不得复用/删除旧 `identity.json`、`exit` 或 `stop-requested`。monitor/cleanup 只接受当前 attempt 的状态。
-- 新 attempt 启动前核验上一 attempt exit、state、jobs、app-server 和 registry。launcher 或 Codex PID 仍存活时不得另起 attempt；`already_running` 不是完成。
+- Resume 使用**相同 reviewed code、相同 config、相同 run dir、相同 bwrap backend**，但每次必须递增 supervision attempt（如 `0002`），新建对应 `ATTEMPT_DIR` 并使用第 4.2 节的 detached supervisor 命令；不得复用/删除旧 `identity.json`、`reconcile.json`、`exit` 或 `stop-requested`。monitor/cleanup 只接受当前 attempt 的状态。
+- 新 attempt 启动前核验上一 attempt exit、complete reconcile、最终 PGID 为空、state、jobs、app-server 和 registry。launcher 或 Codex PID 仍存活时不得另起 attempt；`already_running` 不是完成。
 - Active durable job 必须等待自然最终回执，或由仍存在的既有 owner 通过生产 `job_status`/`wait_job` 和 start identity 调和。**未调和前禁止新 resume，也禁止 cleanup completed。** 没有安全取消机制时只等待，不发明 job kill。
 - 若所有 jobs 已有最终回执且 launcher/app-server 已停，可按生产恢复路径使用同一 thread/job 记录继续；不要重复 bootstrap、重复 rollout、重放 skill seed。registry 必须属于同一 output root 并明确是复用已验证服务还是已停止后恢复，不能在 active job 使用时清理。
 - 每次新 attempt 仍是新的 launcher 前台进程 4 小时监督边界，并需明确授权；它不自动限制独立 session 的 jobs/services/app-server。

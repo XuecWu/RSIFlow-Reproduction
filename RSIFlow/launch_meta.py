@@ -483,6 +483,64 @@ def experiment_prompt(config_path: Path, config: dict[str, Any], run_dir: Path) 
             "After the A0 snapshot start round 1; do not prepare or run A0 validation.")
         prompt = prompt.replace("Only after acceptance request prepare_validation_snapshot with",
                                 "Only after FINAL-round acceptance and snapshot request prepare_validation_snapshot with")
+    if config.get("evaluation_schedule") == "none":
+        prompt = prompt.replace(
+            "A0: freeze the initial Task/Meta state and complete independent baseline validation.",
+            "A0: freeze the initial Task/Meta state; do not run baseline validation.")
+        prompt = prompt.replace(
+            "record accept-or-retain and append experience. Rejection returns to component selection "
+            "on the same batch; acceptance leads to skills/context/snapshots, then report-only "
+            "independent validation.",
+            "record accept-or-retain and append experience. This single-domain engineering canary "
+            "allows one attempt. retain_parent is terminal: one rejected attempt is completed as "
+            "completed_retained after comparison, skills, context, and snapshot, without activation "
+            "or reselection. Do not create another attempt or run independent validation.")
+        prompt = prompt.replace(
+            "Begin with A0 independent evaluation if configured (A0 round=0).",
+            "Begin with the A0 snapshot only; do not run A0 evaluation.")
+        prompt = prompt.replace(
+            "After rejection keep the parent, read the failure evidence and choose again; reuse the unchanged parent "
+            "rollout and the same round_number, without running independent validation.",
+            "For retain_parent keep the current parent, append the attempt experience, update context and snapshot. "
+            "Do not choose again or create another attempt.")
+        prompt = prompt.replace(
+            "After acceptance run the configured independent validation for reporting only, then continue with the next round's fresh tasks.",
+            "After acceptance save the selected complete Task and finish; do not run post-acceptance evaluation.")
+        prompt = prompt.replace(
+            "Then prepare_validation_snapshot with task_state_path from its restorable_task_state_path, source_round_path=its receipt_path FILE, destination under snapshots_root and round=0, then evaluate.",
+            "After the A0 snapshot start round 1; do not prepare or run A0 validation.")
+        prompt = prompt.replace(
+            "Only after acceptance request prepare_validation_snapshot with "
+            "task_state_path=restorable_task_state_path from snapshot_task_meta, "
+            "source_round_path=the accepted attempt's selection.json FILE (not a directory), "
+            "destination, round and optional "
+            "meta_state_path; use its snapshot_path in evaluate. The evaluator "
+            "takes config_path and snapshot_path, with optional validation config "
+            "and manifest overrides; prepare_evaluation can inspect the budget.",
+            "Do not run A0 or 744 validation. Never request prepare_validation_snapshot or evaluate for this canary.")
+        prompt = prompt.replace(
+            "Call finish_experiment only after all configured rounds and available independent validations are complete.",
+            "Call finish_experiment after the one attempt has recorded its selection, skills, context and snapshot; "
+            "a retained attempt is completed_retained and no independent validation remains.")
+        prompt = prompt.replace(
+            "If rejected, keep the\n   parent and return to step 3 on this SAME round/batch; do not go to validation or the next round.",
+            "If rejected, keep the\n   parent and finish as completed_retained after skills, context, and snapshot; "
+            "do not reselect, validate, or start another attempt.")
+        prompt = prompt.replace(
+            "9. Run independent validation only when due under the configured evaluation schedule; for final_only, only after the final round.",
+            "9. Do not run independent validation in this no-validation canary.")
+        prompt = prompt.replace(
+            "10. Continue to the next round, carrying evidence and artifacts through the configured final stage.",
+            "10. Finish after the sole attempt's snapshot; there is no next round in this canary.")
+        prompt = prompt.replace(
+            "MODEL uses successful-parent SFT. Reuse unchanged parent results across rejected attempts.",
+            "MODEL uses successful-parent SFT.")
+        prompt = prompt.replace(
+            "never overwrite earlier attempts. No fixed retry count is imposed; Meta chooses again after rejection.",
+            "never overwrite the attempt record. The sole rejected attempt is terminal; Meta does not choose again.")
+        prompt = prompt.replace(
+            "After acceptance, activate and snapshot, independently validate only when due under the configured schedule, then advance to fresh next-round tasks.",
+            "After acceptance, activate and snapshot, then finish without independent validation or a next round.")
     return prompt
 
 
@@ -532,7 +590,8 @@ def main(argv: list[str] | None = None) -> int:
     policy_path = session_dir / "workflow_policy.json"
     if not policy_path.exists():
         policy_path.write_text(json.dumps({
-            "rounds": config.get("rounds", 3), "retry_rejected_from_round": 1,
+            "rounds": config.get("rounds", 3),
+            "retry_rejected_from_round": config.get("retry_rejected_from_round", 1),
             "evaluation_schedule": config.get("evaluation_schedule", "after_each_committed_round"),
         }, indent=2) + "\n", encoding="utf-8")
     if args.detach:

@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "runtime"))
 sys.path.insert(0, str(ROOT))
 
+from experiment_progress import ExperimentProgress
+from launch_meta import experiment_prompt, main
 from rsiflow.task_meta.data import DOMAINS
 from rsiflow.task_meta.pipeline import PipelineConfig, active_domains
 from rsiflow.task_meta.types import TaskAgentState
@@ -163,3 +165,139 @@ def test_canary_launcher_preserves_training_count_consistency(tmp_path, override
     config_path.write_text(json.dumps(value), encoding="utf-8")
     with pytest.raises(ValueError, match=message):
         TaskAdapter(ROOT, tmp_path / "receipts")._config({"config_path": str(config_path)})
+
+
+def test_canary_schedule_excludes_all_validation_milestones(tmp_path):
+    (tmp_path / "workflow_policy.json").write_text(json.dumps({
+        "rounds": 1, "evaluation_schedule": "none", "retry_rejected_from_round": 2,
+    }), encoding="utf-8")
+
+    state = ExperimentProgress(tmp_path, rounds=1).rebuild()
+
+    for stage in state["stages"]:
+        assert "validation_snapshot" not in stage["required_milestones"]
+        assert "independent_validation" not in stage["required_milestones"]
+    assert "one attempt" in state["mainline_goal"]
+    assert "completed_retained" in state["mainline_goal"]
+
+
+def test_final_only_schedule_retains_validation_milestones_only_at_b5(tmp_path):
+    (tmp_path / "workflow_policy.json").write_text(json.dumps({
+        "rounds": 5, "evaluation_schedule": "final_only",
+    }), encoding="utf-8")
+
+    state = ExperimentProgress(tmp_path, rounds=5).rebuild()
+
+    for stage in state["stages"]:
+        required = stage["required_milestones"]
+        if stage["id"] == "B5":
+            assert "validation_snapshot" in required
+            assert "independent_validation" in required
+        else:
+            assert "validation_snapshot" not in required
+            assert "independent_validation" not in required
+
+
+def test_canary_rejection_can_finish_without_reselection(tmp_path):
+    (tmp_path / "workflow_policy.json").write_text(json.dumps({
+        "rounds": 1, "evaluation_schedule": "none", "retry_rejected_from_round": 2}))
+    progress = ExperimentProgress(tmp_path, rounds=1)
+
+    def record(number, operation, round_number, **request):
+        turn = tmp_path / "turns" / f"{number:04d}"
+        turn.mkdir(parents=True)
+        request = {"operation": operation, "round_number": round_number, **request}
+        receipt = {"operation": operation, "status": {
+            "compare_scores": "compared", "snapshot_task_meta": "snapshotted"
+        }.get(operation, "completed")}
+        if operation == "sft":
+            receipt["candidate_state_path"] = str(tmp_path / "candidate.json")
+        if operation == "append_skills":
+            receipt["appended_count"] = 1
+        (turn / "command.json").write_text(json.dumps({"action": "tool", "request": request}))
+        (turn / "receipt.json").write_text(json.dumps(receipt))
+        progress.record_turn(turn)
+
+    operations = [
+        ("bootstrap", 0), ("snapshot_task_meta", 0),
+        ("run_parent", 1), ("prepare_meta_evidence", 1),
+        ("write_text", 1), ("sft", 1), ("run_candidate", 1),
+        ("compare_scores", 1), ("write_text", 1), ("append_skills", 1),
+        ("write_text", 1), ("snapshot_task_meta", 1),
+    ]
+    paths = {4: "round_1/attempts/attempt_1/decision.json",
+             8: "round_1/attempts/attempt_1/selection.json",
+             10: "meta/context.json"}
+    for index, (operation, round_number) in enumerate(operations):
+        extra = {"path": paths[index]} if index in paths else {}
+        if index == 8:
+            extra["content"] = json.dumps({"accept_or_retain": "retain_parent"})
+        record(index, operation, round_number, **extra)
+    assert progress.rebuild()["finish_allowed"] is True
+
+
+def test_canary_prompt_has_terminal_retain_and_no_validation_or_retry(tmp_path):
+    config = _canary_launcher_value(tmp_path)
+    config.update(evaluation_schedule="none", retry_rejected_from_round=2)
+
+    prompt = experiment_prompt(tmp_path / "launcher.json", config, tmp_path / "run")
+
+    assert "single-domain engineering canary" in prompt
+    assert "one attempt" in prompt
+    assert "retain_parent is terminal" in prompt
+    assert "completed_retained" in prompt
+    assert "without activation or reselection" in prompt
+    for forbidden in (
+        "complete independent baseline validation",
+        "Begin with A0 independent evaluation",
+        "round=0, then evaluate",
+        "After acceptance run the configured independent validation",
+        "Only after acceptance request prepare_validation_snapshot",
+        "Only after FINAL-round acceptance",
+        "744-task cohort",
+        "After rejection keep the parent, read the failure evidence and choose again",
+        "Rejection returns to component selection",
+        "return to step 3 on this SAME round/batch",
+        "Meta chooses again after rejection",
+        "Continue to the next round",
+        "then advance to fresh next-round tasks",
+        "Run independent validation only when due under the configured evaluation schedule",
+    ):
+        assert forbidden not in prompt
+
+
+@pytest.mark.parametrize("configured_retry, expected", [(2, 2), (None, 1)])
+def test_launcher_preserves_retry_boundary_and_defaults_to_one(
+        tmp_path, configured_retry, expected):
+    from unittest.mock import patch
+
+    value = _canary_launcher_value(tmp_path)
+    value["evaluation_schedule"] = "none"
+    if configured_retry is not None:
+        value["retry_rejected_from_round"] = configured_retry
+    config_path = tmp_path / f"launcher-{expected}.json"
+    config_path.write_text(json.dumps(value), encoding="utf-8")
+    run_dir = tmp_path / f"run-{expected}"
+
+    class FakeLoop:
+        def __init__(self, **kwargs):
+            pass
+
+        def run_experiment(self, prompt):
+            return {"status": "complete", "thread_id": "offline", "summary": "done"}
+
+    with (patch("launch_meta._autodl_key", return_value="offline-test"),
+          patch("launch_meta.prepare_meta_storage"),
+          patch("launch_meta.prepare_skills_path"),
+          patch("launch_meta.prepare_context_path"),
+          patch("launch_meta.prepare_codex_home", return_value=tmp_path / "codex-home"),
+          patch("launch_meta.SubprocessToolExecutor", return_value=object()),
+          patch("launch_meta.PersistentMeta", FakeLoop)):
+        assert main(["--config", str(config_path), "--run-dir", str(run_dir)]) == 0
+
+    policy = json.loads((run_dir / "meta_session/workflow_policy.json").read_text())
+    assert policy == {
+        "rounds": 1,
+        "retry_rejected_from_round": expected,
+        "evaluation_schedule": "none",
+    }

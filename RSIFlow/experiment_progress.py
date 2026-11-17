@@ -266,7 +266,9 @@ class ExperimentProgress:
         policy = _read_object(self.meta_session / "workflow_policy.json") or {}
         self.rounds = int(policy.get("rounds", self.rounds))
         stages = _stage_template(self.rounds)
-        final_only = policy.get('evaluation_schedule') == 'final_only'
+        evaluation_schedule = policy.get('evaluation_schedule')
+        final_only = evaluation_schedule == 'final_only'
+        no_validation = evaluation_schedule == 'none'
         if final_only:
             for stage in stages:
                 if stage['round'] != self.rounds:
@@ -276,6 +278,14 @@ class ExperimentProgress:
                     else f"Evolution round {stage['round']}: evolve Task and maintain skills; save the selected complete Task. "
                     + ('Then independently evaluate that final Task.' if stage['round'] == self.rounds
                        else 'Continue to the next fresh batch without independent evaluation.'))
+                _refresh_stage(stage)
+        if no_validation:
+            for stage in stages:
+                stage['required_milestones'] = [m for m in stage['required_milestones']
+                    if m not in {'validation_snapshot', 'independent_validation'}]
+                stage['purpose'] = ('Save initial Task/Meta state; no A0 evaluation.' if stage['round'] == 0
+                    else f"Evolution round {stage['round']}: run one attempt; retain_parent is terminal as "
+                    "completed_retained after comparison, skills, context, and snapshot, without activation or reselection.")
                 _refresh_stage(stage)
         retry_from = int(policy.get("retry_rejected_from_round", 1))
         by_round = {stage["round"]: stage for stage in stages}
@@ -388,8 +398,12 @@ class ExperimentProgress:
             "schema_version": SCHEMA_VERSION,
             "rounds": self.rounds,
             "retry_rejected_from_round": retry_from,
-            "mainline_goal": (f"Save A0, complete B1-B{self.rounds} with a snapshot each round, then independently evaluate ONLY the final selected complete Task."
-                              if final_only else MAINLINE_GOAL.format(rounds=self.rounds)),
+            "mainline_goal": (
+                "Complete the single-domain engineering canary with one attempt; a rejected attempt finishes as "
+                "completed_retained after comparison, skills, context, and snapshot, without independent validation."
+                if no_validation else
+                f"Save A0, complete B1-B{self.rounds} with a snapshot each round, then independently evaluate ONLY the final selected complete Task."
+                if final_only else MAINLINE_GOAL.format(rounds=self.rounds)),
             "current_stage": current["id"] if current else "COMPLETE",
             "current_stage_purpose": current["purpose"] if current else "All required stages are complete.",
             "next_milestone": current["remaining_milestones"][0] if current else None,

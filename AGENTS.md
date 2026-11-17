@@ -6,7 +6,7 @@
 
 RSI-Flow 用持久化 Meta agent 迭代改进 Task agent。Task 状态由模型 checkpoint、可执行 Harness 和任务 artifacts 组成；Meta 根据父代轨迹和既有经验，每次尝试只选择 HARNESS、MODEL、ARTIFACTS 之一构造一个候选，在同一轮完整任务集上配对评估，并明确决定接受候选还是保留父代。
 
-当前发布是 **skill-based variant**：Meta 的可执行程序固定，跨轮积累写入技能记忆。可执行 Meta-program evolution 变体和历史实验副本不在本发布中。4B/8B 入口共用代码和协议，仅 Qwen3 Task checkpoint 不同。
+当前发布是 **skill-based variant**：Meta 的实验方法论与验收协议固定，跨轮积累写入技能记忆；操作库不是封闭白名单，Meta 可按协议修复或新增 operation 并使用原生 Codex 工具，但不得自主改写核心实验与验收规则。可执行 Meta-program evolution 变体和历史实验副本不在本发布中。4B/8B 入口共用代码和协议，仅 Qwen3 Task checkpoint 不同。
 
 ## 2. 目录与职责
 
@@ -29,6 +29,7 @@ RSI-Flow 用持久化 Meta agent 迭代改进 Task agent。Task 状态由模型 
 - `third_party/`：评测工具与 Codex provenance；保留对应许可证和 notices。
 - `reproduction/PROGRESS.md`、`reproduction/REPRODUCTION.md`：复现进度与显式 bwrap 隔离/smoke 手册（命令与已接受证据）。
 - `reproduction/RETROSPECTIVE.md`：本次调研、隔离修复、SCO 排障与交付复盘——阶段历程与 ruling、真实证据与计数归属、失败根因（区分已确认根因与外部 provider/控制面故障）、可复用经验、五轮前置门与追踪方式。
+- `reproduction/LEARNING.md`：持续维护的 Task/Meta 机制学习问答与完整流程图；后续学习结论按主题更新，代码机制变化时与正文、图示和维护日志同步修订，不冒充实验结果报告。
 - `reproduction/audit/`：追加式 `operations.jsonl`/`key_results.jsonl`、`daily/`、`reviews/`、`evidence-hashes.json` 与 release 对账文件。**审计单根在主 checkout**；其他工作树内的同名账本可能已分叉（同号 sequence 不同语义），引用前需逐条对账，禁止覆盖或拼接。
 - `reproduction/scripts/`：`audit_exec.py`/`record_operation.py`/`record_result.py` 审计包装、`build_status.py` 过程页快照、`install_bwrap.py` 与各最小 smoke 入口。
 - `web/`：本次新增的中文调研/复现展示站、实际结果和操作日志。

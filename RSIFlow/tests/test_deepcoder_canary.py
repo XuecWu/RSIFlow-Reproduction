@@ -111,23 +111,55 @@ def test_task_adapter_executor_uses_code_only_domains(canary_config, tmp_path, m
     assert captured["expected_domains"] == ("code",)
 
 
-def test_task_adapter_config_passes_canary_scope(tmp_path, monkeypatch):
+def _canary_launcher_value(tmp_path):
     value = json.loads((ROOT / "configs/train_4b.json").read_text(encoding="utf-8"))
     value.update(
         output_root=str(tmp_path / "output"),
         experiment_scope="deepcoder_canary",
         scope_train_limit=16,
         scope_probe_limit=16,
+        rounds=1,
+        allocated_tasks=16,
+        training_tasks_per_pass=16,
+        train_quotas_per_round={
+            "envscaler": 0, "deepcoder_taco": 16, "hotpotqa": 0, "2wiki": 0,
+        },
     )
+    return value
+
+
+def test_task_adapter_config_passes_canary_scope(tmp_path):
+    value = _canary_launcher_value(tmp_path)
     config_path = tmp_path / "launcher.json"
     config_path.write_text(json.dumps(value), encoding="utf-8")
-    monkeypatch.setattr(
-        "evolution_protocol.training_quotas",
-        lambda value: {"envscaler": 0, "deepcoder_taco": 16},
-    )
     config = TaskAdapter(ROOT, tmp_path / "receipts")._config({"config_path": str(config_path)})
     assert config.experiment_scope == "deepcoder_canary"
     assert config.scope_train_limit == 16
     assert config.scope_probe_limit == 16
     assert config.window_quotas == CANARY_QUOTAS
+    assert config.round_protocol["train_quotas_per_round"] == CANARY_QUOTAS
+    assert config.max_generations == 1
     assert active_domains(config) == ("code",)
+
+
+@pytest.mark.parametrize("scope", ["multidomain", "envscaler_validation"])
+def test_non_canary_launcher_still_rejects_zero_source_quotas(tmp_path, scope):
+    value = _canary_launcher_value(tmp_path)
+    value["experiment_scope"] = scope
+    config_path = tmp_path / f"{scope}.json"
+    config_path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match="Training quotas must be positive integer task counts"):
+        TaskAdapter(ROOT, tmp_path / "receipts")._config({"config_path": str(config_path)})
+
+
+@pytest.mark.parametrize("override, message", [
+    ({"training_tasks_per_pass": 15}, "Training task count does not match source quotas"),
+    ({"rounds": 2}, "Disjoint round count must match allocated_tasks"),
+])
+def test_canary_launcher_preserves_training_count_consistency(tmp_path, override, message):
+    value = _canary_launcher_value(tmp_path)
+    value.update(override)
+    config_path = tmp_path / "inconsistent.json"
+    config_path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        TaskAdapter(ROOT, tmp_path / "receipts")._config({"config_path": str(config_path)})

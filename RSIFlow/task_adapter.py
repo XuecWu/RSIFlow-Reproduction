@@ -48,7 +48,16 @@ class TaskAdapter:
         runtime = self.project_root / value.get("runtime_source", "runtime")
         base = json.loads((runtime / value["base_config"]).read_text(encoding="utf-8"))
         from evolution_protocol import SFT_PRESET, training_quotas
-        source_quotas = training_quotas(value)
+        if value.get("experiment_scope") == "deepcoder_canary":
+            source_quotas = dict(value.get("train_quotas_per_round", {}))
+            training_quotas({
+                **value,
+                "train_quotas_per_round": {
+                    name: count for name, count in source_quotas.items() if count
+                },
+            })
+        else:
+            source_quotas = training_quotas(value)
         quotas = {"tool_use": source_quotas["envscaler"],
                   "code": source_quotas["deepcoder_taco"],
                   "searchqa": sum(count for name, count in source_quotas.items()

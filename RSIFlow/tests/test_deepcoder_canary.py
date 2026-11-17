@@ -17,6 +17,15 @@ from rsiflow.task_meta.pipeline import PipelineConfig, active_domains
 from rsiflow.task_meta.types import TaskAgentState
 from task_adapter import TaskAdapter
 
+PROJECT = ROOT.parent
+for entry in (PROJECT / "reproduction/scripts",):
+    if str(entry) not in sys.path:
+        sys.path.insert(0, str(entry))
+
+import prepare_deepcoder_canary as canary
+from data_protocol import public_text, text_hash
+from evolution_protocol import file_hash, fingerprint, freeze, make_manifest
+
 
 CANARY_QUOTAS = {"tool_use": 0, "code": 16, "searchqa": 0}
 
@@ -456,3 +465,161 @@ def test_real_native_tool_retain_response_uses_canary_reminder(tmp_path):
         _assert_canary_runtime_instructions(response)
     assert "Next required milestone: context_updated" in context_response
     assert "final handoff" in context_response
+
+
+def _canary_task(tmp_path, index, source="deepcoder_taco", interface="function"):
+    native_id = f"{source}-{interface}-{index}"
+    row = {"task_id": native_id, "prompt": f"def task_{index}():\n    ",
+           "problem": f"def task_{index}():\n    ", "interface": interface}
+    if source != "deepcoder_taco":
+        row = {"_id": native_id, "question": f"question {index}", "answer": "answer"}
+    pack = tmp_path / f"source/B1/{source}-{interface}-{index}.jsonl"
+    pack.parent.mkdir(parents=True, exist_ok=True)
+    payload = (json.dumps(row) + "\n").encode()
+    pack.write_bytes(payload)
+    task_id = f"{source}:{native_id}"
+    return {"source": source, "domain": "code" if source == "deepcoder_taco" else "searchqa",
+            "task_id": task_id, "native_id": native_id,
+            "content_hash": text_hash(public_text(row, source)),
+            "group_id": fingerprint([task_id]), "strata": {"interface": interface},
+            "version": "fixture-v1", "original_split": "train", "role": "train_evolution",
+            "round_id": 1, "purpose": "evolution_train", "exposure": "exposure_unknown",
+            "date": None, "record_file": str(pack), "record_offset": 0,
+            "record_length": len(payload), "record_sha256": file_hash(pack),
+            "source_sha256": file_hash(pack)}
+
+
+@pytest.fixture
+def release_world(tmp_path, monkeypatch):
+    monkeypatch.setattr(canary.smoke, "PROJECT", tmp_path)
+    (tmp_path / ".gitignore").write_text("**/logs/\n", encoding="utf-8")
+    tasks = []
+    for index in range(18):
+        tasks.append(_canary_task(tmp_path, index))
+        if index < 3:
+            tasks.append(_canary_task(tmp_path, index, interface="stdio"))
+            tasks.append(_canary_task(tmp_path, index, source="hotpotqa", interface=None))
+    parent = make_manifest("train_evolution", 1, tasks, split_seed=42)
+    parent_path = tmp_path / "source/B1/manifest.json"
+    freeze(parent_path, parent)
+    retrieval = tmp_path / "retrieval/search.sqlite"
+    retrieval.parent.mkdir(parents=True)
+    retrieval.write_bytes(b"fixture-retrieval")
+    freeze(retrieval.with_suffix(".sqlite.manifest.json"),
+           {"sha256": file_hash(retrieval), "sources": {}})
+    launcher_path = tmp_path / "launcher.json"
+    freeze(launcher_path, {"split_seed": 42, "retrieval_index": str(retrieval)})
+    return {"parent": parent, "parent_path": parent_path, "launcher_path": launcher_path,
+            "retrieval": retrieval}
+
+
+def test_selection_takes_first_sixteen_deepcoder_function_records(release_world):
+    selection = canary.select_deepcoder_function(release_world["parent"])
+    expected = [f"deepcoder_taco:deepcoder_taco-function-{index}" for index in range(16)]
+
+    assert selection["task_ids"] == expected
+    assert [task["task_id"] for task in selection["tasks"]] == expected
+    assert [record["task_id"] for record in selection["records"]] == expected
+    assert {task["source"] for task in selection["tasks"]} == {"deepcoder_taco"}
+    assert {task["strata"]["interface"] for task in selection["tasks"]} == {"function"}
+
+
+def test_selection_rejects_fewer_than_sixteen_eligible_records(release_world):
+    parent = dict(release_world["parent"])
+    parent["tasks"] = [task for task in parent["tasks"]
+                       if task["source"] == "deepcoder_taco"
+                       and task["strata"]["interface"] == "function"][:15]
+
+    with pytest.raises(ValueError, match="fewer than sixteen"):
+        canary.select_deepcoder_function(parent)
+
+
+def test_release_is_deterministic_and_preserves_source_bytes_and_hashes(release_world, tmp_path):
+    source_paths = {task["record_file"] for task in release_world["parent"]["tasks"]}
+    source_paths.update({str(release_world["retrieval"]),
+                         str(release_world["retrieval"].with_suffix(".sqlite.manifest.json"))})
+    hashes_before = {path: file_hash(Path(path)) for path in sorted(source_paths)}
+
+    first = canary.build_release(tmp_path / "logs/first", release_world["launcher_path"],
+                                 release_world["parent_path"])
+    second = canary.build_release(tmp_path / "logs/second", release_world["launcher_path"],
+                                  release_world["parent_path"])
+    hashes_after = {path: file_hash(Path(path)) for path in sorted(source_paths)}
+    release_tasks = json.loads(Path(first["release"]["manifest_path"]).read_text())["tasks"]
+    first_selection = json.loads((tmp_path / "logs/first/selection.json").read_text())
+    second_selection = json.loads((tmp_path / "logs/second/selection.json").read_text())
+    ready = json.loads((tmp_path / "logs/first/READY.json").read_text())
+
+    assert first["release"]["task_count"] == 16
+    assert {task["source"] for task in release_tasks} == {"deepcoder_taco"}
+    assert {task["strata"]["interface"] for task in release_tasks} == {"function"}
+    assert all(check["bytes_identical"] for check in first["release"]["record_checks"])
+    assert first["release"]["source_assets_unchanged"] is True
+    assert hashes_after == hashes_before
+    assert first["source_asset_hashes_before"] == hashes_before
+    assert first["source_asset_hashes_after"] == hashes_before
+    assert first_selection["task_ids"] == second_selection["task_ids"]
+    assert [task["content_hash"] for task in first_selection["tasks"]] == [
+        task["content_hash"] for task in second_selection["tasks"]]
+    assert first_selection["rule"] == second_selection["rule"] == canary.SELECTION_RULE
+    assert (tmp_path / "logs/first/selection.json").read_bytes() == (
+        tmp_path / "logs/second/selection.json").read_bytes()
+    assert ready["smoke_only"] is True
+    assert ready["feedback_role"] == "train_evolution"
+    assert ready["explicit_full_benchmark"] is False
+    assert ready["model_calls"] == 0
+
+
+def test_release_refuses_existing_or_symlink_output_root(release_world, tmp_path):
+    existing = tmp_path / "logs/existing"
+    existing.mkdir(parents=True)
+    with pytest.raises(canary.SmokeBlocked, match="must not exist"):
+        canary.build_release(existing, release_world["launcher_path"], release_world["parent_path"])
+
+    linked = tmp_path / "logs/linked"
+    linked.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(canary.SmokeBlocked, match="must not be a symlink"):
+        canary.build_release(linked, release_world["launcher_path"], release_world["parent_path"])
+
+
+def test_machine_config_changes_only_canary_fields_and_is_accepted(tmp_path):
+    parent_path = PROJECT / "reproduction/configs/train_4b_v5.json"
+    canary_path = PROJECT / "reproduction/configs/train_4b_deepcoder_canary.json"
+    parent = json.loads(parent_path.read_text())
+    value = json.loads(canary_path.read_text())
+    expected = {
+        "rounds": 1,
+        "allocated_tasks": 16,
+        "training_tasks_per_pass": 16,
+        "train_quotas_per_round": {
+            "envscaler": 0, "deepcoder_taco": 16, "hotpotqa": 0, "2wiki": 0,
+        },
+        "experiment_scope": "deepcoder_canary",
+        "evaluation_schedule": "none",
+        "retry_rejected_from_round": 2,
+        "scope_train_limit": 16,
+        "scope_probe_limit": 16,
+        "meta_skill_seed_path": None,
+        "data_release": "deepcoder_function_16_canary_v1",
+        "frozen_data_dir": str(PROJECT / "reproduction/logs/deepcoder-canary-16-v1/release"),
+        "output_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/Rollout_logs/deepcoder_canary_16_v1",
+        "run_name": "deepcoder_function_16_canary_v1",
+    }
+
+    assert {key: value[key] for key in expected} == expected
+    assert set(value) == set(parent) | {"experiment_scope", "retry_rejected_from_round",
+                                       "scope_train_limit", "scope_probe_limit"}
+    for key in set(parent) - set(expected):
+        assert value[key] == parent[key]
+    assert value["output_root"] != parent["output_root"]
+    assert value["run_name"] != parent["run_name"]
+
+    adapter = TaskAdapter(ROOT, tmp_path / "receipts")
+    effective = adapter._config({"config_path": str(canary_path)})
+    parent_effective = adapter._config({"config_path": str(parent_path)})
+    assert effective.window_quotas == CANARY_QUOTAS
+    assert active_domains(effective) == ("code",)
+    assert effective.task_checkpoint == parent_effective.task_checkpoint
+    assert effective.meta == parent_effective.meta
+    assert effective.training == parent_effective.training
+    assert effective.seed == parent_effective.seed == 42

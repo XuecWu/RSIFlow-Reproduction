@@ -6,6 +6,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 from typing import ClassVar
@@ -387,6 +388,98 @@ def test_close_kills_descendants_after_group_leader_exits(tmp_path, monkeypatch)
             os.killpg(process.pid, signal.SIGKILL)
 
 
+def process_stat_text(*, state="S", pgid=123, start="456"):
+    fields = [state, "0", str(pgid), "0", *(["0"] * 15), start]
+    return f"123 (worker) {' '.join(fields)}\n"
+
+
+@pytest.mark.parametrize("error_number", [errno.EIO, errno.ESRCH, errno.EPERM])
+def test_process_group_stat_unknown_oserror_is_not_process_exit(monkeypatch, error_number):
+    def fail_read(self):
+        raise OSError(error_number, os.strerror(error_number))
+
+    monkeypatch.setattr(Path, "read_text", fail_read)
+    with pytest.raises(OSError) as caught:
+        sandbox_module._process_group_stat(123)
+    assert caught.value.errno == error_number
+
+
+def test_process_group_stat_only_enoent_is_missing_process(monkeypatch):
+    def missing_read(self):
+        raise OSError(errno.ENOENT, os.strerror(errno.ENOENT))
+
+    monkeypatch.setattr(Path, "read_text", missing_read)
+    assert sandbox_module._process_group_stat(123) is None
+
+
+def test_process_group_stat_zombie_is_confirmed_exit(monkeypatch):
+    monkeypatch.setattr(Path, "read_text", lambda self: process_stat_text(state="Z"))
+    assert sandbox_module._process_group_stat(123) is None
+
+
+@pytest.mark.parametrize(
+    "contents,expected_error",
+    [("malformed-stat\n", IndexError), (process_stat_text(pgid="invalid"), ValueError)],
+)
+def test_process_group_stat_parse_errors_fail_closed(monkeypatch, contents, expected_error):
+    monkeypatch.setattr(Path, "read_text", lambda self: contents)
+    with pytest.raises(expected_error):
+        sandbox_module._process_group_stat(123)
+
+
+def fake_proc_stat_path(monkeypatch):
+    stat_path = Path("/proc/123/stat")
+    monkeypatch.setattr(Path, "glob", lambda self, pattern: [stat_path])
+    return stat_path
+
+
+@pytest.mark.parametrize("error_number", [errno.EIO, errno.ESRCH, errno.EPERM])
+def test_group_scan_unknown_oserror_is_not_skipped(monkeypatch, error_number):
+    fake_proc_stat_path(monkeypatch)
+
+    def fail_read(self):
+        raise OSError(error_number, os.strerror(error_number))
+
+    monkeypatch.setattr(Path, "read_text", fail_read)
+    with pytest.raises(OSError) as caught:
+        sandbox_module._group_members(123)
+    assert caught.value.errno == error_number
+
+
+def test_group_scan_parse_error_is_not_skipped(monkeypatch):
+    fake_proc_stat_path(monkeypatch)
+    monkeypatch.setattr(Path, "read_text", lambda self: "malformed-stat\n")
+    with pytest.raises(IndexError):
+        sandbox_module._group_members(123)
+
+
+def test_group_scan_enoent_is_an_exit_race(monkeypatch):
+    fake_proc_stat_path(monkeypatch)
+
+    def missing_read(self):
+        raise OSError(errno.ENOENT, os.strerror(errno.ENOENT))
+
+    monkeypatch.setattr(Path, "read_text", missing_read)
+    assert sandbox_module._group_members(123) == []
+
+
+def test_enosys_fallback_group_scan_error_prevents_all_signals(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    sandbox.process_identities[43210] = "leader-start"
+    signals = []
+    monkeypatch.setattr(sandbox_module, "_process_group_stat", lambda pid: None)
+
+    def failed_scan(pgid):
+        raise OSError(errno.EIO, os.strerror(errno.EIO))
+
+    monkeypatch.setattr(sandbox_module, "_group_members", failed_scan)
+    monkeypatch.setattr(sandbox_module.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    with pytest.raises(OSError) as caught:
+        sandbox._signal_group(43210, signal.SIGTERM)
+    assert caught.value.errno == errno.EIO
+    assert signals == []
+
+
 def test_enosys_fallback_close_signals_and_reaps_real_process_group(tmp_path, monkeypatch):
     sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
     real_pidfd_open = sandbox_module._pidfd_open
@@ -410,6 +503,7 @@ def test_enosys_fallback_close_signals_and_reaps_real_process_group(tmp_path, mo
         assert process_group_members(process.pid) == []
         assert sandbox.processes == []
         assert sandbox.process_groups == {}
+        assert sandbox.process_identities == {}
     finally:
         if process_group_members(process.pid):
             os.killpg(process.pid, signal.SIGKILL)
@@ -525,6 +619,201 @@ def test_enosys_fallback_rejects_ambiguous_real_group_snapshot(tmp_path, monkeyp
             process.wait(timeout=5)
         monkeypatch.setattr(sandbox_module, "_pidfd_open", real_pidfd_open)
         sandbox.close()
+
+
+def test_enosys_fallback_reaps_exited_leader_and_kills_real_descendants(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    real_pidfd_open = sandbox_module._pidfd_open
+
+    def pidfd_unavailable(pid):
+        raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
+
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", pidfd_unavailable)
+    ready = tmp_path / "descendant-ready"
+    release = tmp_path / "release-leader"
+    process = subprocess.Popen(
+        [sys.executable, "-c",
+         "import subprocess, sys, time\n"
+         "from pathlib import Path\n"
+         "child = subprocess.Popen(['sleep', '30'])\n"
+         "Path(sys.argv[1]).write_text(str(child.pid))\n"
+         "while not Path(sys.argv[2]).exists(): time.sleep(.01)\n",
+         str(ready), str(release)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
+        descendant = int(ready.read_text())
+        sandbox._track_process(process)
+        release.touch()
+        deadline = time.monotonic() + 5
+        while sandbox_module._process_group_stat(process.pid) is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert sandbox_module._process_group_stat(process.pid) is None
+        assert process.returncode is None
+        assert descendant in process_group_members(process.pid)
+        sandbox.close()
+        assert process.returncode is not None
+        assert process_group_members(process.pid) == []
+        assert sandbox.processes == []
+        assert sandbox.process_groups == {}
+        assert sandbox.process_identities == {}
+    finally:
+        if process_group_members(process.pid):
+            os.killpg(process.pid, signal.SIGKILL)
+        if process.poll() is None:
+            process.wait(timeout=5)
+        monkeypatch.setattr(sandbox_module, "_pidfd_open", real_pidfd_open)
+        sandbox.close()
+
+
+def test_enosys_fallback_real_term_timeout_escalates_to_kill_and_reaps(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    real_pidfd_open = sandbox_module._pidfd_open
+    real_time = sandbox_module.time
+
+    def pidfd_unavailable(pid):
+        raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
+
+    monkeypatch.setattr(sandbox_module, "_pidfd_open", pidfd_unavailable)
+    ready = tmp_path / "term-ignored"
+    process = subprocess.Popen(
+        [sys.executable, "-c",
+         "import signal, sys, time\n"
+         "from pathlib import Path\n"
+         "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+         "Path(sys.argv[1]).touch()\n"
+         "while True: time.sleep(1)\n",
+         str(ready)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    ticks = iter(range(0, 1000, 11))
+
+    class DeterministicClock:
+        @staticmethod
+        def monotonic():
+            return next(ticks)
+
+        @staticmethod
+        def sleep(seconds):
+            pass
+
+    try:
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
+        sandbox._track_process(process)
+        monkeypatch.setattr(sandbox_module, "time", DeterministicClock)
+        sandbox.close()
+        assert process.returncode == -signal.SIGKILL
+        assert process_group_members(process.pid) == []
+        assert sandbox.processes == []
+        assert sandbox.process_groups == {}
+        assert sandbox.process_identities == {}
+    finally:
+        monkeypatch.setattr(sandbox_module, "time", real_time)
+        if process_group_members(process.pid):
+            os.killpg(process.pid, signal.SIGKILL)
+        if process.poll() is None:
+            process.wait(timeout=5)
+        monkeypatch.setattr(sandbox_module, "_pidfd_open", real_pidfd_open)
+        sandbox.close()
+
+
+def test_enosys_fallback_member_prekill_identity_change_has_zero_targets(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    pgid = 43210
+    member = 43211
+    sandbox.process_identities[pgid] = "leader-start"
+    monkeypatch.setattr(
+        sandbox_module, "_group_members", lambda value: [(member, "member-start")],
+    )
+    member_identities = iter(((pgid, "member-start"), (pgid, "reused-start")))
+
+    def stat(pid):
+        if pid == pgid:
+            return None
+        assert pid == member
+        return next(member_identities)
+
+    signals = []
+    monkeypatch.setattr(sandbox_module, "_process_group_stat", stat)
+    monkeypatch.setattr(sandbox_module.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    with pytest.raises(RuntimeError, match="identity changed"):
+        sandbox._signal_group(pgid, signal.SIGTERM)
+    assert signals == []
+
+
+def test_enosys_fallback_member_confirmed_exit_is_skipped(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    pgid = 43210
+    member = 43211
+    sandbox.process_identities[pgid] = "leader-start"
+    snapshots = iter(([(member, "member-start")], [], []))
+    monkeypatch.setattr(sandbox_module, "_group_members", lambda value: next(snapshots))
+    monkeypatch.setattr(sandbox_module, "_process_group_stat", lambda pid: None)
+    signals = []
+    monkeypatch.setattr(sandbox_module.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    sandbox._signal_group(pgid, signal.SIGTERM)
+    assert signals == []
+
+
+def test_enosys_fallback_member_kill_esrch_is_an_exit_race(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    pgid = 43210
+    member = 43211
+    sandbox.process_identities[pgid] = "leader-start"
+    monkeypatch.setattr(
+        sandbox_module, "_group_members", lambda value: [(member, "member-start")],
+    )
+
+    def stat(pid):
+        return None if pid == pgid else (pgid, "member-start")
+
+    def exited(pid, sig):
+        raise OSError(errno.ESRCH, os.strerror(errno.ESRCH))
+
+    monkeypatch.setattr(sandbox_module, "_process_group_stat", stat)
+    monkeypatch.setattr(sandbox_module.os, "kill", exited)
+    sandbox._signal_group(pgid, signal.SIGTERM)
+
+
+def test_enosys_fallback_post_signal_new_member_is_reconcilable(tmp_path, monkeypatch):
+    sandbox, _, _ = make_meta_sandbox(tmp_path, monkeypatch)
+    pgid = 43210
+    new_member = 43211
+    leader = (pgid, "leader-start")
+    sandbox.process_identities[pgid] = "leader-start"
+    sandbox.process_groups[pgid] = None
+
+    class Process:
+        pid = pgid
+
+        def poll(self):
+            raise AssertionError("post-signal ambiguity must interrupt close before wait")
+
+    sandbox.processes.append(Process())
+    snapshots = iter(([leader], [leader], [leader, (new_member, "new-start")]))
+    signals = []
+    monkeypatch.setattr(sandbox_module, "_group_members", lambda value: next(snapshots))
+    monkeypatch.setattr(sandbox_module, "_process_group_stat", lambda pid: leader)
+    monkeypatch.setattr(sandbox_module.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    with pytest.raises(RuntimeError, match="after signal"):
+        sandbox.close()
+    assert signals == [(pgid, signal.SIGTERM)]
+    assert sandbox.processes == []
+    assert sandbox.process_groups == {}
+    assert sandbox.process_identities == {}
 
 
 def test_group_signal_rejects_pid_reuse_before_signaling(tmp_path, monkeypatch):

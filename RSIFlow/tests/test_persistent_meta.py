@@ -387,7 +387,45 @@ def test_legacy_resume_without_recorded_backend_stays_legacy(tmp_path, monkeypat
     assert json.loads((session / 'state.json').read_text())['sandbox_backend'] == 'legacy_host'
 
 
-def test_bwrap_resume_rejects_missing_backend_before_server_construction(tmp_path, monkeypatch):
+def test_bwrap_resume_rejects_legacy_state_missing_backend_before_any_construction(tmp_path, monkeypatch):
+    import persistent_meta
+    import persistent_meta_sandbox
+
+    project = tmp_path / 'repository/RSIFlow'
+    project.mkdir(parents=True)
+    run = tmp_path / 'run'
+    session = run / 'meta_session'
+    session.mkdir(parents=True)
+    state_path = session / 'state.json'
+    original = json.dumps({
+        'transport': 'app_server', 'status': 'disconnected', 'thread_id': None,
+        'last_error': 'OSError: [Errno 38] Function not implemented',
+    }) + '\n'
+    state_path.write_text(original)
+    constructed = []
+
+    class Server:
+        def __init__(self, **kwargs):
+            constructed.append(('server', kwargs))
+
+    class Sandbox:
+        def __init__(self, **kwargs):
+            constructed.append(('sandbox', kwargs))
+
+    monkeypatch.setattr(persistent_meta, 'CodexAppServer', Server)
+    monkeypatch.setattr(persistent_meta_sandbox, 'PersistentMetaSandbox', Sandbox)
+    loop = persistent_meta.PersistentMeta(
+        project=project, run=run, codex_home=session / 'codex_home', executor=object(),
+        meta_config={'model': 'gpt-6-astra', 'provider': 'OpenAI'},
+        sandbox_backend='linux_bwrap_seccomp_v1',
+    )
+    with pytest.raises(RuntimeError, match='recorded=legacy_host, selected=linux_bwrap_seccomp_v1'):
+        loop.run_experiment('continue')
+    assert constructed == []
+    assert state_path.read_text() == original
+
+
+def test_legacy_resume_rejects_recorded_bwrap_before_server_construction(tmp_path, monkeypatch):
     import persistent_meta
 
     project = tmp_path / 'repository/RSIFlow'

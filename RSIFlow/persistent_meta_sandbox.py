@@ -31,26 +31,36 @@ _LIBC = ctypes.CDLL(None, use_errno=True)
 _LIBC.syscall.restype = ctypes.c_long
 
 
+def _parse_process_group_stat(contents):
+    fields = contents.rsplit(")", 1)[1].split()
+    if fields[0] == "Z":
+        return None
+    return int(fields[2]), fields[19]
+
+
 def _process_group_stat(pid):
     try:
-        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        if fields[0] == "Z":
+        contents = Path(f"/proc/{pid}/stat").read_text()
+    except OSError as exc:
+        if exc.errno == errno.ENOENT:
             return None
-        return int(fields[2]), fields[19]
-    except (OSError, IndexError, ValueError):
-        return None
+        raise
+    return _parse_process_group_stat(contents)
 
 
 def _group_members(pgid):
     members = []
     for path in Path("/proc").glob("[0-9]*/stat"):
+        pid = int(path.parent.name)
         try:
-            pid = int(path.parent.name)
-            fields = path.read_text().rsplit(")", 1)[1].split()
-            if int(fields[2]) == pgid and fields[0] != "Z":
-                members.append((pid, fields[19]))
-        except (OSError, IndexError, ValueError):
-            continue
+            contents = path.read_text()
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                continue
+            raise
+        identity = _parse_process_group_stat(contents)
+        if identity is not None and identity[0] == pgid:
+            members.append((pid, identity[1]))
     return members
 
 
@@ -326,19 +336,31 @@ class PersistentMetaSandbox:
         members = set(listed)
         if len(members) != len(listed):
             raise RuntimeError("ambiguous process group membership")
-        expected = {pid: (pgid, start_time) for pid, start_time in members}
-        for pid, identity in expected.items():
-            if _process_group_stat(pid) != identity:
+        expected = {}
+        for pid, start_time in members:
+            identity = (pgid, start_time)
+            current = _process_group_stat(pid)
+            if current is None:
+                continue
+            if current != identity:
                 raise RuntimeError("process is not in the owned group or its identity changed")
-        if set(_group_members(pgid)) != members:
+            expected[pid] = identity
+        second_listed = _group_members(pgid)
+        second = set(second_listed)
+        if (len(second) != len(second_listed) or not second.issubset(members)
+                or any(pid not in expected for pid, _ in second)):
             raise RuntimeError("ambiguous process group membership snapshot")
+        expected = {pid: expected[pid] for pid, _ in second}
         check_leader()
+        targets = []
         for pid, identity in expected.items():
             current = _process_group_stat(pid)
             if current is None:
                 continue
             if current != identity:
                 raise RuntimeError("process is not in the owned group or its identity changed")
+            targets.append((pid, identity))
+        for pid, identity in targets:
             try:
                 os.kill(pid, sig)
             except OSError as exc:

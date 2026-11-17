@@ -801,6 +801,9 @@ def execute_rollout(output_root):
         cleanup = {"services_stopped": False, "error": "cleanup not reached"}
         try:
             with _signal_guard():
+                if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != "linux_bwrap_seccomp_v1":
+                    raise SmokeBlocked(
+                        "Real execution requires explicit RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1")
                 adapter = TaskAdapter(plan_receipt["project_root"], root / "receipts")
                 run_dir = root / "runs/training_side_smoke"
                 state_path = run_dir / "a0.json"

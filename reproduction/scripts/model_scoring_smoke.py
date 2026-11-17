@@ -204,7 +204,8 @@ def freeze_smoke_task(root, config, *, parent_manifest_hash, subset_hash, settin
                 "smoke-only initial state, not a formal round snapshot.",
     })
     binding = {
-        "task_state": str(state_path), "state_hash": task_hash(load_task(json.loads(state_path.read_text()))),
+        "task_state": asdict(state), "task_state_path": str(state_path),
+        "state_hash": task_hash(state),
         "checkpoint_files": weights, "task_harness_identity": load_manifest(SEED_HARNESS).identity,
         "protocol_hash": file_hash(source_round_path), "status": "frozen_for_report_eval",
         "selection": {"rule": "predeclared_deterministic_smoke_subset_without_external_score_selection", "round": 0},

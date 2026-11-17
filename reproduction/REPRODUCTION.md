@@ -224,9 +224,9 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" \
 - 是否把五轮运行配置切换到 v5 由 controller 决定；`train_4b.json` 与 v4 目录本次未改。
 - 迁移回执与逐条 old→new 清单见 `reproduction/audit/reviews/bfcl-v5-report.md`。
 
-## 10. 训练侧最小真实 smoke（已实现并离线 plan，真实 GPU 阶段待单独授权）
+## 10. 训练侧最小真实 smoke（首轮真实失败已诊断，等待修复后重跑）
 
-独立 runner `reproduction/scripts/training_side_smoke.py` 用**五条固定 mini-B1 任务**原样复用生产 `TaskAdapter.bootstrap/rollout/sft` 与四卡 GPU 相位，验证真实训练控制流；**不调用 `pipeline.run()`/Meta，不接受候选，不写正式 round complete 或 694 标记**。离线回归 `RSIFlow/tests/test_training_side_smoke.py`（**88 项**生产合同测试，含 mutation + legacy-contract RED + 真实进程树信号/`/proc` 归属测试；临时 fixture + mock，无 GPU/模型/API/SCO）。fix round 1 关闭 10 项、round 2 关闭 5 项、round 3 关闭 3+1 项；fix round 4 再关闭 re-review 两项：采样证据强制对账（`sft_selection.json`/`sft_positive.jsonl` 缺失/空、input/unique/positive_trajectories 不一致均 problem，禁止跳过）；discovery 扫描**所有存活进程**（不限组长），从存活 rank 的实际 cmdline + root request-dir 发现 PGID 并核验整组归属后清理，覆盖 leader 已退+无 receipt 组合与外部 rank 拒杀。详见 `reproduction/audit/reviews/training-side-smoke-report.md` §8–§11。
+独立 runner `reproduction/scripts/training_side_smoke.py` 用**五条固定 mini-B1 任务**原样复用生产 `TaskAdapter.bootstrap/rollout/sft` 与四卡 GPU 相位，验证真实训练控制流；**不调用 `pipeline.run()`/Meta，不接受候选，不写正式 round complete 或 694 标记**。离线回归 `RSIFlow/tests/test_training_side_smoke.py` 覆盖生产合同、mutation、legacy-contract RED 与真实进程树信号/`/proc` 归属测试；临时 fixture + mock，无 GPU/模型/API/SCO。真实首轮 S1 `pt-ave60pvr` 因遗漏显式 bwrap 环境进入 legacy Landlock 而 incomplete，未产生 rollout/正例结论；fix 1 已在 bootstrap/service 前增加后端门，详见 `reproduction/audit/reviews/real-preflight-fix1-report.md`。
 
 五个子命令与阶段门：
 
@@ -235,6 +235,7 @@ plan -> execute-rollout -> execute-sft -> execute-recovery -> status
 ```
 
 - **只有 `plan` 创建输出根**，且必须是 PROJECT 内、尚不存在、Git 忽略的新目录（优先 `git check-ignore`，git 不可用时保守 `.gitignore` 祖先规则）；plan **无任何模型/服务调用**。
+- 真实 `execute-rollout` 必须显式设置 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1`；缺失或错误时在 `TaskAdapter`、bootstrap 和服务副作用之前 fail closed，不得回退 legacy Landlock。
 - 每阶段不可变 receipt + stage lock（`O_EXCL`，禁止并发）+ 代码/config/selection/manifest/base-checkpoint 哈希绑定；绑定不符或存在 `started` 而无 final receipt → `requires_audit`，**不静默重跑、不删除重来**；final receipt 已存在 → 只校验并返回 `already_completed`。
 - 选择规则（看模型结果前固定）：按冻结 parent B1 原顺序取第一条 EnvScaler、DeepCoder/TACO STDIO、DeepCoder/TACO function、HotpotQA、2Wiki，恰好 5 个唯一 task；缺类/重复/空记录/错误 role/hash/offset 一律 fail closed；**禁止看结果换题**。
 - mini release 用原 `repack`/`native_index` 复制真实 record bytes，回读校验偏移/长度/哈希，并确认原 B1 pack 与检索索引哈希未变；`tasks.sqlite` 只含 5 条 `evolve_train`。

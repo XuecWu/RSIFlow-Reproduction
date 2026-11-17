@@ -91,6 +91,7 @@ def _reset_control():
 @pytest.fixture(autouse=True)
 def _project_root(tmp_path, monkeypatch):
     monkeypatch.setattr(smoke, "PROJECT", tmp_path)
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
     (tmp_path / ".gitignore").write_text("**/logs/\n", encoding="utf-8")
 
 
@@ -488,6 +489,21 @@ def test_effective_config_smoke_sized_and_preset(world, tmp_path):
 
 
 # --- 2. production rollout persisted receipts ---------------------------------
+
+def test_rollout_requires_explicit_bwrap_before_bootstrap(world, tmp_path, monkeypatch):
+    receipt = _plan(world, tmp_path)
+    monkeypatch.delenv("RSIFLOW_SANDBOX_BACKEND")
+
+    class ForbiddenAdapter:
+        def __init__(self, *args, **kwargs):
+            pytest.fail("TaskAdapter must not be constructed without the explicit bwrap backend")
+
+    monkeypatch.setattr(smoke, "TaskAdapter", ForbiddenAdapter)
+    monkeypatch.setattr(smoke, "ensure_services", lambda *a, **k: pytest.fail("service side effect"))
+    result = smoke.execute_rollout(Path(receipt["output_root"]))
+    assert result["status"] == "incomplete"
+    assert "requires explicit RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1" in result["error"]
+
 
 def test_rollout_accepts_production_rows_without_trajectory_path(world, tmp_path, monkeypatch):
     receipt, calls, result = _run_rollout(world, tmp_path, monkeypatch)

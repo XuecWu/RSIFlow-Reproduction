@@ -291,9 +291,13 @@ def test_binding_and_snapshot_are_smoke_only_and_bind_parent_manifest(tmp_path, 
     assert binding["manifest_hash"] == parent.manifest["manifest_hash"]
     assert binding["smoke_subset_hash"] == plan["subset_hash"]
     assert binding["state_hash"]
-    state = json.loads(Path(binding["task_state"]).read_text())
-    assert state["generation"] == 0
-    assert state["checkpoint_path"] == str(checkpoint)
+    assert isinstance(binding["task_state"], dict)
+    state = smoke.load_task(binding["task_state"])
+    assert state.generation == 0
+    assert state.checkpoint_path == str(checkpoint)
+    state_path = Path(binding["task_state_path"])
+    assert state_path.is_file()
+    assert json.loads(state_path.read_text()) == binding["task_state"]
     assert json.loads(frozen_path.read_text()) == binding
     source_round = json.loads((tmp_path / "frozen" / "source_round.json").read_text())
     assert source_round["smoke_only"] is True

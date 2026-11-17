@@ -87,7 +87,7 @@ export ROOT PYTHON CONFIG OUTPUT_ROOT RUN_DIR LAUNCH_LOG
 
 不得省略或更改 `RSIFLOW_SANDBOX_BACKEND`。bwrap 失败是 infrastructure error，不得回退 host、Landlock 或 `danger-full-access`，也不得记成模型零分。
 
-## 4. 新运行：前台或有 launcher 监督边界的 detached
+## 4. 新运行：唯一已验证的 detached supervisor
 
 新运行要求 run dir 不存在；若已存在，停止并转到恢复章节，不能覆盖历史 attempts。每次启动或 resume 都使用新的 supervision attempt；本次新运行为 `0001`，以后不得复用该目录或读取旧 attempt 的 exit 作为本次状态：
 
@@ -102,27 +102,11 @@ mkdir -p "$ATTEMPT_DIR"
 export ATTEMPT ATTEMPT_DIR
 ```
 
-**4 小时只监督 launcher 前台进程及其同一 PGID 的 wrapper/timeout。** 它不自动停止另建 session 的 durable jobs、GPU services 或 bwrap Meta app-server，不是整个 canary 的进程/GPU 硬边界。到期后必须按第 6 节逐项调和，不能直接宣称 cleanup completed 或 resume。
+**4 小时只监督 wrapper 内 launcher 前台进程及其同一 PGID 的 wrapper/timeout。** 这里的“前台进程”是未使用 CLI `--detach` 的受监督 launcher，不是操作员 shell 启动模式。它不自动停止另建 session 的 durable jobs、GPU services 或 bwrap Meta app-server，不是整个 canary 的进程/GPU 硬边界。到期后必须按第 6 节逐项调和，不能直接宣称 cleanup completed 或 resume。
 
-### 4.1 前台
+真实 canary **不提供 foreground 启动备选**：不要在操作员 shell/tee 所在 PGID 上另写调和器，也不要恢复旧的 `timeout --foreground … | tee` 命令。唯一入口是下面已通过两层嵌套自动 timeout、手动停止和 cleanup 拒绝探针的 detached supervisor。不要添加 `--prepare-data`；输入已冻结。124 表示 launcher 监督 timeout，137 常见于 kill-after 升级；它们不是整个实验已停止的证据。
 
-```bash
-printf '%s\n' foreground > "$ATTEMPT_DIR/kind"
-set +e
-timeout --foreground --signal=TERM --kill-after=5m 4h \
-  "$PYTHON" -u "$ROOT/RSIFlow_4B/launch.py" \
-  --config "$CONFIG" --run-dir "$RUN_DIR" \
-  2>&1 | tee -a "$LAUNCH_LOG"
-rc=${PIPESTATUS[0]}
-set -e
-printf '%s\n' "$rc" > "$ATTEMPT_DIR/exit.tmp"
-mv "$ATTEMPT_DIR/exit.tmp" "$ATTEMPT_DIR/exit"
-echo "Launcher supervision attempt $ATTEMPT returned $rc; reconcile jobs/app-server/registry."
-```
-
-不要添加 `--prepare-data`；输入已冻结。124 表示 launcher 监督 timeout，137 常见于 kill-after 升级；它们不是整个实验已停止的证据。
-
-### 4.2 远端 detached，本机 monitor
+### 4.1 唯一入口：远端 detached，本机 monitor
 
 当前 CLI 虽有 `--detach`，但它创建的 child 会脱离启动命令。**禁止使用 `timeout 4h … --detach`**。以下方式不传给 launcher `--detach`，而用 `nohup setsid` 创建独立 session，并用 `timeout --foreground` 保持 wrapper、timeout、直接 launcher 及其实际控制子进程在同一个已记录 PGID。**不假设 `--foreground` 递归杀子进程**：timeout 返回后，wrapper 先对同 PGID 做有界 TERM，再仅对重新核验 PID/PGID/start identity 的剩余成员逐个 KILL；调和器自身忽略 TERM，wrapper 保留 trap，因而能写 `reconcile.json` 和原始 launcher exit。独立 session durable jobs/services/app-server 不属于该 PGID，不在扫描或信号范围内：
 
@@ -430,8 +414,8 @@ if kind == "detached":
     else:
         if stat[19] != identity["start_ticks"]:
             raise RuntimeError("supervisor PID reused; identity reconciliation required")
-elif kind != "foreground":
-    raise RuntimeError("unknown supervision kind")
+else:
+    raise RuntimeError("unknown or unsupported supervision kind; only detached is accepted")
 
 state_path = run_dir / "meta_session/state.json"
 state = json.loads(state_path.read_text()) if state_path.is_file() else {}

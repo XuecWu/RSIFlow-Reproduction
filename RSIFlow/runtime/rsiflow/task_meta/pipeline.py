@@ -74,7 +74,7 @@ class PipelineConfig(BaseModel):
     envscaler_utils: str = '/path/to/rsiflow-assets/dataset/evaluators/envscaler/EnvScaler/interact_with_env/envscaler_env/utils/env_util.py'
     envscaler_commit: str = '96ae8b02dc0187c911b8e2101e7bb6904271597b'
     meta: MetaBackendConfig = Field(default_factory=MetaBackendConfig)
-    experiment_scope: Literal['multidomain', 'envscaler_validation'] = 'multidomain'
+    experiment_scope: Literal['multidomain', 'envscaler_validation', 'deepcoder_canary'] = 'multidomain'
     scope_train_limit: int = Field(default=9, ge=1)
     scope_probe_limit: int = Field(default=3, ge=1)
     task_replicas: list[dict] = Field(default_factory=list)
@@ -119,9 +119,14 @@ class PipelineConfig(BaseModel):
             raise ValueError('Fixed subset requires EnvScaler scope and a full-cohort training quota')
         if bool(self.initial_meta_bundle) != bool(self.initial_meta_bundle_hash):
             raise ValueError('Initial Meta Bundle requires both source path and pinned hash')
-        for values in (self.probe_per_domain, self.window_quotas):
-            if set(values) != set(DOMAINS) or any(type(v) is not int or v < 1 for v in values.values()):
-                raise ValueError('All three domains require positive fixed quotas')
+        if self.experiment_scope == 'deepcoder_canary':
+            expected = {'tool_use': 0, 'code': 16, 'searchqa': 0}
+            if self.probe_per_domain != expected or self.window_quotas != expected:
+                raise ValueError('DeepCoder canary requires code=16 and zero quotas for inactive domains')
+        else:
+            for values in (self.probe_per_domain, self.window_quotas):
+                if set(values) != set(DOMAINS) or any(type(v) is not int or v < 1 for v in values.values()):
+                    raise ValueError('All three domains require positive fixed quotas')
         if self.mode != self.meta.run_mode:
             raise ValueError('Top-level mode and Meta run_mode must agree')
         if self.gpu_execution == 'dedicated' and self.inference_gpu == self.training_gpu:
@@ -129,7 +134,7 @@ class PipelineConfig(BaseModel):
         if self.task_replicas:
             from urllib.parse import urlsplit
             # Each replica owns a process and an independent domain adapter.
-            if self.experiment_scope not in {'envscaler_validation','multidomain'}:
+            if self.experiment_scope not in {'envscaler_validation','deepcoder_canary','multidomain'}:
                 raise ValueError('Unsupported domain scope')
             devices, endpoints = set(), set()
             for replica in self.task_replicas:
@@ -149,6 +154,14 @@ class PipelineConfig(BaseModel):
             if self.training.get('gradient_accumulation_steps', 8) % 4:
                 raise ValueError('Four-rank accumulation must preserve the global batch exactly')
         return self
+
+
+def active_domains(config: PipelineConfig) -> tuple[str, ...]:
+    if config.experiment_scope == 'deepcoder_canary':
+        return ('code',)
+    if config.experiment_scope == 'envscaler_validation':
+        return ('tool_use',)
+    return DOMAINS
 
 
 def project_path(name):
@@ -421,13 +434,13 @@ def _run(config, run_dir, *, resume=False):
         initial_meta = inherited_meta
 
     client = DurableClient(raw_client, journal)
-    meta = MetaAgent(client, {'trainer_configured': True, 'sft_profile': 'multidomain', 'execution': {'three_domains_shared_state': config.experiment_scope == 'multidomain', 'active_domains': ['tool_use'] if config.experiment_scope == 'envscaler_validation' else list(DOMAINS)}, 'meta_bundle_editable_files': bundle.manifest['editable_files']}, run_directory=run_dir)
+    meta = MetaAgent(client, {'trainer_configured': True, 'sft_profile': 'multidomain', 'execution': {'three_domains_shared_state': config.experiment_scope == 'multidomain', 'active_domains': list(active_domains(config))}, 'meta_bundle_editable_files': bundle.manifest['editable_files']}, run_directory=run_dir)
     factory, index = adapter_factory(config)
     executor = DurableExecutor(MultiDomainExecutor(store, factory,
         lambda state, base_url=None: LocalTaskClient(state, base_url or config.task_base_url, timeout=config.task_timeout, enable_thinking=config.task_enable_thinking),
         quotas=config.window_quotas, rollouts_per_task=config.rollouts_per_task, probe_rollouts=config.probe_rollouts,
         seed=config.seed, model_call_limit=config.model_call_limit, max_output_tokens=config.max_output_tokens, journal=journal,
-        expected_domains=('tool_use',) if config.experiment_scope == 'envscaler_validation' else DOMAINS,
+        expected_domains=active_domains(config),
         replicas=config.task_replicas), journal)
     executor.executor.artifact_evaluation = config.artifact_evaluation
     meta.capabilities['artifact_evaluation'] = config.artifact_evaluation

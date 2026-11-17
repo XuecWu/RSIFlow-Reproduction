@@ -56,7 +56,10 @@ class TaskAdapter:
         data_dir = value.get("frozen_data_dir") or str(runtime / "data" / value.get("data_release", "rounds"))
         ports = value["ports"]
         base.update(
-            mode="full", experiment_scope="multidomain", training_schedule="round_disjoint",
+            mode="full", experiment_scope=value.get("experiment_scope", "multidomain"),
+            scope_train_limit=value.get("scope_train_limit", base.get("scope_train_limit", 9)),
+            scope_probe_limit=value.get("scope_probe_limit", base.get("scope_probe_limit", 3)),
+            training_schedule="round_disjoint",
             task_checkpoint=str(arguments.get("checkpoint_path") or self.model_path or base["task_checkpoint"]),
             output_root=value["output_root"], data_dir=data_dir,
             max_generations=value["rounds"], seed=value.get("rollout_seed", value.get("seed", 42)),
@@ -189,8 +192,7 @@ class TaskAdapter:
                 "full_trajectories_path": str(original)}
 
     def _executor(self, config, state, round_number: int, stage: str, output: Path):
-        from rsiflow.task_meta.data import DOMAINS
-        from rsiflow.task_meta.pipeline import adapter_factory
+        from rsiflow.task_meta.pipeline import active_domains, adapter_factory
         from rsiflow.task_meta.pipeline_execution import MultiDomainExecutor
         from rsiflow.task_meta.round_evolution import RoundStore
         from rsiflow.task_meta.task_client import LocalTaskClient
@@ -212,7 +214,7 @@ class TaskAdapter:
             probe_rollouts=config.probe_rollouts, seed=config.seed,
             model_call_limit=config.model_call_limit,
             max_output_tokens=config.max_output_tokens,
-            expected_domains=DOMAINS, replicas=config.task_replicas,
+            expected_domains=active_domains(config), replicas=config.task_replicas,
         )
         executor.artifact_evaluation = config.artifact_evaluation
         scope = {

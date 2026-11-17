@@ -113,7 +113,7 @@ attempt 0001 以 exit 143、complete reconcile 和 cleanup 结束，历史未删
 | Final snapshot receipt | `817bbed4b4facf9c9ac26d46da13414e63c8aefd028f3738a66b039a57612459` |
 | Stopped service registry | `ca0426723bd6c54e0a49028b87656b895a9daf20d0d8e01f1e6f84bb45e684b5` |
 
-完整执行与恢复记录见 `.superpowers/sdd/2026-11-17-deepcoder-canary/task-5-report.md`；独立原始产物审阅见同目录 `task-5-review.md`。当前完整离线套件计数为 **517 passed, 2 skipped**；skipped 不计为通过。
+完整执行与恢复记录见 `.superpowers/sdd/2026-11-17-deepcoder-canary/task-5-report.md`；独立原始产物审阅见同目录 `task-5-review.md`。当前完整离线套件计数为 **522 passed, 2 skipped**；skipped 不计为通过。
 
 ## 9. 明确未运行的范围
 

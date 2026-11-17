@@ -17,7 +17,7 @@ export RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1
 ```bash
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
-# DeepCoder canary 当前实测：517 passed, 2 skipped；早期 Task 4 为 489 passed, 2 skipped，最终隔离修复为 297 passed, 2 skipped
+# DeepCoder canary 当前实测：522 passed, 2 skipped；早期 Task 4 为 489 passed, 2 skipped，最终隔离修复为 297 passed, 2 skipped
 ```
 
 ## 2. 安装固定 bubblewrap 资产
@@ -261,4 +261,4 @@ Tasks 1–4 完成实现、冻结 release、离线测试和审查；Task 5 已�
 
 supervision 0001 保留 24 个失败 turns、24 条 error events 和 24 条对应 turn/completed events 的 502 历史；0002 在同一 run/thread 从 candidate_built 恢复，无重复 bootstrap/run_parent，最终 exit 0。真实执行与恢复必须遵循 `reproduction/audit/reviews/deepcoder-canary-runbook.md` 的 detached supervisor、4 小时 launcher 监督、显式 bwrap、私有 Meta env、identity-checked cleanup 和同 run resume；active jobs 未调和前禁止 cleanup/resume。
 
-当前完整离线套件为 **517 passed, 2 skipped**。MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行，ACEBench 是 skipped 而非 scored。
+当前完整离线套件为 **522 passed, 2 skipped**。MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行，ACEBench 是 skipped 而非 scored。

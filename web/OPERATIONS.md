@@ -224,3 +224,11 @@
 - `web/data/reproduction.json` 新增独立 canary 对象和 experiment stage，记录 16/1/1、HARNESS、2/3、51/93、7/8 full verifier、3/16→4/16、4/3 transitions、accept/activate、COMPLETE、cleanup、0001/0002 恢复和未运行边界；未修改其他 JSON 或 JSONL 账本。
 - 发布检查：`python3 -m unittest discover -s web/tests -v` **11/11 OK**；`node --check web/app.js` 通过；`python -m json.tool web/data/reproduction.json` 通过；`git diff --check` 通过；修改文件常见私钥、API key 和 authtoken 形态扫描无命中，website 凭据/raw-log 公开面测试同时通过。
 - 本发布只修改上述文档和公开状态 JSON，不改生产代码、测试或其他 JSONL；只创建一个本地 docs commit，不 push，不启动新实验或 SCO。
+
+### cpolar 重连与最终运维同步（2026-11-17）
+
+- 上一节公网恢复记录中的 `https://7b96aab1.r61.cpolar.top` 现为 **404**，保留为历史入口，不改写当时的验证记录。
+- cpolar 原进程 **PID `3697621` / task `bash-be8pblb5`** 仍在；2026-11-17T16:24 的重连日志给出新 URL **`https://75f371f2.r61.cpolar.top`**。`web/RESULTS.md` 当前服务表保留同一 PID/task，只更新当前 URL。
+- 新 URL 已实测 `/`、`/RESULTS.md`、`/OPERATIONS.md`、`/data/reproduction.json` 四项全部 **HTTP 200**；`RESULTS.md` 包含 `3/16`、`4/16` 和 `HARNESS`。本地 `http://127.0.0.1:18000/` 也为 **200**。
+- `reproduction/PROGRESS.md` 与 `web/RESULTS.md` 的当前首页/过程页入口已同步到新地址；旧地址仅留在历史操作记录中。
+- 最终完整离线套件为 **522 passed, 2 skipped**。上文 2026-11-17 首次真实结果发布节的 517/2 是当时维护/发布历史，保留原记录并以本节最终 522/2 为准；未修改 2026-11-16 daily 历史账本。

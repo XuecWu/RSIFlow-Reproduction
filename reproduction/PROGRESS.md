@@ -12,7 +12,7 @@
 
 ## 已完成并验证
 
-- **DeepCoder function 16 真实 canary（2026-11-17）**：固定 16 条 function、code 单域、单轮、一个 HARNESS 候选已完成。Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，并有 4 个新成功和 3 个回归；原 3 个成功全部回归，4 个新成功全部来自父代零调用失败，3 个回归全为候选零调用失败，因此只接受固定批净正增益，不宣称普遍 Harness 因果改进。accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成；MODEL 未选择、SFT 未运行。独立结果审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。当前完整离线套件为 **517 passed, 2 skipped**；五轮、694/744、独立 benchmark 和作者原始实验复现仍未运行。
+- **DeepCoder function 16 真实 canary（2026-11-17）**：固定 16 条 function、code 单域、单轮、一个 HARNESS 候选已完成。Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，并有 4 个新成功和 3 个回归；原 3 个成功全部回归，4 个新成功全部来自父代零调用失败，3 个回归全为候选零调用失败，因此只接受固定批净正增益，不宣称普遍 Harness 因果改进。accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成；MODEL 未选择、SFT 未运行。独立结果审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。当前完整离线套件为 **522 passed, 2 skipped**；五轮、694/744、独立 benchmark 和作者原始实验复现仍未运行。
 - 历史复现分支 `reproduction/4b-main8` 的阶段 commit、追加式操作/关键结果账本、每日审计和 Herdr 三方通道已有记录；bwrap 隔离工作已 fast-forward 合入该分支，并完成内部 GitLab 备份。
 - 合并复验（2026-11-16）：功能工作树预检 `297 passed, 2 skipped in 92.22s`、website `11/11`。**合并后主工作树首次完整 pytest 为 `13 failed, 284 passed, 2 skipped`**，逐项确认根因是主工作树缺少 Git-ignored 的 `assets/isolation/`，不是代码或测试回归。用既有 `reproduction/scripts/install_bwrap.py` 从功能工作树同一 pinned binary（SHA256 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`）安装并校验 manifest/launcher receipt 后，受影响测试 `51 passed in 48.77s`、完整 pytest **`297 passed, 2 skipped in 89.15s`**，website `11/11`、`node --check`、`git diff --check` 通过；全程未改生产代码或测试。
 - 账本保护：主工作树两份未提交追加 JSONL 在 merge 前后 SHA256 完全不变（`operations.jsonl` `ea9403380b77b5f1100c6bce5b66578cc3cf4e218ec9985bea8d2b7f0749858e`、`key_results.jsonl` `82c10d582e9459d62d03c3b42c6ba9efaabdfd1254114519389259fd1ba92c0a`）。两个工作树的 operations 在 **sequence 581 之后分叉**，原件均保留，禁止覆盖或直接拼接；bwrap 功能工作树与 `Meta_logs/` 一并保留。
@@ -54,7 +54,7 @@
 - EvalPlus report：`reproduction/logs/evalplus-bwrap-smoke/20261113T035651Z/smoke_report.json`
 - BFCL receipt：`reproduction/logs/bfcl-bwrap-check-r2/check.json`
 - Meta report：`reproduction/logs/meta-bwrap-task6-r4-20261114T173158Z/run/report.json`
-- cpolar 过程页：https://7b96aab1.r61.cpolar.top/process.html （公网首页 https://7b96aab1.r61.cpolar.top ；本地 http://127.0.0.1:18000/ ，由主工作树 `web/` 提供。历史入口 `4a63b603`/`5340b001` 及旧 PID 已停止，仅留档）
+- cpolar 过程页：https://75f371f2.r61.cpolar.top/process.html （公网首页 https://75f371f2.r61.cpolar.top ；本地 http://127.0.0.1:18000/ ，由主工作树 `web/` 提供。历史入口 `4a63b603`/`5340b001` 及旧 PID 已停止，仅留档）
 - 交付复盘：`reproduction/RETROSPECTIVE.md`（阶段历程与 ruling、真实证据、失败根因、可复用经验、五轮前置门、追踪方式；经独立 Kimi 审阅 CHANGES→修复→scoped re-review 全 ADDRESSED，Spec/质量 PASS）
 - 数据 READY：`RSIFlow/runtime/data/rounds_3000_5x600_v4/READY.json`
 - 操作账本：`reproduction/audit/operations.jsonl`；关键结果：`reproduction/audit/key_results.jsonl`

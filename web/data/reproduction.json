@@ -38,7 +38,7 @@
     "sandbox_backend": "linux_bwrap_seccomp_v1"
   },
   "current_offline_suite": {
-    "test_counts": "517 passed, 2 skipped",
+    "test_counts": "522 passed, 2 skipped",
     "skipped_counted_as_passed": false,
     "scope": "current_full_offline_suite_not_real_canary_substitute"
   },

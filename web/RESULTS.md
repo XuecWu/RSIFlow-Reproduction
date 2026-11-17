@@ -7,8 +7,8 @@
 - 远程与备份边界：`origin` 仍是 GitHub 上游且未向其推送；`gitlab` 指向内部项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow 。GitLab 既有 `main` 仍为 `0c47d98df09327ba09f4fad9aaa9914837ffa280`，与本地历史无共同提交，**未强推、未覆盖、未建 MR**；GitLab CI 未验证。
 - 当前范围：Qwen3-4B、公开数据同协议重构、Meta `OpenAI/gpt-6-astra`。正式实验规划仍为主分区 8×A800 仅用 GPU 0–3。
 - **尚未运行五轮演化、SFT 或最终 694/744 评估，没有任何模型 benchmark 分数。ACE 50、8B 和正式 Qwen 服务也未在本轮启动。**
-- **公网首页：** https://7b96aab1.r61.cpolar.top
-- **过程审计：** https://7b96aab1.r61.cpolar.top/process.html
+- **公网首页：** https://75f371f2.r61.cpolar.top
+- **过程审计：** https://75f371f2.r61.cpolar.top/process.html
 - **本地地址：** http://127.0.0.1:18000/ （由主工作树 `web/` 提供）
 - 交付复盘：`reproduction/RETROSPECTIVE.md`（历程、ruling、真实证据、失败根因、经验与五轮前置门；已通过独立复审）。
 
@@ -31,7 +31,7 @@
 - **配对结果**：**3/16=0.1875 → 4/16=0.25，delta +0.0625**。`compare_scores`、`compare_task_differences`、显式 `accept_candidate` 和 activate 均完成，candidate state 与 active state hash 一致。
 - **必须同时公开的限制**：4 个新成功伴随 3 个回归，原 3 个成功全部回归；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败。结果只支持固定批净正增益，过程异常使 Harness 因果归因受限。
 - **终局与恢复**：skills/context/snapshot、state COMPLETE、finish、jobs 调和和四卡 cleanup 均完成。supervision 0001 有 24 个失败 turns、24 条 error events 及 24 条对应 turn/completed events；0002 在同一 thread 从 candidate_built 恢复，无重复 A0/父代，最终 exit 0。
-- **边界**：MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行。当前完整离线套件 **517 passed, 2 skipped**。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。
+- **边界**：MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行。当前完整离线套件 **522 passed, 2 skipped**。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。
 
 ## 合并、备份与本次复验（2026-11-16）
 
@@ -59,12 +59,12 @@
 
 ## 运行服务
 
-当前服务（2026-11-16 恢复，源目录为主工作树 `web/`）：
+当前服务（HTTP 于 2026-11-16 恢复；cpolar 原进程于 2026-11-17 重连，源目录为主工作树 `web/`）：
 
 | 服务 | 后台任务 | PID | 地址 | 原始日志（不公开） |
 | --- | --- | ---: | --- | --- |
 | 静态 HTTP | `bash-8s79760l` | 3697240 | `127.0.0.1:18000` | `web-runtime/logs/http-server.log` |
-| cpolar | `bash-be8pblb5` | 3697621 | `https://7b96aab1.r61.cpolar.top` | `web-runtime/logs/cpolar.log` |
+| cpolar | `bash-be8pblb5` | 3697621 | `https://75f371f2.r61.cpolar.top` | `web-runtime/logs/cpolar.log` |
 
 历史服务（**已停止，仅留档，不可作为当前入口**）：
 

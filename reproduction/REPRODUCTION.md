@@ -17,7 +17,7 @@ export RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1
 ```bash
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
-# 当前最终修复：297 passed, 2 skipped；综合聚焦：156 passed
+# DeepCoder canary Task 4 当前实测：489 passed, 2 skipped；早期最终隔离修复为 297 passed, 2 skipped
 ```
 
 ## 2. 安装固定 bubblewrap 资产
@@ -250,3 +250,11 @@ plan -> execute-rollout -> execute-sft -> execute-recovery -> status
 真实资产离线 plan（`reproduction/logs/training-side-smoke-plan-r1`，Git 忽略、写入前 `test ! -e`）已验证：5 条真实 v4 B1 任务（`envscaler:env_154_rl:env_154_rl-task_47`、`deepcoder_taco:deepcoder-taco-424`、`deepcoder_taco:deepcoder-taco-2865`、`hotpotqa:5abaf8be5542992ccd8e7e85`、`2wiki:f96fae0a0bae11ebab90acde48001122`），记录字节/哈希与原 B1 **5/5 一致**，原资产未变，preset 与四卡 replica 完整，`model_calls=0`。
 
 **边界**：本任务实现阶段**未启动真实 GPU/SCO/模型/API/五轮/SFT**。S1 rollout、S2 SFT/merge/reload、S3 recovery 的真实执行需单独授权并在 SCO 前台顺序进行；`Scope.observed()` 的 `same_round_full_B_parent_child_v2` 在本 smoke 中只表示"完整五条 mini B1"，**绝不能据此宣称完成正式 600-task B1 或五轮协议**。五条 rollout 分数不是 benchmark，不产生模型提升结论。详见 `reproduction/audit/reviews/training-side-smoke-report.md`。
+
+## 11. DeepCoder function 16 canary（离线已审阅，真实执行未运行）
+
+Tasks 1–3 已完成各自独立 spec/quality 审查并全部 PASS；Task 4 重新运行完整离线套件为 **489 passed, 2 skipped**。冻结 release 位于 Git 忽略的 `reproduction/logs/deepcoder-canary-16-v1/release/`：16 条 DeepCoder/TACO function 按父 B1 原顺序选择，逐记录 bytes 与源资产 hash 已离线复核。`reproduction/configs/train_4b_deepcoder_canary.json` 是一轮、code-only、`0/16/0` quotas、单 attempt、`evaluation_schedule=none` 的 smoke-only 配置；第 1 轮 retain 在 comparison、skills、context、snapshot 后以 `completed_retained` 结束，不重选、不激活、不进入下一轮。
+
+真实 dev4 执行必须遵循 `reproduction/audit/reviews/deepcoder-canary-runbook.md`，动态入口只从 `reproduction/audit/reviews/dev-four-a800-access.md` 获取。Runbook 固定显式 bwrap、4 小时外部硬 timeout、既有 `OPENAI_API_KEY` 安全环境注入且只检查存在、本地只读 monitor、精确 output/log/status、owned-service cleanup 与同 run dir resume。不要用 `timeout … --detach` 冒充硬超时，也不要添加 `--prepare-data`。
+
+**当前没有启动真实 canary、模型、Meta/API、GPU 或 SCO。** 后续结果必须以 decision、selection、Task state 和组件回执说明 Meta 实际选择的 HARNESS/MODEL/ARTIFACTS；只有实际选择 MODEL 且父代自然正例存在并完成真实 SFT/merge 才能记录训练，否则写 blocked/not run。该 canary 无独立 validation，不是五轮、正式 SFT 或最终 694/744，离线测试和 launcher `--check` 均不能替代真实结果。

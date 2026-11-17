@@ -1,8 +1,8 @@
 # RSI-Flow 学习笔记：Task / Meta 双层改进闭环
 
-- 版本：v0.1
+- 版本：v0.2
 - 整理日期：2026-11-17
-- 代码基线：`9ea01ae8e922c2871b2630e85ff094020bd84330`（`reproduction/4b-preflight`）
+- 代码基线：`cad31db1fed0999f81e6cc30422b9c498a4ca319`（`reproduction/4b-preflight`）
 - 适用范围：当前仓库的 4B、skill-based variant；不是对未发布变体或未来实现的泛化描述。
 
 ## 文档目的与维护约定
@@ -413,6 +413,26 @@ B5 最终快照接受后
 
 训练侧最小 smoke 不调用 Meta，也不运行正式 `pipeline.run`。其中固定 S2 训练只是验证模型更新机制，不是 Astra 做出的正式 `MODEL` 改进决策。只有正式 B1–B5 才把上述父子评估、Meta 决策和经验学习串成完整闭环。
 
+### 8.1 DeepCoder function 16 canary 的受限闭环
+
+当前 canary 复用真实 Meta/Task 控制流，但故意缩小范围，不能把正式流程图的所有后续步骤套到它身上：
+
+```text
+A0 保存初始状态（不做 baseline validation）
+  → B1 父代运行固定 16 条 DeepCoder/TACO function
+  → Meta 读取证据并只选择 HARNESS / MODEL / ARTIFACTS 之一
+  → 构造一个 attempt_1 候选并在相同 16 条任务上比较
+  → 显式 accept 或 retain_parent
+  → append skills + final context + snapshot
+  → 完成；无独立 validation、无下一轮
+```
+
+其 `experiment_scope=deepcoder_canary` 使 active domain 只有 code，有效 quotas 为 `0/16/0`；launcher 只在 canary 分支保留 source 的零配额并用正数子集复用原总数校验，multidomain/EnvScaler 的正整数要求没有放宽。`retry_rejected_from_round=2` 让第 1 轮 retain 成为 terminal `completed_retained`，不是回到组件选择。accept 也只能结束这个一轮 canary，不能据此进入 B2。
+
+组件由 Meta 在真实运行时选择，离线配置没有预选 MODEL。只有实际 decision 为 MODEL、父代训练 rollout 有经评估验证的自然成功轨迹且 SFT/merge 回执真实存在时，才可记录 positive-only SFT；零自然正例时必须记 blocked/not run。HARNESS/ARTIFACTS 结果不得改记为 MODEL/SFT，retain 也是有界的有效工程结果而非失败伪装。
+
+这个 canary 不是五轮、3000 任务或最终 694/744，也不产生独立 benchmark 分数。当前仅有离线实现和审查证据，真实 canary 尚未运行；执行命令与证据要求见 `reproduction/audit/reviews/deepcoder-canary-runbook.md`。
+
 ## 9. 数据与证据边界
 
 - 正式每轮训练批次为 600，五轮共 3000 个不同任务。
@@ -434,6 +454,11 @@ B5 最终快照接受后
 8. `reproduction/configs/train_4b_v5.json`：当前机器配置，包括空的技能种子设置。
 
 ## 11. 维护日志
+
+### v0.2 — 2026-11-17
+
+- 补充 DeepCoder function 16 canary 的 code-only 配额、单 attempt terminal-retain、无独立评估和实际组件/SFT 证据边界。
+- 链接 dev4 执行 runbook；明确当前仅离线验证，未运行真实 canary、五轮或 694/744。
 
 ### v0.1 — 2026-11-17
 

@@ -143,7 +143,7 @@ Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用�
 以下命令用于离线检查和后续完整实验；离线检查已执行不代表五轮已运行：
 
 ```bash
-# 完整离线测试（preflight 有效配置修复后实测：299 passed, 2 skipped；此前最终隔离修复为 297 passed, 2 skipped）
+# 完整离线测试（DeepCoder canary Task 4 当前实测：489 passed, 2 skipped；此前五轮前 preflight 为 299 passed, 2 skipped）
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
 cd ..
@@ -183,6 +183,8 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python reproduction/scripts/persi
 训练侧真实 smoke 的 `execute-rollout` 也必须显式设置 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1`；缺失或错误时在 `TaskAdapter`、bootstrap 和服务副作用之前 fail closed，不得回退 legacy Landlock。首轮真实评分/S1 失败与修复证据见 `reproduction/audit/reviews/real-preflight-fix1-report.md`，离线测试通过不替代真实重跑。
 
 `start_5round_600.sh` 固定加入 `--prepare-data --detach`，且不带 `--config`，因此**不能直接用于 ACP 正式控制器**：默认 detach 会让脚本返回后作业结束并清理进程，默认配置又会落到上游占位 JSON。ACP 中必须让控制器**以前台方式**运行，并**显式传入绝对机器配置**（`reproduction/configs/train_4b.json`），例如以 rsiflow 解释器直接调用 `RSIFlow_4B/launch.py --config <绝对机器配置>`（不加 `--detach`；数据已冻结时不要加 `--prepare-data`）。每个 backbone 使用新的 run dir；相同命令、相同配置和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。五轮、SFT 与最终 694/744 仍未运行。
+
+DeepCoder function 16 canary 是独立的有界 preflight：`reproduction/configs/train_4b_deepcoder_canary.json` 固定一轮、16 条 code-only function、无独立 validation、单 attempt，`retain_parent` 在比较、技能、context 和 snapshot 后以 `completed_retained` 终止，不重选或进入下一轮。dev4 的访问信息按 `reproduction/audit/reviews/dev-four-a800-access.md` 实时核实，实际前台/4 小时硬超时 detached、显式 bwrap、既有 Meta 凭据存在性检查、monitor、output/log/status、cleanup/resume 命令见 `reproduction/audit/reviews/deepcoder-canary-runbook.md`；不要把动态 HEAD、PID 或 TCP 入口写入本指南。当前只完成离线实现与审阅，真实 canary 尚未运行。结果必须报告 Meta 实际选择的组件；除非实际选择 MODEL 且父代自然正例存在并留下训练回执，否则不得声称 SFT，HARNESS/ARTIFACTS 也不能改记为 MODEL。该 canary 不是五轮或最终 694/744。
 
 典型输出：
 

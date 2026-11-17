@@ -1,6 +1,6 @@
 # RSI-Flow Agent 工作指南
 
-本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**当前交付分支为 `reproduction/4b-main8`**，隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入；两个复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭；尚未运行五轮演化、SFT、最终 694/744 或模型 benchmark。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准，本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。具体 HEAD、服务 PID 与公网 URL 会随交付变化，一律以 `reproduction/PROGRESS.md`、`web/RESULTS.md`、`web/OPERATIONS.md` 的实测记录为准，不在本指南写死。
+本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**当前交付分支为 `reproduction/4b-main8`**，隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入；两个复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭。**DeepCoder function 16 真实单域单轮单候选 canary 已完成并接受 HARNESS，3/16→4/16，但 4 新成功伴随 3 回归且因果归因受限；独立审阅 Spec PASS / Quality DONE_WITH_CONCERNS。** 当前完整离线套件为 **517 passed, 2 skipped**。尚未运行五轮演化、正式 SFT、最终 694/744、独立 benchmark 或作者原始实验复现。当前状态以 `reproduction/PROGRESS.md` 和 `web/data/reproduction.json` 为准，本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。具体 HEAD、服务 PID 与公网 URL 会随交付变化，一律以 `reproduction/PROGRESS.md`、`web/RESULTS.md`、`web/OPERATIONS.md` 的实测记录为准，不在本指南写死。
 
 ## 1. 项目是什么
 
@@ -145,7 +145,7 @@ Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用�
 以下命令用于离线检查和后续完整实验；离线检查已执行不代表五轮已运行：
 
 ```bash
-# 完整离线测试（DeepCoder canary Task 5 兼容性修复当前实测：516 passed, 2 skipped；此前 Task 4 为 489 passed, 2 skipped，五轮前 preflight 为 299 passed, 2 skipped）
+# 完整离线测试（DeepCoder canary 当前实测：517 passed, 2 skipped；此前兼容性修复为 516 passed, 2 skipped，Task 4 为 489 passed, 2 skipped）
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
 cd ..
@@ -186,7 +186,7 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python reproduction/scripts/persi
 
 `start_5round_600.sh` 固定加入 `--prepare-data --detach`，且不带 `--config`，因此**不能直接用于 ACP 正式控制器**：默认 detach 会让脚本返回后作业结束并清理进程，默认配置又会落到上游占位 JSON。ACP 中必须让控制器**以前台方式**运行，并**显式传入绝对机器配置**（`reproduction/configs/train_4b.json`），例如以 rsiflow 解释器直接调用 `RSIFlow_4B/launch.py --config <绝对机器配置>`（不加 `--detach`；数据已冻结时不要加 `--prepare-data`）。每个 backbone 使用新的 run dir；相同命令、相同配置和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。五轮、SFT 与最终 694/744 仍未运行。
 
-DeepCoder function 16 canary 是独立的有界 preflight：`reproduction/configs/train_4b_deepcoder_canary.json` 固定一轮、16 条 code-only function、无独立 validation、单 attempt，`retain_parent` 在比较、技能、context 和 snapshot 后以 `completed_retained` 终止，不重选或进入下一轮。dev4 的访问信息按 `reproduction/audit/reviews/dev-four-a800-access.md` 实时核实；真实 canary 只提供已验证的 detached supervisor 入口，不提供操作员 shell/tee 所在 PGID 的 foreground 启动备选。launcher 前台进程 4 小时监督、显式 bwrap、既有 Meta 凭据存在性检查、monitor、output/log/status、cleanup/resume 命令见 `reproduction/audit/reviews/deepcoder-canary-runbook.md`；该监督不自动停止独立 session 的 durable jobs/services/app-server，active jobs 未获自然最终回执或 identity-checked 调和前禁止 cleanup completed/resume。不要把动态 HEAD、PID 或 TCP 入口写入本指南。真实 attempt `0001` 已在 A0 前因 dev4 `pidfd_open=ENOSYS` 基础设施失败，尚无有效 canary 结果；修复后的真实 Linux 4.18 链路仍未实测，详见 `reproduction/audit/reviews/dev4-pidfd-enosys-fix.md`。结果必须报告 Meta 实际选择的组件；除非实际选择 MODEL 且父代自然正例存在并留下训练回执，否则不得声称 SFT，HARNESS/ARTIFACTS 也不能改记为 MODEL。该 canary 不是五轮或最终 694/744。
+DeepCoder function 16 canary 是独立的有界 preflight：`reproduction/configs/train_4b_deepcoder_canary_workspace.json` 固定一轮、16 条 code-only function、无独立 validation、单实验 attempt。真实运行已完成：Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整配对为 3/16=0.1875→4/16=0.25（delta +0.0625），4 个新成功伴随 3 个回归，原 3 个成功全部回归；新成功全来自父代零调用失败、回归全为候选零调用失败，故因果归因受限。accept/activate、skills/context/snapshot、state COMPLETE 和四卡 cleanup 均完成。supervision 0001 有 24 个失败 turns/24 条 error events 及 24 条对应 turn/completed events；0002 同 thread 从 candidate_built 恢复，未重复 A0/父代。MODEL 未选择，SFT 未运行。独立审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，公开结果见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。dev4 访问与 detached supervisor、4 小时监督、identity/cleanup/resume 仍以 `reproduction/audit/reviews/deepcoder-canary-runbook.md` 为准；active jobs 未调和前禁止 cleanup/resume。该 canary 不是五轮、正式 SFT、独立 benchmark、最终 694/744 或作者原始实验复现。
 
 典型输出：
 

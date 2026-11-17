@@ -1,6 +1,6 @@
 # RSI-Flow 复现与 bubblewrap 隔离手册
 
-> 当前只验证 4B 隔离基础设施。五轮、SFT、最终 694/744、ACE 50、8B 和正式 Qwen 服务未在本任务中运行；所有 candidate/EvalPlus/BFCL/Codex 结果都是最小基础设施 smoke，不是模型 benchmark 分数。通用数据、GPU 和评估协议见 `web/REPRODUCTION.md`。
+> 当前已完成 4B 隔离基础设施验证和 DeepCoder function 16 单域单轮单候选真实 canary；后者接受 HARNESS，固定批 3/16→4/16，但有 4 新成功、3 回归和过程异常归因限制。五轮、正式 SFT、最终 694/744、ACE 50、8B、独立 benchmark 和作者原始实验复现仍未运行；candidate/EvalPlus/BFCL/Codex 历史结果仍是最小基础设施 smoke，不是模型 benchmark 分数。通用数据、GPU 和评估协议见 `web/REPRODUCTION.md`。
 
 ## 1. 显式后端与禁止回退
 
@@ -17,7 +17,7 @@ export RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1
 ```bash
 cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
-# DeepCoder canary Task 4 当前实测：489 passed, 2 skipped；早期最终隔离修复为 297 passed, 2 skipped
+# DeepCoder canary 当前实测：517 passed, 2 skipped；早期 Task 4 为 489 passed, 2 skipped，最终隔离修复为 297 passed, 2 skipped
 ```
 
 ## 2. 安装固定 bubblewrap 资产
@@ -251,10 +251,14 @@ plan -> execute-rollout -> execute-sft -> execute-recovery -> status
 
 **边界**：本任务实现阶段**未启动真实 GPU/SCO/模型/API/五轮/SFT**。S1 rollout、S2 SFT/merge/reload、S3 recovery 的真实执行需单独授权并在 SCO 前台顺序进行；`Scope.observed()` 的 `same_round_full_B_parent_child_v2` 在本 smoke 中只表示"完整五条 mini B1"，**绝不能据此宣称完成正式 600-task B1 或五轮协议**。五条 rollout 分数不是 benchmark，不产生模型提升结论。详见 `reproduction/audit/reviews/training-side-smoke-report.md`。
 
-## 11. DeepCoder function 16 canary（离线已审阅，真实执行未运行）
+## 11. DeepCoder function 16 canary（真实单轮已完成，质量 DONE_WITH_CONCERNS）
 
-Tasks 1–3 已完成各自独立 spec/quality 审查并全部 PASS；Task 4 重新运行完整离线套件为 **489 passed, 2 skipped**。冻结 release 位于 Git 忽略的 `reproduction/logs/deepcoder-canary-16-v1/release/`：16 条 DeepCoder/TACO function 按父 B1 原顺序选择，逐记录 bytes 与源资产 hash 已离线复核。`reproduction/configs/train_4b_deepcoder_canary.json` 是一轮、code-only、`0/16/0` quotas、单 attempt、`evaluation_schedule=none` 的 smoke-only 配置；第 1 轮 retain 在 comparison、skills、context、snapshot 后以 `completed_retained` 结束，不重选、不激活、不进入下一轮。
+Tasks 1–4 完成实现、冻结 release、离线测试和审查；Task 5 已在 dev4 完成真实单域单轮单候选 canary。冻结 release 位于 Git 忽略的 `reproduction/logs/deepcoder-canary-16-v1/release/`：16 条 DeepCoder/TACO function 按父 B1 原顺序选择。实际运行配置为 `reproduction/configs/train_4b_deepcoder_canary_workspace.json`，一轮、code-only、`0/16/0` quotas、单实验 attempt、`evaluation_schedule=none`。
 
-真实 dev4 执行必须遵循 `reproduction/audit/reviews/deepcoder-canary-runbook.md`，动态入口只从 `reproduction/audit/reviews/dev-four-a800-access.md` 获取。真实 canary 只提供已验证的 detached supervisor 入口，不提供操作员 shell/tee 所在 PGID 的 foreground 启动备选。Runbook 固定显式 bwrap、wrapper 内 launcher 前台进程 4 小时监督、既有 `OPENAI_API_KEY` 安全环境注入且只检查存在、本地只读 monitor、精确 output/log/status、按 supervision attempt 记录 PGID/exit、identity-checked cleanup 与同 run dir resume。该监督不自动停止独立 session 的 durable jobs/services/app-server；active job 必须等待自然最终回执或由既有 identity-checked owner 调和，未调和前禁止 cleanup completed/resume。不要用 `timeout … --detach` 冒充 launcher 监督，也不要添加 `--prepare-data`。
+真实结果为：Astra 选择 **HARNESS**，同一 candidate 在 **2/3 次检查**后 passed；父代 **51**、候选 **93** 次真实 Qwen calls，父 **7**、候选 **8** 个有效 submission 进入 full verifier，其余不伪称完整测试。完整配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，显式 accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成。
 
-**当前没有启动真实 canary、模型、Meta/API、GPU 或 SCO。** 后续结果必须以 decision、selection、Task state 和组件回执说明 Meta 实际选择的 HARNESS/MODEL/ARTIFACTS；只有实际选择 MODEL 且父代自然正例存在并完成真实 SFT/merge 才能记录训练，否则写 blocked/not run。该 canary 无独立 validation，不是五轮、正式 SFT 或最终 694/744，离线测试和 launcher `--check` 均不能替代真实结果。
+质量边界必须保留：**4 个新成功 + 3 个回归，原 3 个成功全部回归**；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败，过程异常使因果归因受限。该接受只代表固定批净正增益，不是普遍 Harness 改进或模型质量结论。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。
+
+supervision 0001 保留 24 个失败 turns、24 条 error events 和 24 条对应 turn/completed events 的 502 历史；0002 在同一 run/thread 从 candidate_built 恢复，无重复 bootstrap/run_parent，最终 exit 0。真实执行与恢复必须遵循 `reproduction/audit/reviews/deepcoder-canary-runbook.md` 的 detached supervisor、4 小时 launcher 监督、显式 bwrap、私有 Meta env、identity-checked cleanup 和同 run resume；active jobs 未调和前禁止 cleanup/resume。
+
+当前完整离线套件为 **517 passed, 2 skipped**。MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行，ACEBench 是 skipped 而非 scored。

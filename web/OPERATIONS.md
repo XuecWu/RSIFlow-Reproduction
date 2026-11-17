@@ -201,3 +201,26 @@
 - 本节与 `web/RESULTS.md`、`reproduction/PROGRESS.md`、`AGENTS.md`、`reproduction/audit/daily/2026-11-16.md` 的更新在上述实测**之后**形成；这些实测后的文档更新由主 agent 纳入后续文档提交，**具体 SHA 以 git 历史为准**，本文不预写或虚构任何后续 commit SHA。文中出现的 `3a66b655…` 一律指合并与初次备份点，不代表当前 HEAD。
 - 未改生产代码、测试、JSONL 账本或其他文件；未提交 SCO，未启动实验，未删除或清理任何文件，未停止仍在运行的服务。
 - 所有既有结论边界不变：combined `pt-v6m10c4t` 整体 FAILED（仅 Candidate/Harness/BFCL exit 0）、当前 Meta gate 为 `pt-x6b4ista`、无 A800 Meta pass、native-shell descendant hygiene 未验证、EvalPlus 为历史单任务 smoke、无五轮/SFT/最终评估/模型分数。
+
+
+## 2026-11-17
+
+### DeepCoder function 16 真实 canary 执行、恢复与独立审阅
+
+- 真实 run 使用固定 16 条 DeepCoder/TACO function、code 单域、A0+B1 单轮、一个实验 attempt 和一个候选；没有换题，不是五轮或独立 benchmark。
+- Astra 实际选择 HARNESS。同一 candidate 第一次检查 failed_build，修复后在第二次检查 passed，共使用 2/3 次检查；candidate state 只改变 Harness，model/checkpoint/weights 未变。
+- 父代 51、候选 93 次真实 Qwen calls。父代 7、候选 8 个有效 submission 进入 full official verifier，其余 9/8 个无有效答案任务未进入 full verifier，不伪称 16 条均完成完整测试。
+- 完整配对为父代 3/16=0.1875、候选 4/16=0.25，delta +0.0625；compare_scores 与 compare_task_differences 均完成，selection 为 accept_candidate，activate 后 candidate state 与 active state SHA256 一致。
+- 配对变化为 4 个新成功和 3 个回归，原 3 个成功全部回归。4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败；过程异常使因果归因受限，接受只代表固定批净正增益。
+- skills/context/snapshot、state COMPLETE、finish、9 个 durable jobs 的最终回执和四卡 cleanup 均完成，最终 registry 为 services_stopped。
+- supervision 0001 的精确 502 口径为 24 个 distinct failed turns、24 条 error events，另有 24 条对应 turn/completed events；不是 48 个失败 turns。attempt 0002 在同一 run/config/backend/thread 从 candidate_built 恢复，无重复 bootstrap/run_parent，未新增 502，最终 exit 0。
+- 独立审阅直接读取原始 receipts、trajectories、model calls、performance、selection、active state、skills/context、snapshots、jobs、events 和 registry，结论为 Spec PASS / Quality DONE_WITH_CONCERNS。
+- MODEL 未选择，SFT 未运行；五轮、最终 694/744、独立 validation/benchmark 和作者原始实验复现均未运行，ACEBench 为 skipped 而非 scored。
+
+### 永久文档与网页发布
+
+- 新建 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，发布真实协议、调用、full verifier 覆盖、配对分数、接受与恢复证据、关键哈希和质量限制；不公开 raw prompts/responses、私有轨迹、凭据或大日志。
+- 同步 `reproduction/PROGRESS.md`、`web/RESULTS.md`、本节、`web/data/reproduction.json`、`AGENTS.md`、`reproduction/LEARNING.md` 和 `reproduction/REPRODUCTION.md`。当前完整离线套件计数为 **517 passed, 2 skipped**；旧 297/2 保留为明确标注的历史 smoke 阶段计数。
+- `web/data/reproduction.json` 新增独立 canary 对象和 experiment stage，记录 16/1/1、HARNESS、2/3、51/93、7/8 full verifier、3/16→4/16、4/3 transitions、accept/activate、COMPLETE、cleanup、0001/0002 恢复和未运行边界；未修改其他 JSON 或 JSONL 账本。
+- 发布检查：`python3 -m unittest discover -s web/tests -v` **11/11 OK**；`node --check web/app.js` 通过；`python -m json.tool web/data/reproduction.json` 通过；`git diff --check` 通过；修改文件常见私钥、API key 和 authtoken 形态扫描无命中，website 凭据/raw-log 公开面测试同时通过。
+- 本发布只修改上述文档和公开状态 JSON，不改生产代码、测试或其他 JSONL；只创建一个本地 docs commit，不 push，不启动新实验或 SCO。

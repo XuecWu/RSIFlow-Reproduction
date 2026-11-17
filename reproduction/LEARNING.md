@@ -1,8 +1,8 @@
 # RSI-Flow 学习笔记：Task / Meta 双层改进闭环
 
-- 版本：v0.2
+- 版本：v0.3
 - 整理日期：2026-11-17
-- 代码基线：`cad31db1fed0999f81e6cc30422b9c498a4ca319`（`reproduction/4b-preflight`）
+- 代码基线：`a74cf95c77ab197ab8f3e924984bb3d1dcb4a05b`（`reproduction/4b-preflight`；本次真实结果发布不改生产代码）
 - 适用范围：当前仓库的 4B、skill-based variant；不是对未发布变体或未来实现的泛化描述。
 
 ## 文档目的与维护约定
@@ -431,7 +431,9 @@ A0 保存初始状态（不做 baseline validation）
 
 组件由 Meta 在真实运行时选择，离线配置没有预选 MODEL。只有实际 decision 为 MODEL、父代训练 rollout 有经评估验证的自然成功轨迹且 SFT/merge 回执真实存在时，才可记录 positive-only SFT；零自然正例时必须记 blocked/not run。HARNESS/ARTIFACTS 结果不得改记为 MODEL/SFT，retain 也是有界的有效工程结果而非失败伪装。
 
-这个 canary 不是五轮、3000 任务或最终 694/744，也不产生独立 benchmark 分数。当前仅有离线实现和审查证据，真实 canary 尚未运行；执行命令与证据要求见 `reproduction/audit/reviews/deepcoder-canary-runbook.md`。
+这个 canary 不是五轮、3000 任务或最终 694/744，也不产生独立 benchmark 分数。**真实受限闭环现已完成**：Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 3/16=0.1875→4/16=0.25，delta +0.0625，并完成 accept/activate、skills/context/snapshot 和 cleanup。
+
+结果必须连同限制一起理解：4 个新成功伴随 3 个回归，原 3 个成功全部回归；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败，过程异常使 Harness 因果归因受限。MODEL 未选择，SFT 未运行；五轮、694/744、独立 benchmark 和作者原始实验复现仍未运行。当前完整离线套件为 **517 passed, 2 skipped**。执行与证据要求见 `reproduction/audit/reviews/deepcoder-canary-runbook.md`，真实结果见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。
 
 ## 9. 数据与证据边界
 
@@ -454,6 +456,12 @@ A0 保存初始状态（不做 baseline validation）
 8. `reproduction/configs/train_4b_v5.json`：当前机器配置，包括空的技能种子设置。
 
 ## 11. 维护日志
+
+### v0.3 — 2026-11-17
+
+- 根据真实 run 与独立结果审阅，把 DeepCoder function 16 canary 从“仅离线、未运行”更新为已完成的受限闭环：HARNESS、2/3 检查、51/93 calls、3/16→4/16、accept/activate 和完整终局。
+- 同步 4 新成功、3 回归、原成功全回归及零调用过程异常导致的归因限制；保留 full verifier 父 7/候选 8 的准确口径。
+- 当前完整离线套件更新为 517 passed, 2 skipped；五轮、正式 SFT、694/744、独立 benchmark 和作者原始实验复现仍未运行。
 
 ### v0.2 — 2026-11-17
 

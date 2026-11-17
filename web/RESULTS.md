@@ -24,6 +24,15 @@
 8. 真实模型诊断：`pt-ox3o5he2` 曾完成四卡 BF16 服务、checkpoint/weights 绑定和短生成，随后停止服务并释放显存；这不是 benchmark 分数，也不表示当前服务仍运行。
 9. 最终 A100 gates（`313b6bc`、root_mapping=false）：combined `pt-v6m10c4t` 整体/worker **FAILED** 仅因 Meta 外部 provider completion failure；candidate/Harness/BFCL exit 均 0。candidate SHA256 `56b3fc6a2d5d3cdaf66c84947ed35c607c2db2b883ad9e6c1b3e5c32e00abd63`，Harness `1 passed in 23.26s`（log SHA256 `808285dc5c05709785e4d669e28882e5c496644bb1191a6301866325b2735f31`），BFCL 两次 RPC 且 key hygiene 通过（receipt/key SHA256 `ac659bf1898af26c0b8ef68b3b6fe3dd4beb07fa9931cbab051378056b5e0fe4` / `fbe9b6386dd64f78e5eb72b7bbad9f88f2c39e218b93bd6ab049a0b97b20749d`）。combined Meta ordinal 0 HTTP 502、retry HTTP 200 incomplete SSE，failed report `4f123a27dc415e2b99d63569fee30af2fce68bf3fda68da3653ee7e9e1db3d9c`。唯一 Meta retry `pt-x6b4ista` SUCCEEDED/worker Succeeded/exit 0，report `a177657dbf1e744f2d2be64d16c33bcda08102052a7ecd7486aebdd48cf64b66`，全部恢复/key/cleanup 检查通过，installation_id=0644 且 run-owner 精确。EvalPlus 保留历史 one-task 证据，未在本 commit 重跑。
 
+## DeepCoder function 16 真实 canary（2026-11-17）
+
+- **协议完成**：固定 16 条 function、code 单域、A0+B1 单轮、一个实验 attempt 和一个候选完整结束；父子 IDs/source hashes 精确配对。Astra 实际选择 **HARNESS**，同一 candidate 在 **2/3 次检查**后 passed。
+- **真实调用与测试**：父代 **51**、候选 **93** 次 Qwen calls。父代 7、候选 8 个有效 submission 进入 full official verifier；其余分别为 9 和 8 个无有效答案任务，不伪称完整测试。
+- **配对结果**：**3/16=0.1875 → 4/16=0.25，delta +0.0625**。`compare_scores`、`compare_task_differences`、显式 `accept_candidate` 和 activate 均完成，candidate state 与 active state hash 一致。
+- **必须同时公开的限制**：4 个新成功伴随 3 个回归，原 3 个成功全部回归；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败。结果只支持固定批净正增益，过程异常使 Harness 因果归因受限。
+- **终局与恢复**：skills/context/snapshot、state COMPLETE、finish、jobs 调和和四卡 cleanup 均完成。supervision 0001 有 24 个失败 turns、24 条 error events 及 24 条对应 turn/completed events；0002 在同一 thread 从 candidate_built 恢复，无重复 A0/父代，最终 exit 0。
+- **边界**：MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行。当前完整离线套件 **517 passed, 2 skipped**。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。
+
 ## 合并、备份与本次复验（2026-11-16）
 
 1. **合并前预检（功能工作树）**：完整 Python `297 passed, 2 skipped in 92.22s`；website `11/11`；`node --check web/app.js` 与 `git diff --check` 通过。生产代码相对最终审阅 HEAD 未变，新增改动仅复盘/审计文档与 `Meta_logs/` ignore 规则。

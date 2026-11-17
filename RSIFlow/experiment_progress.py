@@ -408,7 +408,9 @@ class ExperimentProgress:
             "current_stage_purpose": current["purpose"] if current else "All required stages are complete.",
             "next_milestone": current["remaining_milestones"][0] if current else None,
             "next_milestone_purpose": (
-                MILESTONE_PURPOSES[current["remaining_milestones"][0]] if current else None
+                "Preserve the concise evidence-linked final handoff."
+                if no_validation and current and current["remaining_milestones"][0] == "context_updated"
+                else MILESTONE_PURPOSES[current["remaining_milestones"][0]] if current else None
             ),
             "next_stage": self._next_stage_id(stages, current),
             "final_stage": f"B{self.rounds}",

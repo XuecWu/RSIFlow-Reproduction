@@ -265,6 +265,7 @@ def _assert_canary_runtime_instructions(text):
         "then advance to fresh next-round tasks",
         "Run independent validation only when due under the configured evaluation schedule",
         "Reuse unchanged parent results across rejected attempts",
+        "handoff for the next round",
     ):
         assert forbidden not in text
 
@@ -347,6 +348,8 @@ class _OfflineExecutor:
         }.get(operation, "completed")}
         if operation == "sft":
             receipt["candidate_state_path"] = "candidate.json"
+        if operation == "append_skills":
+            receipt["appended_count"] = 1
         return receipt
 
 
@@ -362,8 +365,43 @@ def _real_persistent_meta(tmp_path):
     )
 
 
+def _advance_to_context_updated(loop):
+    assert isinstance(loop.tools, persistent_meta.NativeExperimentTools)
+
+    def complete_job(request, turn_dir):
+        return {"status": "completed", "result": loop.tools.executor.execute(request)}
+
+    loop.tools.jobs.start = complete_job
+    operations = [
+        ("bootstrap", 0, {}), ("snapshot_task_meta", 0, {}),
+        ("run_parent", 1, {}), ("prepare_meta_evidence", 1, {}),
+        ("write_text", 1, {"path": str(loop.run / "round_1/attempts/attempt_1/decision.json")}),
+        ("sft", 1, {}), ("run_candidate", 1, {}), ("compare_scores", 1, {}),
+    ]
+    for operation, round_number, extra in operations:
+        loop.tools("experiment", {"request": {
+            "operation": operation, "round_number": round_number, **extra,
+        }})
+    assert loop.progress.rebuild()["next_milestone"] == "selection_recorded"
+
+    selection_response = loop.tools("experiment", {"request": {
+        "operation": "write_text", "round_number": 1,
+        "path": str(loop.run / "round_1/attempts/attempt_1/selection.json"),
+        "content": json.dumps({"accept_or_retain": "retain_parent"}),
+    }})
+    assert loop.progress.rebuild()["next_milestone"] == "skills_appended"
+
+    context_response = loop.tools("experiment", {"request": {
+        "operation": "append_skills", "round_number": 1,
+        "path": str(loop.run / "meta/skills.jsonl"),
+    }})
+    assert loop.progress.rebuild()["next_milestone"] == "context_updated"
+    return selection_response, context_response
+
+
 def test_real_persistent_meta_initial_developer_and_resume_instructions(tmp_path, monkeypatch):
     loop = _real_persistent_meta(tmp_path)
+    _advance_to_context_updated(loop)
     config = _canary_launcher_value(tmp_path)
     config.update(evaluation_schedule="none", retry_rejected_from_round=2)
     initial = experiment_prompt(tmp_path / "launcher.json", config, loop.run)
@@ -402,36 +440,19 @@ def test_real_persistent_meta_initial_developer_and_resume_instructions(tmp_path
     assert len(captured["turns"]) == 2
     for text in (developer, captured["turns"][0], captured["turns"][1]):
         _assert_canary_runtime_instructions(text)
+    resume = captured["turns"][1]
+    assert "Next required milestone: context_updated" in resume
+    assert "final handoff" in resume
     assert _prompt_protocol(captured["turns"][0])["workflow_policy"][
         "retry_rejected_from_round"] == 2
 
 
 def test_real_native_tool_retain_response_uses_canary_reminder(tmp_path):
     loop = _real_persistent_meta(tmp_path)
-    assert isinstance(loop.tools, persistent_meta.NativeExperimentTools)
+    selection_response, context_response = _advance_to_context_updated(loop)
 
-    def complete_job(request, turn_dir):
-        return {"status": "completed", "result": loop.tools.executor.execute(request)}
-
-    loop.tools.jobs.start = complete_job
-    operations = [
-        ("bootstrap", 0, {}), ("snapshot_task_meta", 0, {}),
-        ("run_parent", 1, {}), ("prepare_meta_evidence", 1, {}),
-        ("write_text", 1, {"path": str(loop.run / "round_1/attempts/attempt_1/decision.json")}),
-        ("sft", 1, {}), ("run_candidate", 1, {}), ("compare_scores", 1, {}),
-    ]
-    for operation, round_number, extra in operations:
-        loop.tools("experiment", {"request": {
-            "operation": operation, "round_number": round_number, **extra,
-        }})
-    assert loop.progress.rebuild()["next_milestone"] == "selection_recorded"
-
-    response = loop.tools("experiment", {"request": {
-        "operation": "write_text", "round_number": 1,
-        "path": str(loop.run / "round_1/attempts/attempt_1/selection.json"),
-        "content": json.dumps({"accept_or_retain": "retain_parent"}),
-    }})
-
-    assert loop.progress.rebuild()["next_milestone"] == "skills_appended"
-    assert "<MAINLINE_PROGRESS>" in response
-    _assert_canary_runtime_instructions(response)
+    for response in (selection_response, context_response):
+        assert "<MAINLINE_PROGRESS>" in response
+        _assert_canary_runtime_instructions(response)
+    assert "Next required milestone: context_updated" in context_response
+    assert "final handoff" in context_response

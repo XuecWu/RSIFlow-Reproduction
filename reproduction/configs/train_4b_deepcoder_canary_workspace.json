@@ -1,0 +1,172 @@
+{
+  "rounds": 1,
+  "meta_skill_context_chars": 24000,
+  "meta_skill_per_category": 1,
+  "meta_skill_seed_path": null,
+  "seed": 42,
+  "runtime_source": "runtime",
+  "base_config": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/base_4b.json",
+  "dataset_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/raw",
+  "environment_files": [
+    "train/tool_use/envscaler/train/environments.jsonl",
+    "train/tool_use/envscaler/heldout/environments.jsonl"
+  ],
+  "datasets": [
+    {
+      "name": "envscaler",
+      "domain": "tool_use",
+      "files": [
+        {
+          "path": "train/tool_use/envscaler/train/scenarios.jsonl",
+          "original_split": "train"
+        },
+        {
+          "path": "train/tool_use/envscaler/heldout/scenarios.jsonl",
+          "original_split": "heldout"
+        }
+      ],
+      "stratify": [
+        "difficulty",
+        "source",
+        "type",
+        "task_type"
+      ]
+    },
+    {
+      "name": "deepcoder_taco",
+      "domain": "code",
+      "files": [
+        {
+          "path": "train/code/deepcoder_taco/train.jsonl",
+          "original_split": "train"
+        }
+      ],
+      "stratify": [
+        "difficulty",
+        "source",
+        "type",
+        "task_type"
+      ]
+    },
+    {
+      "name": "hotpotqa",
+      "domain": "searchqa",
+      "files": [
+        {
+          "path": "train/searchqa/hotpotqa/train.jsonl",
+          "original_split": "train"
+        }
+      ],
+      "stratify": [
+        "difficulty",
+        "source",
+        "type",
+        "task_type"
+      ]
+    },
+    {
+      "name": "2wiki",
+      "domain": "searchqa",
+      "files": [
+        {
+          "path": "train/searchqa/2wiki/train.jsonl",
+          "original_split": "train"
+        }
+      ],
+      "stratify": [
+        "difficulty",
+        "source",
+        "type",
+        "task_type"
+      ]
+    }
+  ],
+  "sft_epochs_per_update": 1,
+  "sft_max_steps": -1,
+  "max_length": 16384,
+  "max_sft_samples": 10000000,
+  "training_timeout_seconds": 604800,
+  "max_wall_seconds": 2592000,
+  "validation_config": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight/reproduction/configs/validation_744_v5.json",
+  "output_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight/Rollout_logs/deepcoder_canary_16_v1",
+  "run_name": "deepcoder_function_16_canary_workspace_v1",
+  "skip_acebench": true,
+  "meta_worker_socket": "/tmp/rsiflow_4b_meta_worker.sock",
+  "meta_relay_socket": "/tmp/rsiflow_4b_meta_relay.sock",
+  "ports": [
+    8271,
+    8272,
+    8273,
+    8274
+  ],
+  "training_schedule": "round_disjoint",
+  "split_seed": 42,
+  "rollout_seed": 42,
+  "training_seed": 42,
+  "allocated_tasks": 16,
+  "minimum_sft_samples": 1,
+  "train_quotas_per_round": {
+    "envscaler": 0,
+    "deepcoder_taco": 16,
+    "hotpotqa": 0,
+    "2wiki": 0
+  },
+  "grouping": {
+    "family_fields": [
+      "group_id",
+      "problem_id",
+      "conversation_id",
+      "dialogue_id",
+      "parent_id",
+      "original_id"
+    ],
+    "envscaler_environment_family": true,
+    "max_environment_fraction_per_round": 0.1
+  },
+  "exposure_ledger": null,
+  "validation_limits": {
+    "bfcl_v3": 152,
+    "acebench": 50,
+    "humaneval_plus": 164,
+    "mbpp_plus": 178,
+    "hotpotqa_dev": 100,
+    "2wiki_dev": 100
+  },
+  "final_test_limits": {
+    "bfcl_v3": null,
+    "acebench": null,
+    "livecodebench": null,
+    "humaneval_plus": null,
+    "mbpp_plus": null,
+    "hotpotqa_dev": 1000,
+    "2wiki_dev": 1000
+  },
+  "retrieval_index": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/retrieval-v3/search.sqlite",
+  "validation_vault": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/evaluation_vault/reconstructed",
+  "rollout_collection_policy": "meta_one_component_one_candidate_strict_positive_gain",
+  "training_rollouts_per_round": {
+    "min": 600,
+    "max": 1200
+  },
+  "training_tasks_per_pass": 16,
+  "evaluate_initial_system": false,
+  "data_release": "deepcoder_function_16_canary_v1",
+  "memory_policy": "append_component_skill_then_general_principle",
+  "sequential_domains": false,
+  "frozen_data_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight/reproduction/logs/deepcoder-canary-16-v1/release",
+  "cross_round_tool_environment_reuse": true,
+  "candidate_policy": "single_candidate_strict_positive_gain",
+  "max_dataset_passes_per_stage": 2,
+  "artifact_evaluation": "direct_submission",
+  "evidence_bound_interventions": true,
+  "evaluation_schedule": "none",
+  "validation_manifest": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/validation_744_v5/manifest.json",
+  "source_training_manifest": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/cohort/train_source_manifest.json",
+  "source_validation_manifest": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/cohort-v5/bfcl-v5-migration-r1/validation_source_manifest.json",
+  "codex_host_config": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/codex_host.toml",
+  "codex_model_catalog": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/gpt-6-astra.json",
+  "experiment_scope": "deepcoder_canary",
+  "scope_train_limit": 16,
+  "scope_probe_limit": 16,
+  "retry_rejected_from_round": 2
+}

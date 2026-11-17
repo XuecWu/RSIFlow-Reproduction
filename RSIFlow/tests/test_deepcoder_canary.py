@@ -623,3 +623,51 @@ def test_machine_config_changes_only_canary_fields_and_is_accepted(tmp_path):
     assert effective.meta == parent_effective.meta
     assert effective.training == parent_effective.training
     assert effective.seed == parent_effective.seed == 42
+
+
+def test_workspace_canary_config_preserves_protocol_and_output_boundaries(tmp_path):
+    from rsiflow.task_meta.pipeline import PROJECT as runtime_project
+
+    original_path = PROJECT / "reproduction/configs/train_4b_deepcoder_canary.json"
+    workspace_path = PROJECT / "reproduction/configs/train_4b_deepcoder_canary_workspace.json"
+    original = json.loads(original_path.read_text())
+    value = json.loads(workspace_path.read_text())
+    expected_output = Path(
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight/"
+        "Rollout_logs/deepcoder_canary_16_v1"
+    )
+    expected_run = "deepcoder_function_16_canary_workspace_v1"
+
+    assert value == {
+        **original,
+        "output_root": str(expected_output),
+        "run_name": expected_run,
+    }
+    assert value["rounds"] == 1
+    assert value["allocated_tasks"] == value["training_tasks_per_pass"] == 16
+    assert value["train_quotas_per_round"] == {
+        "envscaler": 0, "deepcoder_taco": 16, "hotpotqa": 0, "2wiki": 0,
+    }
+    assert value["evaluation_schedule"] == "none"
+    assert value["retry_rejected_from_round"] == 2
+
+    adapter = TaskAdapter(ROOT, tmp_path / "receipts")
+    effective = adapter._config({"config_path": str(workspace_path)})
+    original_effective = adapter._config({"config_path": str(original_path)})
+    assert effective.model_dump(exclude={"output_root"}) == original_effective.model_dump(
+        exclude={"output_root"}
+    )
+    assert effective.window_quotas == effective.probe_per_domain == CANARY_QUOTAS
+    assert effective.round_protocol["train_quotas_per_round"] == CANARY_QUOTAS
+    assert effective.meta == original_effective.meta
+    assert effective.training == original_effective.training
+    assert effective.seed == original_effective.seed == 42
+
+    output = Path(effective.output_root)
+    run = output / "runs" / value["run_name"]
+    native_workspace = ROOT.resolve().parent
+    assert native_workspace == PROJECT.resolve()
+    assert output == expected_output
+    assert output.is_relative_to(native_workspace)
+    assert run.is_relative_to(native_workspace)
+    assert not output.is_relative_to(runtime_project.resolve())

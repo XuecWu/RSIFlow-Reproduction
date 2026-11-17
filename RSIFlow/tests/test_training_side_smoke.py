@@ -536,6 +536,34 @@ def test_wrong_answers_are_completed_with_model_failures(world, tmp_path, monkey
     assert result["model_failures"] == 5
 
 
+def test_candidate_error_with_completed_calls_is_a_model_failure(world, tmp_path, monkeypatch):
+    def candidate_failure(out, **kw):
+        rows = _build_parent_rows(out, success=False, **kw)
+        for row in rows:
+            row["execution_error_type"] = "candidate_error"
+            row["error"] = "FileNotFoundError: candidate artifact missing"
+        return rows
+
+    _, _, result = _run_rollout(world, tmp_path, monkeypatch, candidate_failure)
+    assert result["status"] == "completed_with_model_failures"
+    assert result["model_failures"] == 5
+
+
+def test_candidate_error_without_model_calls_still_blocks(world, tmp_path, monkeypatch):
+    def no_model_calls(out, **kw):
+        rows = _build_parent_rows(out, success=False, **kw)
+        for row in rows:
+            row["execution_error_type"] = "candidate_error"
+            row["error"] = "BlockingIOError: resource temporarily unavailable"
+            row["model_call_count"] = 0
+            row["transport_calls"] = []
+        return rows
+
+    _, _, result = _run_rollout(world, tmp_path, monkeypatch, no_model_calls)
+    assert result["status"] == "incomplete"
+    assert "No real local model call recorded" in result["error"]
+
+
 def test_infrastructure_and_missing_score_block(world, tmp_path, monkeypatch):
     receipt, calls, infra = _run_rollout(world, tmp_path, monkeypatch,
                                          lambda out, **kw: _build_parent_rows(out, infra=True, **kw))

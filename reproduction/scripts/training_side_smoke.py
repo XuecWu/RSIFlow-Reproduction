@@ -698,7 +698,7 @@ def _validate_parent_rows(rows, mini_manifest_hash, expected_ids, coverage_of, r
             raise SmokeBlocked(f"Rollout row has wrong role/purpose/round/stage/branch: {task_id}")
         if row.get("manifest_hash") != mini_manifest_hash:
             raise SmokeBlocked(f"Rollout row is bound to a different manifest: {task_id}")
-        if row.get("infrastructure_error") or row.get("execution_error_type"):
+        if row.get("infrastructure_error") or row.get("execution_error_type") == "infrastructure":
             raise SmokeBlocked(f"Unexplained infrastructure failure: {task_id}")
         verification = row.get("verification")
         if not isinstance(verification, dict) or verification.get("status") != "completed":

@@ -240,22 +240,30 @@ def _seed_run(tmp_path, supervisor, reconciler, *, jobs_active=False, services_s
     import hashlib as _hl
     raw = "0, GPU-0, A800, 81920, 80000, 100, 0\n1, GPU-1, A800, 81920, 80000, 100, 0\n" \
           "2, GPU-2, A800, 81920, 80000, 100, 0\n3, GPU-3, A800, 81920, 80000, 100, 0\n"
+    apps = compute_apps if compute_apps is not None else []
+    apps_raw = "".join(f"{a['pid']}, {a.get('uuid', '')}\n" for a in apps)
     gpu_obs = {
         "time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "command": ["nvidia-smi", "--query"], "command_result": 0,
         "expected_uuids": [f"GPU-{g}" for g in range(4)],
         "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000, "memory_total": 81920,
                      "memory_used": 100, "utilization": 0} for g in range(4)],
-        "compute_apps": compute_apps if compute_apps is not None else [],
+        "compute_apps": apps,
         "free_verified": (compute_apps is None or not compute_apps),
         "raw_stdout": raw, "stdout_hash": _hl.sha256(raw.encode()).hexdigest(),
+        "apps_command": ["nvidia-smi", "--query-compute-apps=pid,uuid"],
+        "apps_raw_stdout": apps_raw, "apps_stdout_hash": _hl.sha256(apps_raw.encode()).hexdigest(),
     }
     return config, run, paths, gpu_obs, {"launcher_pid": launcher_pid, "app_pid": app_pid, "job_pid": job_pid}
 
 
 def _gpu_observer(gpu_obs):
+    # F6: each call returns an independent observation with a distinct real timestamp
+    # (the writer separates calls by a real interval, so times fall in the receipt window).
     def observe():
-        return dict(gpu_obs)
+        obs = dict(gpu_obs)
+        obs["time"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return obs
     return observe
 
 
@@ -855,11 +863,15 @@ def _prelaunch_evidence(tmp_path, *, commit="a" * 40, backend="linux_bwrap_secco
     if omit:
         assets.pop(omit, None)
     import hashlib as _hl
+    field_base = {"status": "success", "run_dir": str(tmp_path / "run"), "config_hash": "c" * 64,
+                  "host": "dev4", "boot_id": "boot-1", "pid_namespace": "host",
+                  "gpus": [{"gpu": g, "uuid": f"GPU-{g}"} for g in range(4)],
+                  "provider": "gpt-6-astra", "ports": [8271, 8272, 8273, 8274], "backend": backend}
     stage1 = tmp_path / "preflight_stage1.json"
-    stage1.write_text(json.dumps({"stage": 1, "occupier_running": True}))
+    stage1.write_text(json.dumps({**field_base, "stage": 1, "occupier_running": True}))
     stage1_hash = _hl.sha256(stage1.read_bytes()).hexdigest()
     stage2 = tmp_path / "preflight_stage2.json"
-    stage2.write_text(json.dumps({"stage": 2, "occupier_stopped": True,
+    stage2.write_text(json.dumps({**field_base, "stage": 2, "occupier_stopped": True,
                                   "stage1_receipt_hash": "bad" if stage2_no_ref else stage1_hash}))
     stage2_hash = _hl.sha256(stage2.read_bytes()).hexdigest()
     return {"reviewed_commit": commit, "backend": backend,
@@ -990,19 +1002,13 @@ def test_r7_unsealed_training_requires_audit_before_experiment(tmp_path, supervi
     config, run, paths, gpu_obs, pids, spy, script = _seed_sft_resume_run(
         tmp_path, supervisor, reconciler, training_sealed=False)
     command = [sys.executable, str(script), str(run), str(spy)]
-    supervisor.launch(config, "0002", command=command, timeout="10s", kill_after="2s",
-                      skip_asset_gates=True, mode="resume", resumed_from="0001")
-    attempt2 = run / "meta_session/supervision/0002"
-    assert _wait(lambda: (attempt2 / "exit").is_file())
-    assert (attempt2 / "exit").read_text().strip() == "2"  # requires_audit, experiment not continued
-    assert (run / "meta_session/requires_audit.json").is_file()
+    # F7: unsealed training => requires_audit BEFORE Popen; experiment command never runs.
+    with pytest.raises(RuntimeError, match="requires_audit"):
+        supervisor.launch(config, "0002", command=command, timeout="10s", kill_after="2s",
+                          skip_asset_gates=True, mode="resume", resumed_from="0001")
     assert spy.read_text() == "0"  # no training dispatch
+    assert not (run / "meta_session/supervision/0002").exists()  # experiment never started
     assert not (run / "meta_session/resume_continued.json").exists()
-    # writer pending + consumer run_complete=false on the unsealed run
-    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
-                                          stop_services_fn=lambda cfg: None, skip_asset_gates=True)
-    receipt = json.loads(receipt_path.read_text())
-    assert receipt["status"] != "completed"
 
 
 def test_r7_dead_no_final_job_resume_refused_before_experiment(tmp_path, supervisor, reconciler):
@@ -1029,3 +1035,30 @@ def test_r7_intermediate_protocol_false_and_cleanup_pending_separation(tmp_path,
     result = summarizer.summarize(run, config_path=config)
     assert result["protocol_complete"] is False
     assert result["run_complete"] is False
+
+
+def test_r7_production_sft_dispatch_spy_not_called_on_resume(tmp_path, supervisor, reconciler, monkeypatch):
+    # F7: the spy is bound to the PRODUCTION training dispatch entry (TaskAdapter.sft),
+    # not a test script. A completed-training resume must not re-dispatch training; the
+    # resume gate binds the real prior thread and the child/training bytes stay unchanged.
+    import task_adapter
+    calls = []
+    def spy_sft(self, arguments):
+        calls.append(arguments)
+        raise AssertionError("production training dispatch must not be re-called on resume")
+    monkeypatch.setattr(task_adapter.TaskAdapter, "sft", spy_sft)
+    config, run, paths, gpu_obs, pids, spy, script = _seed_sft_resume_run(tmp_path, supervisor, reconciler)
+    model_update = run / "round_2/attempts/attempt_1/candidate/model_update"
+    before_hash = supervisor._sha256(model_update / "checkpoint_trained.json")
+    command = [sys.executable, str(script), str(run), str(spy)]
+    result = supervisor.launch(config, "0002", command=command, timeout="10s", kill_after="2s",
+                               skip_asset_gates=True, mode="resume", resumed_from="0001")
+    attempt2 = run / "meta_session/supervision/0002"
+    assert _wait(lambda: (attempt2 / "exit").is_file())
+    # production training dispatch entry was never called; training bytes unchanged
+    assert calls == []
+    assert supervisor._sha256(model_update / "checkpoint_trained.json") == before_hash
+    # resume binds the real prior thread (not the placeholder default)
+    assert result["launch_seal"]["binding"]["thread_id"] == "t1"
+    assert (run / "meta_session/supervision/0001/resumed-thread-seal.json").is_file()
+    assert (run / "meta_session/supervision/0001/exit").read_text() == "143"

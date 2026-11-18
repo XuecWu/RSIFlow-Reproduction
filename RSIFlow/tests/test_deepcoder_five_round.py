@@ -1237,16 +1237,22 @@ def _cleanup_receipt(run, output_root, config_path, *, status="completed", attem
     import hashlib as _hl
     raw = "0, GPU-0, A800, 81920, 80000, 100, 0\n1, GPU-1, A800, 81920, 80000, 100, 0\n" \
           "2, GPU-2, A800, 81920, 80000, 100, 0\n3, GPU-3, A800, 81920, 80000, 100, 0\n"
+    apps = compute_apps if compute_apps is not None else []
+    apps_raw = "".join(f"{a['pid']}, {a.get('uuid', '')}\n" for a in apps)
     gpu = {"time": "2026-11-18T00:01:00Z", "command": ["nvidia-smi", "--query"], "command_result": 0,
            "expected_uuids": [g["uuid"] for g in expected_gpus],
            "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000, "memory_total": 81920,
                         "memory_used": 100, "utilization": 0} for g in range(4)],
-           "compute_apps": compute_apps if compute_apps is not None else [], "free_verified": free_verified,
-           "raw_stdout": raw, "stdout_hash": _hl.sha256(raw.encode()).hexdigest()}
+           "compute_apps": apps, "free_verified": free_verified,
+           "raw_stdout": raw, "stdout_hash": _hl.sha256(raw.encode()).hexdigest(),
+           "apps_command": ["nvidia-smi", "--query-compute-apps=pid,uuid"],
+           "apps_raw_stdout": apps_raw, "apps_stdout_hash": _hl.sha256(apps_raw.encode()).hexdigest()}
     gpu_observations = []
     for index in range(2):
-        gpu_path, gpu_hash = write(directory / f"gpu_observation_{index}.json", gpu)
-        gpu_observations.append({**gpu, "evidence_path": gpu_path, "evidence_sha256": gpu_hash})
+        # F6: independent observations with distinct timestamps (valid interval).
+        obs = {**gpu, "time": f"2026-11-18T00:01:{index * 2:02d}Z"}
+        gpu_path, gpu_hash = write(directory / f"gpu_observation_{index}.json", obs)
+        gpu_observations.append({**obs, "evidence_path": gpu_path, "evidence_sha256": gpu_hash})
     ports_path, ports_hash = write(directory / "ports_observation.json", {"status": "closed", "closed_ports": [8271, 8272, 8273, 8274]})
     receipt = {"schema_version": 1, "kind": "rsiflow_external_cleanup", "status": status,
                "started_at_utc": "2026-11-18T00:00:00Z", "observed_at_utc": "2026-11-18T00:02:00Z",

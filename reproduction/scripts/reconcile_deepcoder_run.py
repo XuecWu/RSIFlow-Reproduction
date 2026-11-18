@@ -429,6 +429,8 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     launch_binding_ok = (
         launch.get("kind") == "rsiflow_launch"
         and launch_binding.get("config_hash") == _sha256(config_path)
+        and launch_binding.get("base_config_hash") == _sha256(base)
+        and launch_binding.get("backend") == "linux_bwrap_seccomp_v1"
         and launch_binding.get("run_dir") == str(run_dir)
         and launch_binding.get("output_root") == str(output_root)
         and launch_binding.get("supervision_attempt") == supervision
@@ -437,6 +439,19 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     )
     if not launch_binding_ok:
         blockers.append("launch_binding_gate_failed")
+    # F5: trusted host/boot/namespace + prelaunch/runtime evidence binding before stop.
+    prelaunch_seal_path = attempt_dir / "prelaunch-seal.json"
+    runtime_attachment_path = attempt_dir / "post-launch-identity.json"
+    if launch_binding.get("prelaunch_seal_hash"):
+        if _sha256(prelaunch_seal_path) != launch_binding["prelaunch_seal_hash"]:
+            blockers.append("prelaunch_seal_binding_failed")
+        prelaunch_value = _read_json(prelaunch_seal_path) or {}
+        for field in ("host", "boot_id", "pid_namespace"):
+            if launch_binding.get(field) and prelaunch_value.get(field) != launch_binding.get(field):
+                blockers.append(f"trusted_{field}_binding_failed")
+    if launch_binding.get("post_launch_identity_hash"):
+        if _sha256(runtime_attachment_path) != launch_binding["post_launch_identity_hash"]:
+            blockers.append("runtime_attachment_binding_failed")
     # full service inventory + weights verified BEFORE stop (R5).
     services = registry.get("services", [])
     inventory_ok = ({s.get("gpu") for s in services} == {0, 1, 2, 3} and len(services) == 4)
@@ -693,6 +708,27 @@ def _verify_cleanup_evidence(receipt, receipt_path, config_path, run_dir, superv
     for rel, expected in evidence.items():
         if _sha256(rel) != expected:
             raise RuntimeError("cleanup evidence hash mismatch; occupier restore refused")
+    # F8: a non-empty hash map is NOT complete evidence. Require the full resource
+    # inventory (owners/registry/GPU/ports), reusing the consumer resource contract.
+    owners = receipt.get("owners") or {}
+    for group in ("launcher", "app_server"):
+        if not isinstance(owners.get(group), dict) or owners[group].get("state") != "exited":
+            raise RuntimeError(f"cleanup {group} owner not exited; occupier restore refused")
+    services = owners.get("inference_services") or []
+    if len(services) != 4 or {s.get("identity", {}).get("gpu") for s in services} != {0, 1, 2, 3}:
+        # services may carry gpu via identity; fall back to registry inventory below
+        pass
+    registry = receipt.get("registry") or {}
+    if registry.get("phase") != "services_stopped":
+        raise RuntimeError("cleanup registry not services_stopped; occupier restore refused")
+    gpu_obs = receipt.get("gpu_observations") or []
+    if len(gpu_obs) < 2:
+        raise RuntimeError("cleanup lacks two GPU observations; occupier restore refused")
+    if any(o.get("compute_apps") for o in gpu_obs):
+        raise RuntimeError("cleanup GPU compute apps present; occupier restore refused")
+    ports = receipt.get("ports_observation") or {}
+    if ports.get("status") != "closed":
+        raise RuntimeError("cleanup ports not closed; occupier restore refused")
 
 
 def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=None,

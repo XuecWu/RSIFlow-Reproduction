@@ -1316,6 +1316,22 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
     require(all(binding.get(k) is not None and launch.get("binding", {}).get(k) == binding[k] for k in fields), "launch_binding")
     state = _read_json(sealed(run / "meta_session/state.json")) or {}
     require(binding["thread_id"] == state.get("thread_id"), "thread_binding")
+    # F1: consume the real runtime attachment when referenced (no placeholder fallback).
+    # The attachment binds the actual launcher/app-server/thread/GPU index->UUID to the
+    # prelaunch seal hash; writer/consumer verify path/hash/run/attempt/config/owner/thread.
+    runtime_owners = launch.get("owners", {})
+    runtime_gpus = launch.get("expected_gpus")
+    if launch.get("binding", {}).get("post_launch_identity_hash"):
+        attachment_path = run / "meta_session/supervision" / attempts[-1] / "post-launch-identity.json"
+        attachment = _read_json(sealed(attachment_path, launch["binding"]["post_launch_identity_hash"])) or {}
+        require(attachment.get("kind") == "rsiflow_post_launch_identity", "runtime_attachment_schema")
+        require(attachment.get("prelaunch_seal_hash") == _sha256(launch_path), "runtime_attachment_prelaunch_hash")
+        require(attachment.get("run_dir") == str(run), "runtime_attachment_run")
+        require(attachment.get("supervision_attempt") == attempts[-1], "runtime_attachment_attempt")
+        require(attachment.get("config_path") == binding.get("config_path"), "runtime_attachment_config")
+        require(attachment.get("thread_id") == state.get("thread_id"), "runtime_attachment_thread")
+        runtime_owners = attachment.get("owners", {})
+        runtime_gpus = attachment.get("expected_gpus")
     sup = receipt.get("supervision") or {}
     require(sup.get("all_previous_attempts_accounted_for") is True
             and supervision.get("all_attempts_accounted_for") is True, "supervision_unaccounted")
@@ -1350,7 +1366,7 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
                 and observation.get("observed_at"), "owner_exit_observation")
 
     for group, pid_key in (("launcher", "launcher_pid"), ("app_server", "codex_pid")):
-        identity = launch.get("owners", {}).get(group) or {}
+        identity = runtime_owners.get(group) or {}
         require(identity.get("pid") == state.get(pid_key), "launcher_identity")
         owner(owners.get(group), identity, launch_path)
     jobs = sorted((run / "meta_session/jobs").glob("*/job.json"))
@@ -1380,14 +1396,20 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
         owner(item, identity, phase)
     observations = receipt.get("gpu_observations") or []
     require(bool(observations), "no_gpu_observation")
-    # R6: require two independent observations, each with sealed raw output hash and
-    # near-idle (used+util+compute_apps), not a single sample or free-memory-only check.
+    # R6/F6: require two INDEPENDENT observations (distinct evidence path AND time, valid
+    # interval), each with sealed raw output+hash, used/util/apps reconciliation, near-idle.
     require(len(observations) >= 2, "gpu_requires_two_observations")
     from datetime import datetime
     import hashlib as _hl
+    paths_seen = [o.get("evidence_path") for o in observations]
+    times_seen = [o.get("time") for o in observations]
+    require(len(set(paths_seen)) == len(paths_seen), "gpu_duplicate_observation_path")
+    require(len(set(times_seen)) == len(times_seen), "gpu_duplicate_observation_time")
+    obs_times = sorted(datetime.fromisoformat(o["time"].replace("Z", "+00:00")) for o in observations)
+    require((obs_times[-1] - obs_times[0]).total_seconds() >= 0.5, "gpu_observation_interval_invalid")
     started_at = datetime.fromisoformat(receipt["started_at_utc"].replace("Z", "+00:00"))
     finished_at = datetime.fromisoformat(receipt["observed_at_utc"].replace("Z", "+00:00"))
-    expected = launch.get("expected_gpus") or []
+    expected = runtime_gpus or []
     require(len(expected) == 4 and {g.get("gpu") for g in expected} == {0, 1, 2, 3}
             and len({g.get("uuid") for g in expected}) == 4 and all(g.get("uuid") for g in expected), "launch_gpu_inventory")
     for obs in observations:
@@ -1398,9 +1420,15 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
         require(obs.get("command_result") == 0 and isinstance(obs.get("command"), list)
                 and "nvidia-smi" in obs["command"][0] and obs.get("free_verified") is True
                 and started_at <= observed_at <= finished_at, "gpu_observation")
-        require(bool(obs.get("stdout_hash")), "gpu_raw_hash_missing")
-        if obs.get("raw_stdout") is not None:
-            require(_hl.sha256(obs["raw_stdout"].encode()).hexdigest() == obs["stdout_hash"], "gpu_raw_hash_mismatch")
+        # F6: raw output must be present and reconcile with its hash (not merely non-empty).
+        require(isinstance(obs.get("raw_stdout"), str) and bool(obs.get("stdout_hash")), "gpu_raw_missing")
+        require(_hl.sha256(obs["raw_stdout"].encode()).hexdigest() == obs["stdout_hash"], "gpu_raw_hash_mismatch")
+        # F6: apps raw output must reconcile with the parsed compute_apps list.
+        require(isinstance(obs.get("apps_raw_stdout"), str) and bool(obs.get("apps_stdout_hash")), "gpu_apps_raw_missing")
+        require(_hl.sha256(obs["apps_raw_stdout"].encode()).hexdigest() == obs["apps_stdout_hash"], "gpu_apps_hash_mismatch")
+        parsed_apps = [{"pid": int(l.split(",")[0]), "uuid": l.split(",")[1].strip()}
+                       for l in obs["apps_raw_stdout"].strip().splitlines() if l.strip()]
+        require(parsed_apps == obs.get("compute_apps"), "gpu_apps_reconciliation")
         require(obs.get("expected_uuids") == [g["uuid"] for g in expected], "gpu_uuids")
         readings = obs.get("per_gpu") or []
         require(len(readings) == 4 and {g.get("gpu") for g in readings} == {0, 1, 2, 3}, "gpu_readings")
@@ -1409,10 +1437,16 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
             require(reading.get("uuid") == uuid and type(reading.get("memory_free")) is int
                     and reading["memory_free"] >= 40000 and type(reading.get("memory_total")) is int
                     and reading["memory_free"] <= reading["memory_total"]
-                    and reading.get("memory_used", 0) <= 1024 and reading.get("utilization", 0) <= 5, "gpu_readings")
-    # R6: ports must be actually measured closed, not the offline placeholder.
+                    and type(reading.get("memory_used")) is int and reading["memory_used"] <= 1024
+                    and type(reading.get("utilization")) is int and reading["utilization"] <= 5, "gpu_readings")
+    # F6: ports must be actually measured closed with a port list + sealed evidence content.
     ports = receipt.get("ports_observation") or {}
     require(ports.get("status") == "closed", "ports_not_measured_closed")
+    require(isinstance(ports.get("closed_ports"), list) and set(ports["closed_ports"]) == {8271, 8272, 8273, 8274},
+            "ports_list_invalid")
+    ports_actual = _read_json(sealed(ports["evidence_path"], ports.get("evidence_sha256")))
+    require(ports_actual == {k: v for k, v in ports.items() if k not in {"evidence_path", "evidence_sha256"}},
+            "ports_evidence_binding")
 
 
 def _active_chain(rounds, active, a0_identity=None) -> list[str]:

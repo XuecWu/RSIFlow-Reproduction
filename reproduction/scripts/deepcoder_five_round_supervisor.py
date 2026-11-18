@@ -28,6 +28,17 @@ from pathlib import Path
 DEFAULT_TIMEOUT = "4h"
 DEFAULT_KILL_AFTER = "5m"
 
+# F2: the required prelaunch asset set is fixed by code, never shrunk by caller input.
+REQUIRED_PRELAUNCH_ASSETS = (
+    "manifest_B1", "manifest_B2", "manifest_B3", "manifest_B4", "manifest_B5",
+    "payload", "READY", "seed_harness", "model_weights", "codex_binary",
+    "bwrap_install", "bwrap_manifest", "bwrap_launcher", "task5_model_evidence",
+)
+# F2: required field-receipt evidence keys (success + run/config/host/namespace/GPU/
+# provider/ports/occupier binding), verified beyond a mere file hash.
+REQUIRED_STAGE_FIELDS = ("status", "run_dir", "config_hash", "host", "boot_id",
+                         "pid_namespace", "gpus", "provider", "ports")
+
 
 def _read_json(path):
     try:
@@ -143,13 +154,18 @@ def members():
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
+        p = int(entry.name)
+        if p in {wrapper_pid, helper_pid}:
+            continue
         try:
             s = (entry / "stat").read_text().rsplit(")", 1)[1].split()
-            p = int(entry.name)
-            if int(s[2]) == wrapper_pid and s[0] != "Z" and p not in {wrapper_pid, helper_pid}:
+            if int(s[2]) == wrapper_pid and s[0] != "Z":
                 out.append({"pid": p, "start_ticks": s[19]})
-        except (FileNotFoundError, PermissionError):
+        except FileNotFoundError:
             pass
+        except (PermissionError, ValueError, IndexError, OSError):
+            # F3: unreadable/unparseable member => cannot prove exit; fail closed.
+            out.append({"pid": p, "start_ticks": None, "unreadable": True})
     return out
 grace = 30.0
 initial = members()
@@ -230,6 +246,22 @@ def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool
             result = _read_json(job.get("result_path"))
             if not isinstance(result, dict) or result.get("status") in (None, "running"):
                 raise RuntimeError(f"resume blocked: job {jobpath.parent.name} has no terminal result")
+        # F7: unsealed/dead training phase => requires_audit BEFORE Popen (experiment
+        # command never executes). A completed training product must be sealed.
+        for phase in run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"):
+            value = _read_json(phase) or {}
+            if value.get("status") not in ("completed", "training_complete"):
+                raise RuntimeError(f"resume requires_audit: training phase {phase.parent.name} unsealed")
+            if not (phase.parent / "checkpoint_trained.json").is_file():
+                raise RuntimeError(f"resume requires_audit: training phase {phase.parent.name} no trained checkpoint")
+        # F1: seal the prior thread before Popen so the new state is verified against it
+        # (no placeholder fallback). The resumed launch binds the real prior thread_id.
+        prior_thread = state.get("thread_id")
+        thread_seal_path = prior_attempts[-1] / "resumed-thread-seal.json"
+        if not thread_seal_path.exists():
+            _atomic_write(thread_seal_path, {"kind": "rsiflow_resumed_thread_seal",
+                                             "thread_id": prior_thread, "supervision_attempt": resumed_from,
+                                             "sealed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
     else:
         raise ValueError(f"unknown launch mode: {mode}")
     if not skip_asset_gates:
@@ -341,12 +373,14 @@ def record_post_launch_pending(config_path, supervision: str, *, reason: str) ->
     return record
 
 
-def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backend, attempt_dir):
-    """R2: verify the complete prelaunch asset/preflight seal BEFORE Popen. Missing/wrong
-    reviewed commit, any of the five manifests/payload/READY, seed Harness/model weights/
-    Codex/bwrap install+manifest+launcher, Task5 MODEL evidence, two-stage preflight
-    receipt paths+hashes, or actual backend => raise (experiment command never executes).
-    Writes an immutable prelaunch-seal.json; refuses overwrite of sealed history."""
+def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backend, attempt_dir,
+                          run_dir=None, config_path=None):
+    """R2/F2: verify the complete prelaunch asset/preflight seal BEFORE Popen. The required
+    asset set is fixed by code (caller input cannot shrink it). Verifies reviewed commit,
+    every required asset bytes/hash, two-stage field receipts (success + run/config/host/
+    namespace/GPU/provider/ports/occupier binding, stage2 references stage1), and actual
+    backend. Missing/wrong => raise (experiment command never executes). Writes an
+    immutable prelaunch-seal.json; refuses overwrite of sealed history."""
     seal_path = Path(attempt_dir) / "prelaunch-seal.json"
     if seal_path.exists():
         raise RuntimeError("prelaunch seal already exists; refusing to overwrite sealed history")
@@ -356,9 +390,9 @@ def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backe
         raise RuntimeError("prelaunch reviewed commit mismatch; experiment not executed")
     if prelaunch_evidence.get("backend") != expected_backend:
         raise RuntimeError("prelaunch backend mismatch; experiment not executed")
-    required_assets = prelaunch_evidence.get("required_assets") or []
+    # F2: required assets fixed by code; input required_assets cannot remove any.
     assets = prelaunch_evidence.get("assets") or {}
-    for name in required_assets:
+    for name in REQUIRED_PRELAUNCH_ASSETS:
         entry = assets.get(name)
         if not isinstance(entry, dict) or not entry.get("path") or not entry.get("sha256"):
             raise RuntimeError(f"prelaunch asset {name} missing; experiment not executed")
@@ -367,6 +401,7 @@ def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backe
         if _sha256(entry["path"]) != entry["sha256"]:
             raise RuntimeError(f"prelaunch asset {name} hash mismatch; experiment not executed")
     receipts = prelaunch_evidence.get("preflight_receipts") or {}
+    stage_values = {}
     for stage in ("stage1", "stage2"):
         entry = receipts.get(stage)
         if not isinstance(entry, dict) or not entry.get("path") or not entry.get("sha256"):
@@ -375,13 +410,31 @@ def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backe
             raise RuntimeError(f"prelaunch {stage} receipt path absent; experiment not executed")
         if _sha256(entry["path"]) != entry["sha256"]:
             raise RuntimeError(f"prelaunch {stage} receipt hash mismatch; experiment not executed")
-    # stage2 (post-occupier) must reference the sealed stage1 receipt.
-    stage2_value = _read_json(receipts["stage2"]["path"]) or {}
-    if stage2_value.get("stage1_receipt_hash") != receipts["stage1"]["sha256"]:
+        value = _read_json(entry["path"]) or {}
+        stage_values[stage] = value
+        # F2: field receipt must be a successful, bound现场 snapshot, not just a hash.
+        if value.get("status") != "success":
+            raise RuntimeError(f"prelaunch {stage} status not success; experiment not executed")
+        for field in REQUIRED_STAGE_FIELDS:
+            if field not in value:
+                raise RuntimeError(f"prelaunch {stage} missing field {field}; experiment not executed")
+        if run_dir is not None and value.get("run_dir") != str(run_dir):
+            raise RuntimeError(f"prelaunch {stage} run_dir mismatch; experiment not executed")
+        if config_path is not None and value.get("config_hash") != _sha256(config_path):
+            raise RuntimeError(f"prelaunch {stage} config_hash mismatch; experiment not executed")
+        if value.get("backend") != expected_backend:
+            raise RuntimeError(f"prelaunch {stage} backend mismatch; experiment not executed")
+    # stage2 (post-occupier) must reference the sealed stage1 receipt and confirm handoff.
+    if stage_values["stage2"].get("stage1_receipt_hash") != receipts["stage1"]["sha256"]:
         raise RuntimeError("prelaunch stage2 does not reference stage1; experiment not executed")
+    if stage_values["stage2"].get("occupier_stopped") is not True:
+        raise RuntimeError("prelaunch stage2 occupier not stopped; experiment not executed")
+    if stage_values["stage1"].get("occupier_running") is not True:
+        raise RuntimeError("prelaunch stage1 occupier not running; experiment not executed")
     seal = {"kind": "rsiflow_prelaunch_seal", "reviewed_commit": expected_commit,
-            "backend": expected_backend, "required_assets": required_assets,
-            "assets": assets, "preflight_receipts": receipts,
+            "backend": expected_backend, "required_assets": list(REQUIRED_PRELAUNCH_ASSETS),
+            "assets": {name: assets[name] for name in REQUIRED_PRELAUNCH_ASSETS},
+            "preflight_receipts": receipts,
             "sealed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     _atomic_write(seal_path, seal)
     return seal
@@ -407,23 +460,30 @@ def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
         attempt_dir.mkdir(parents=True)  # exclusive; refuses existing
         # R2: complete prelaunch asset/preflight seal verified BEFORE Popen.
         verify_prelaunch_seal(prelaunch_evidence, expected_commit=expected_commit,
-                              expected_backend="linux_bwrap_seccomp_v1", attempt_dir=attempt_dir)
+                              expected_backend="linux_bwrap_seccomp_v1", attempt_dir=attempt_dir,
+                              run_dir=run_dir_resolved, config_path=paths["config_path"])
         _atomic_write(effective_path, effective_obj.model_dump())
         effective_hash = _sha256(effective_path)
     else:
         attempt_dir.mkdir(parents=True)
     (attempt_dir / "kind").write_text("detached\n")
     attempt_resolved = attempt_dir.resolve()
+    # F1: resume binds the real prior thread (sealed before Popen), never a placeholder.
+    effective_thread = thread_id
+    if mode == "resume":
+        prior_state = _read_json(run_dir_resolved / "meta_session/state.json") or {}
+        effective_thread = prior_state.get("thread_id") or thread_id
     binding = {
         "config_path": str(paths["config_path"]), "config_hash": _sha256(paths["config_path"]),
         "base_config_path": str(base), "base_config_hash": _sha256(base),
         "effective_config_path": str(effective_path), "effective_config_hash": effective_hash,
         "run_dir": str(run_dir_resolved), "output_root": str(paths["output_root"]),
-        "supervision_attempt": supervision, "thread_id": thread_id,
+        "supervision_attempt": supervision, "thread_id": effective_thread,
         "backend": "linux_bwrap_seccomp_v1", "mode": mode,
     }
     if resumed_from:
         binding["resumed_from"] = resumed_from
+        binding["prelaunch_seal_hash"] = _sha256(attempt_dir / "prelaunch-seal.json") if (attempt_dir / "prelaunch-seal.json").is_file() else None
     # Pre-Popen launch seal (owners filled with the supervision leader; real production
     # launcher/app-server identities are bound by collect_post_launch_identity after ACK).
     seal = {

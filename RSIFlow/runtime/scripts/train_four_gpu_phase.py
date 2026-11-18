@@ -18,6 +18,32 @@ from rsiflow.task_meta.storage import save_json
 from train_task_meta_sft import contained_path, read_positive_rows, resolve_training_base
 
 
+def _live_group_members(pgid):
+    """FN1: strictly scan /proc for live (non-zombie) members of a PGID. A returned
+    leader wait is NOT proof the whole DDP group exited; ranks may still be alive."""
+    members = []
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / 'stat').read_text().rsplit(')', 1)[1].split()
+            if int(fields[2]) == pgid and fields[0] != 'Z':
+                members.append(int(entry.name))
+        except (FileNotFoundError, PermissionError, ValueError, IndexError, OSError):
+            # Unreadable member => cannot prove exit; treat as still-present (fail closed).
+            members.append(int(entry.name))
+    return members
+
+
+def _wait_group_exited(pgid, grace=30):
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        if not _live_group_members(pgid):
+            return True
+        time.sleep(0.2)
+    return not _live_group_members(pgid)
+
+
 def main():
     def interrupted(signum, frame):
         raise TimeoutError(f'Training phase interrupted by signal {signum}')
@@ -83,9 +109,10 @@ def main():
                     try: child.wait(timeout=30)
                     except subprocess.TimeoutExpired:
                         os.killpg(child.pid, signal.SIGKILL); child.wait()
-                    child_group_exited = True
                     raise
-                child_group_exited = True
+                # FN1: leader wait returning is NOT proof the whole DDP group exited.
+                # Strictly scan the PGID for live ranks (bounded wait for group empty).
+                child_group_exited = _wait_group_exited(child.pid, grace=30)
                 if result != 0: raise RuntimeError(f'Four-rank trainer exited with status {result}')
                 trained = json.loads((directory / 'checkpoint_trained.json').read_text())
                 state.update(status='training_complete', training_finished_at=time.time())
@@ -96,24 +123,25 @@ def main():
             if child is not None:
                 state.setdefault('training_pid', child.pid)
             save_json(receipt, state)
-        # N1: never restore inference while the training group exit is unproven. A started
-        # child whose group has not been confirmed exited keeps requires_audit and blocks
-        # start_services; the trackable training_pid/group is preserved for audit.
-        if child is not None and not child_group_exited:
-            state.update(status='training_failed_requires_audit', inference_restore_blocked=True)
+        # FN1: identity uncertain OR group exit unproven => block inference restore AND
+        # candidate publish. requires_audit is terminal and never overwritten by completed.
+        # The trackable training_pid/group failure receipt is preserved for audit.
+        if child is not None and (not child_group_exited or identity_uncertain):
+            state.update(status='training_failed_requires_audit', inference_restore_blocked=True,
+                         publish_blocked=True, identity_uncertain=identity_uncertain,
+                         child_group_exited=child_group_exited)
             save_json(receipt, state)
-            raise failure if failure else RuntimeError('training group exit unproven; inference restore blocked')
-        if identity_uncertain:
-            state.update(status='training_failed_requires_audit', identity_uncertain=True)
+            raise failure if failure else RuntimeError(
+                'training identity/group exit unproven; inference restore and candidate publish blocked')
+        if failure:
             save_json(receipt, state)
+            raise failure
+        # Success path: only reached when identity certain, group exited, no failure.
         # Failed training never publishes its candidate. Restore the last valid checkpoint.
         checkpoint = Path(trained['checkpoint_path']) if trained else base
         bindings = start_services(config, checkpoint)
         state.update(restored_checkpoint=str(checkpoint), inference_ready_at=time.time(),
                      replica_gpus=[r['gpu'] for r in bindings])
-        if failure:
-            save_json(receipt, state)
-            raise failure
         metrics_path = Path(trained['training_metrics'])
         metrics = json.loads(metrics_path.read_text())
         if metrics['world_size'] != 4 or {r['rank'] for r in metrics['rank_records']} != set(range(4)):

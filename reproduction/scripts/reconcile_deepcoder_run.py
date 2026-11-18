@@ -42,8 +42,16 @@ def _atomic_write(path: Path, value: dict):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(value, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())  # R6: durable evidence before atomic publish
     os.replace(tmp, path)
+    dir_fd = os.open(str(path.parent), os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
 
 
 def _proc_stat(pid):
@@ -111,18 +119,26 @@ def _observe_owner(identity, run_dir):
     except (ValueError, IndexError, OSError) as exc:
         return {"state": "unknown", "group_members": [], "read_errors": [f"/proc/{pid}/stat:{type(exc).__name__}"]}
     if stat is not None:
-        if stat[19] != start_ticks:
+        # Field access is guarded: a truncated/malformed stat must yield unknown, never
+        # an uncaught IndexError that bypasses the pending/failed receipt path.
+        try:
+            actual_ticks = stat[19]
+            actual_pgid = int(stat[2])
+        except (ValueError, IndexError) as exc:
+            return {"state": "unknown", "group_members": [], "read_errors": [f"/proc/{pid}/stat:malformed:{type(exc).__name__}"]}
+        if actual_ticks != start_ticks:
             return {"state": "unknown", "group_members": [], "read_errors": [f"pid {pid} reused"]}
-        if int(stat[2]) != pgid:
+        if actual_pgid != pgid:
             return {"state": "unknown", "group_members": [], "read_errors": [f"pid {pid} pgid mismatch"]}
     before, errors_before = _group_members_with_errors(pgid)
     after, errors_after = _group_members_with_errors(pgid)
     read_errors = errors_before + errors_after
+    snapshots = {"before": before, "after": after}
     if read_errors:
-        return {"state": "unknown", "group_members": after or before, "read_errors": read_errors}
+        return {"state": "unknown", "group_members": after or before, "read_errors": read_errors, "snapshots": snapshots}
     if before or after:
-        return {"state": "alive", "group_members": after or before, "read_errors": []}
-    return {"state": "exited", "group_members": [], "read_errors": []}
+        return {"state": "alive", "group_members": after or before, "read_errors": [], "snapshots": snapshots}
+    return {"state": "exited", "group_members": [], "read_errors": [], "snapshots": snapshots}
 
 
 def _supervision_history(run_dir):
@@ -153,6 +169,7 @@ def _supervision_history(run_dir):
 
 
 def _default_gpu_observer():
+    import hashlib
     import subprocess
     cmd = ["nvidia-smi", "--query-gpu=index,uuid,name,memory.total,memory.free,memory.used,utilization.gpu",
            "--format=csv,noheader,nounits"]
@@ -163,14 +180,20 @@ def _default_gpu_observer():
         per_gpu.append({"gpu": int(idx), "uuid": gpu_uuid, "name": name,
                         "memory_total": int(total), "memory_free": int(free),
                         "memory_used": int(used), "utilization": int(util)})
-    apps = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,uuid", "--format=csv,noheader,nounits"],
-                          capture_output=True, text=True, timeout=30, check=True)
+    apps_cmd = ["nvidia-smi", "--query-compute-apps=pid,uuid", "--format=csv,noheader,nounits"]
+    apps = subprocess.run(apps_cmd, capture_output=True, text=True, timeout=30, check=True)
     compute_apps = [{"pid": int(l.split(",")[0]), "uuid": l.split(",")[1].strip()}
                     for l in apps.stdout.strip().splitlines() if l.strip()]
+    # R6: near-idle is used+util+compute_apps, not merely free>=40000. Raw output is sealed.
+    near_idle = all(g["memory_free"] >= 40000 and g["memory_used"] <= 1024 and g["utilization"] <= 5
+                    for g in per_gpu) and not compute_apps
     return {"time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "command": cmd, "command_result": 0, "stdout_hash": None,
+            "command": cmd, "command_result": 0,
+            "raw_stdout": result.stdout, "stdout_hash": hashlib.sha256(result.stdout.encode()).hexdigest(),
+            "apps_command": apps_cmd, "apps_raw_stdout": apps.stdout,
+            "apps_stdout_hash": hashlib.sha256(apps.stdout.encode()).hexdigest(),
             "expected_uuids": [g["uuid"] for g in per_gpu], "per_gpu": per_gpu,
-            "compute_apps": compute_apps, "free_verified": all(g["memory_free"] >= 40000 for g in per_gpu)}
+            "compute_apps": compute_apps, "free_verified": near_idle}
 
 
 def inspect_run(config_path, run_dir, supervision, *, gpu_observer=None) -> dict:
@@ -207,7 +230,7 @@ def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_se
     # H8: acquire the same target-host lifecycle lock serializing handoff/start/cleanup/
     # restore. A conflicting lock refuses (never concurrent cleanup/restore).
     import fcntl
-    lock_path = Path(lifecycle_lock) if lifecycle_lock else (output_root / "locks/lifecycle.lock")
+    lock_path = Path(lifecycle_lock) if lifecycle_lock else GLOBAL_GPU_LIFECYCLE_LOCK
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = open(lock_path, "a+")
     try:
@@ -336,39 +359,55 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
         if ident.get("pid") != state.get(pid_key):
             blockers.append(f"{group}_identity_mismatch")
         owners[group] = make_owner(ident, launch_path, group)
+    # R3: job terminal whitelist + full request/result/turn/run binding (failed-terminal
+    # is distinct from protocol success; unknown status is never treated as terminal).
+    job_terminal = {"completed", "exited", "tool_error", "job_failed", "failed"}
     jobs = sorted((run_dir / "meta_session/jobs").glob("*/job.json"))
     owners["jobs"] = []
     for i, jobpath in enumerate(jobs):
         job = _read_json(jobpath) or {}
         result = _read_json(job.get("result_path"))
-        if not isinstance(result, dict) or result.get("status") in (None, "running"):
+        request = _read_json(Path(job.get("result_path", "")).parent / "request.json") if job.get("result_path") else None
+        turn_dir = job.get("turn_dir")
+        turn_receipt = _read_json(Path(turn_dir) / "receipt.json") if turn_dir else None
+        turn_command = _read_json(Path(turn_dir) / "command.json") if turn_dir else None
+        if not isinstance(result, dict) or result.get("status") not in job_terminal:
             blockers.append(f"job_{i}_no_terminal_result")
+        elif result.get("operation") != (job.get("request") or {}).get("operation"):
+            blockers.append(f"job_{i}_operation_mismatch")
+        elif not isinstance(turn_receipt, dict) or not isinstance(turn_command, dict):
+            blockers.append(f"job_{i}_turn_binding_missing")
         ident = {"pid": job.get("pid"), "pgid": job.get("pid"), "start_ticks": str(job.get("process_start"))}
         owners["jobs"].append(make_owner(ident, jobpath, f"job_{i}"))
+    # R3: training phase identity must cross-validate pid/pgid/training_pid/argv/request/run.
     phases = sorted(run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))
     owners["training_phases"] = []
     for i, phase in enumerate(phases):
         value = _read_json(phase) or {}
-        # Real start identity must come from the dispatch receipt; never fabricate ticks.
         ident = value.get("training_identity")
         if not isinstance(ident, dict) or not str(ident.get("start_ticks", "")).isdigit():
             blockers.append(f"training_{i}_requires_audit_no_identity")
             ident = {"pid": value.get("training_pid"), "pgid": value.get("training_pid"), "start_ticks": ""}
+        else:
+            if ident.get("pid") != value.get("training_pid") or ident.get("pgid") != value.get("training_pid"):
+                blockers.append(f"training_{i}_identity_pid_mismatch")
+            if value.get("training_request_dir") and str(value["training_request_dir"]) not in str(phase):
+                blockers.append(f"training_{i}_request_run_mismatch")
         owners["training_phases"].append(make_owner(ident, phase, f"training_{i}"))
 
-    # owned registry; stop services ONLY after every launch/config/host/owner/registry/
-    # weights gate passes. Save the before bytes/hash; pass the normalized PipelineConfig
-    # (not the raw dict) so production registry_path resolves to THIS run's registry.
+    # R5: centralized gate BEFORE any service signal. blockers must be EMPTY and every
+    # owner/launch/host/hash/service-inventory/weights binding must pass. Save the before
+    # registry bytes; pass the normalized PipelineConfig so registry_path resolves here.
     registry_path = output_root / "services/four_gpu_services.json"
     registry = _read_json(registry_path) or {}
     active = _read_json(run_dir / "active_task.json") or {}
+    registry_before_bytes = registry_path.read_bytes() if registry_path.is_file() else None
     registry_before_hash = _sha256(registry_path)
     registry_after_hash = registry_before_hash
     stop_action = "skipped"
     stop_command_result = None
     non_service_exited = all(o["state"] == "exited" for o in
                              [owners["launcher"], owners["app_server"], *owners["jobs"], *owners["training_phases"]])
-    # registry must belong to this run/config (production registry_path of effective config)
     registry_owned = True
     if effective_obj is not None:
         try:
@@ -376,15 +415,36 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
             if Path(production_registry_path(effective_obj)).resolve() != registry_path.resolve():
                 registry_owned = False
                 blockers.append("registry_not_owned_by_effective_config")
-                status = "pending"
         except Exception as exc:
             registry_owned = False
             blockers.append(f"registry_path_check_failed:{exc}")
-            status = "pending"
-    weights_ok = registry.get("checkpoint") == active.get("checkpoint_path")
+    # launch binding hashes / thread / run / attempt must match current inputs (R5).
+    launch_binding = launch.get("binding", {})
+    launch_binding_ok = (
+        launch.get("kind") == "rsiflow_launch"
+        and launch_binding.get("config_hash") == _sha256(config_path)
+        and launch_binding.get("run_dir") == str(run_dir)
+        and launch_binding.get("output_root") == str(output_root)
+        and launch_binding.get("supervision_attempt") == supervision
+        and launch_binding.get("thread_id") == state.get("thread_id")
+        and launch_binding.get("effective_config_hash") == _sha256(effective_path)
+    )
+    if not launch_binding_ok:
+        blockers.append("launch_binding_gate_failed")
+    # full service inventory + weights verified BEFORE stop (R5).
+    services = registry.get("services", [])
+    inventory_ok = ({s.get("gpu") for s in services} == {0, 1, 2, 3} and len(services) == 4)
+    weights_ok = (registry.get("checkpoint") == active.get("checkpoint_path")
+                  and all(s.get("verified_binding") == {"checkpoint_path": active.get("checkpoint_path"),
+                                                        "weights": active.get("checkpoint_manifest")}
+                          for s in services))
+    if not inventory_ok:
+        blockers.append("service_inventory_incomplete")
+    if not weights_ok:
+        blockers.append("registry_weights_gate_failed")
     if registry.get("phase") != "services_stopped":
-        gates_pass = (status == "completed" and non_service_exited and registry_owned and weights_ok
-                      and launch.get("kind") == "rsiflow_launch")
+        gates_pass = (not blockers and non_service_exited and registry_owned
+                      and launch_binding_ok and inventory_ok and weights_ok)
         if not gates_pass:
             blockers.append("stop_services_gates_not_passed")
             if status == "completed":
@@ -395,7 +455,6 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                 if stop_services_fn is None:
                     from rsiflow.task_meta.gpu_phases import stop_services
                     stop_services_fn = stop_services
-                # production stop_services requires a PipelineConfig with .output_root
                 stop_services_fn(effective_obj if effective_obj is not None else config)
                 stop_command_result = 0
                 registry = _read_json(registry_path) or {}
@@ -432,7 +491,12 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     actions = [{"action": "stop_services", "result": stop_action, "command_result": stop_command_result}]
     errors = []
     observe = gpu_observer or _default_gpu_observer
+    import hashlib
+    gpu_mono = []
     for index in range(2):
+        if index == 1:
+            time.sleep(1.0)  # R6: two independent samples separated by a real interval
+        gpu_mono.append(time.monotonic())
         try:
             gpu = observe()
         except Exception as exc:
@@ -444,6 +508,16 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                    "expected_uuids": [], "stdout_hash": None}
         gpu_path, gpu_hash = write_sealed(obs_dir / f"gpu_observation_{index}.json", gpu)
         gpu_observations.append({**gpu, "evidence_path": gpu_path, "evidence_sha256": gpu_hash})
+        # R6: raw output must be sealed and its hash must match (no None hash).
+        if not gpu.get("stdout_hash"):
+            blockers.append(f"gpu_raw_hash_missing_{index}")
+            if status == "completed":
+                status = "pending"
+        elif gpu.get("raw_stdout") is not None and \
+                hashlib.sha256(gpu["raw_stdout"].encode()).hexdigest() != gpu["stdout_hash"]:
+            blockers.append(f"gpu_raw_hash_mismatch_{index}")
+            if status == "completed":
+                status = "pending"
         if gpu.get("compute_apps"):
             blockers.append(f"gpu_compute_apps_present_{index}")
             if status == "completed":
@@ -474,6 +548,11 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                 blockers.append(f"gpu_reading_invalid_{index}")
                 if status == "completed":
                     status = "pending"
+            # R6: near-idle also requires low used + util, not just free memory.
+            if reading.get("memory_used", 0) > 1024 or reading.get("utilization", 0) > 5:
+                blockers.append(f"gpu_not_near_idle_{index}")
+                if status == "completed":
+                    status = "pending"
     # near-idle requires both independent observations to agree (runbook two-check rule)
     if len(gpu_observations) == 2 and gpu_observations[0].get("free_verified") \
             and gpu_observations[1].get("free_verified"):
@@ -481,6 +560,10 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     elif status == "completed":
         blockers.append("gpu_two_observations_not_both_free")
         status = "pending"
+    if len(gpu_mono) == 2 and (gpu_mono[1] - gpu_mono[0]) < 0.5:
+        blockers.append("gpu_observation_interval_too_short")
+        if status == "completed":
+            status = "pending"
 
     # ports bind-close observation (injected offline; real bind-close in production)
     try:
@@ -577,29 +660,45 @@ def _latest_cleanup_receipt(attempt_dir):
     return None, None
 
 
-def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=None,
-                     gpu_observer=None, lifecycle_lock=None) -> Path:
-    """H8: restore the idle occupier ONLY after this attempt's external cleanup receipt
-    is completed with valid binding/hash. pending/failed/missing refuses (nonzero exit)
-    and NEVER starts the occupier. Re-checks owner/GPU, records a restore observation
-    linked to the cleanup hash, and atomically writes the new occupier identity."""
-    config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
-    receipt, receipt_path = _latest_cleanup_receipt(attempt_dir)
-    if receipt is None:
-        raise RuntimeError("no external cleanup receipt; occupier restore refused")
+# R8: a single target-host GPU lifecycle lock coordinates handoff/start/cleanup/restore
+# across runs sharing GPU 0-3 (not a per-output_root lock). Its location must not break
+# the fresh-output gate (it lives outside the fresh output_root).
+GLOBAL_GPU_LIFECYCLE_LOCK = Path("/tmp/rsiflow-gpu-lifecycle.lock")
+
+
+def _verify_cleanup_evidence(receipt, receipt_path, config_path, run_dir, supervision):
+    """R8: full kind/status/blockers/errors/binding/config-hash/evidence verification."""
+    if receipt.get("kind") != "rsiflow_external_cleanup":
+        raise RuntimeError("cleanup wrong kind; occupier restore refused")
     if receipt.get("status") != "completed":
         raise RuntimeError(f"cleanup {receipt.get('status')}; occupier restore refused (pending cleanup)")
-    if receipt.get("binding", {}).get("run_dir") != str(run_dir) \
-            or receipt.get("binding", {}).get("supervision_attempt") != supervision:
+    if receipt.get("blockers"):
+        raise RuntimeError("cleanup has blockers; occupier restore refused")
+    if receipt.get("errors"):
+        raise RuntimeError("cleanup has errors; occupier restore refused")
+    binding = receipt.get("binding", {})
+    if binding.get("run_dir") != str(run_dir) or binding.get("supervision_attempt") != supervision:
         raise RuntimeError("cleanup binding mismatch; occupier restore refused")
-    if _sha256(receipt_path) is None:
-        raise RuntimeError("cleanup receipt unreadable; occupier restore refused")
-    # re-check GPU is still free before restoring (injected offline; real nvidia-smi prod)
-    gpu = (gpu_observer or _default_gpu_observer)()
-    if gpu.get("compute_apps") or not gpu.get("free_verified"):
-        raise RuntimeError("GPU not free at restore time; occupier restore refused")
+    if binding.get("config_hash") != _sha256(config_path):
+        raise RuntimeError("cleanup config hash mismatch; occupier restore refused")
+    evidence = receipt.get("evidence_files_sha256") or {}
+    if not evidence:
+        raise RuntimeError("cleanup missing evidence hashes; occupier restore refused")
+    for rel, expected in evidence.items():
+        if _sha256(rel) != expected:
+            raise RuntimeError("cleanup evidence hash mismatch; occupier restore refused")
+
+
+def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=None,
+                     gpu_observer=None, lifecycle_lock=None) -> Path:
+    """R8: restore the idle occupier ONLY after this attempt's external cleanup receipt is
+    completed with fully verified kind/binding/config-hash/evidence. Acquires the global
+    target-host GPU lock FIRST, re-reads the latest receipt INSIDE the lock, confirms this
+    is the current attempt, re-checks owner/GPU/ports, then starts. pending/failed/wrong
+    evidence refuses (nonzero exit) and NEVER starts the occupier."""
     import fcntl
-    lock_path = Path(lifecycle_lock) if lifecycle_lock else (output_root / "locks/lifecycle.lock")
+    config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
+    lock_path = Path(lifecycle_lock) if lifecycle_lock else GLOBAL_GPU_LIFECYCLE_LOCK
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = open(lock_path, "a+")
     try:
@@ -608,6 +707,18 @@ def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=Non
         lock_file.close()
         raise RuntimeError("lifecycle lock held; occupier restore refused")
     try:
+        # R8: re-read the latest receipt INSIDE the lock (not a stale pre-lock read).
+        receipt, receipt_path = _latest_cleanup_receipt(attempt_dir)
+        if receipt is None:
+            raise RuntimeError("no external cleanup receipt; occupier restore refused")
+        _verify_cleanup_evidence(receipt, receipt_path, config_path, run_dir, supervision)
+        attempts, _, _ = _supervision_history(run_dir)
+        if not attempts or attempts[-1] != supervision:
+            raise RuntimeError("not the current supervision attempt; occupier restore refused")
+        # re-check GPU/ports inside the lock before starting (injected offline; real prod)
+        gpu = (gpu_observer or _default_gpu_observer)()
+        if gpu.get("compute_apps") or not gpu.get("free_verified"):
+            raise RuntimeError("GPU not free at restore time; occupier restore refused")
         if occupier_start_fn is None:
             raise RuntimeError("no occupier start function provided; restore not executed")
         identity = occupier_start_fn()  # returns new occupier {pid,pgid,start_ticks,gpus,argv}
@@ -632,7 +743,7 @@ def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=Non
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["inspect", "cleanup"])
+    parser.add_argument("mode", choices=["inspect", "cleanup", "restore"])
     parser.add_argument("--config", required=True)
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--supervision", required=True)
@@ -640,6 +751,15 @@ def main(argv=None) -> int:
     if args.mode == "inspect":
         print(json.dumps(inspect_run(args.config, args.run_dir, args.supervision), indent=2))
         return 0
+    if args.mode == "restore":
+        # R8: real restore CLI; default no start helper => safe refusal until implemented.
+        try:
+            path = restore_occupier(args.config, args.run_dir, args.supervision)
+            print(json.dumps({"restore_path": str(path)}, indent=2))
+            return 0
+        except RuntimeError as exc:
+            print(json.dumps({"restore_refused": str(exc)}, indent=2))
+            return 1
     path = cleanup_run(args.config, args.run_dir, args.supervision)
     status = _read_json(path).get("status")
     print(json.dumps({"receipt_path": str(path), "status": status}, indent=2))

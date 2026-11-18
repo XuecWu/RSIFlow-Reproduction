@@ -1380,28 +1380,39 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
         owner(item, identity, phase)
     observations = receipt.get("gpu_observations") or []
     require(bool(observations), "no_gpu_observation")
-    obs = observations[-1]
-    actual = _read_json(sealed(obs["evidence_path"], obs.get("evidence_sha256")))
-    require(actual == {k: v for k, v in obs.items() if k not in {"evidence_path", "evidence_sha256"}}, "gpu_evidence_binding")
+    # R6: require two independent observations, each with sealed raw output hash and
+    # near-idle (used+util+compute_apps), not a single sample or free-memory-only check.
+    require(len(observations) >= 2, "gpu_requires_two_observations")
     from datetime import datetime
-    observed_at = datetime.fromisoformat(obs["time"].replace("Z", "+00:00"))
+    import hashlib as _hl
     started_at = datetime.fromisoformat(receipt["started_at_utc"].replace("Z", "+00:00"))
     finished_at = datetime.fromisoformat(receipt["observed_at_utc"].replace("Z", "+00:00"))
     expected = launch.get("expected_gpus") or []
     require(len(expected) == 4 and {g.get("gpu") for g in expected} == {0, 1, 2, 3}
             and len({g.get("uuid") for g in expected}) == 4 and all(g.get("uuid") for g in expected), "launch_gpu_inventory")
-    require(obs.get("compute_apps") == [], "gpu_compute_apps")
-    require(obs.get("command_result") == 0 and isinstance(obs.get("command"), list)
-            and "nvidia-smi" in obs["command"][0] and obs.get("compute_apps") == []
-            and obs.get("free_verified") is True and started_at <= observed_at <= finished_at, "gpu_observation")
-    require(obs.get("expected_uuids") == [g["uuid"] for g in expected], "gpu_uuids")
-    readings = obs.get("per_gpu") or []
-    require(len(readings) == 4 and {g.get("gpu") for g in readings} == {0, 1, 2, 3}, "gpu_readings")
-    for reading in readings:
-        uuid = next(g["uuid"] for g in expected if g["gpu"] == reading["gpu"])
-        require(reading.get("uuid") == uuid and type(reading.get("memory_free")) is int
-                and reading["memory_free"] >= 40000 and type(reading.get("memory_total")) is int
-                and reading["memory_free"] <= reading["memory_total"], "gpu_readings")
+    for obs in observations:
+        actual = _read_json(sealed(obs["evidence_path"], obs.get("evidence_sha256")))
+        require(actual == {k: v for k, v in obs.items() if k not in {"evidence_path", "evidence_sha256"}}, "gpu_evidence_binding")
+        observed_at = datetime.fromisoformat(obs["time"].replace("Z", "+00:00"))
+        require(obs.get("compute_apps") == [], "gpu_compute_apps")
+        require(obs.get("command_result") == 0 and isinstance(obs.get("command"), list)
+                and "nvidia-smi" in obs["command"][0] and obs.get("free_verified") is True
+                and started_at <= observed_at <= finished_at, "gpu_observation")
+        require(bool(obs.get("stdout_hash")), "gpu_raw_hash_missing")
+        if obs.get("raw_stdout") is not None:
+            require(_hl.sha256(obs["raw_stdout"].encode()).hexdigest() == obs["stdout_hash"], "gpu_raw_hash_mismatch")
+        require(obs.get("expected_uuids") == [g["uuid"] for g in expected], "gpu_uuids")
+        readings = obs.get("per_gpu") or []
+        require(len(readings) == 4 and {g.get("gpu") for g in readings} == {0, 1, 2, 3}, "gpu_readings")
+        for reading in readings:
+            uuid = next(g["uuid"] for g in expected if g["gpu"] == reading["gpu"])
+            require(reading.get("uuid") == uuid and type(reading.get("memory_free")) is int
+                    and reading["memory_free"] >= 40000 and type(reading.get("memory_total")) is int
+                    and reading["memory_free"] <= reading["memory_total"]
+                    and reading.get("memory_used", 0) <= 1024 and reading.get("utilization", 0) <= 5, "gpu_readings")
+    # R6: ports must be actually measured closed, not the offline placeholder.
+    ports = receipt.get("ports_observation") or {}
+    require(ports.get("status") == "closed", "ports_not_measured_closed")
 
 
 def _active_chain(rounds, active, a0_identity=None) -> list[str]:

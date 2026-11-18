@@ -181,7 +181,8 @@ tmp = attempt_dir / "exit.tmp"; tmp.write_text(f"{rc}\n"); os.replace(tmp, attem
 '''
 
 
-def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool, mode: str):
+def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool, mode: str,
+                           resumed_from=None):
     run_dir = paths["run_dir"]
     attempt_dir = run_dir / "meta_session/supervision" / supervision
     if attempt_dir.exists():
@@ -192,7 +193,7 @@ def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool
                 if p.exists() or p.is_symlink():
                     raise RuntimeError(f"fresh launch path already exists: {p}")
     elif mode == "resume":
-        # H7: resume requires an existing run with all prior attempts accounted for;
+        # H7/R7: resume requires an existing run with all prior attempts accounted for;
         # a complete run is cleanup-only and must not be resumed.
         if not run_dir.is_dir():
             raise RuntimeError("resume requires an existing run")
@@ -200,13 +201,35 @@ def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool
         if state.get("status") == "complete":
             raise RuntimeError("complete run is cleanup-only; resume refused")
         sup_root = run_dir / "meta_session/supervision"
-        if sup_root.is_dir():
-            for prior in sorted(d for d in sup_root.iterdir() if d.is_dir() and d.name.isdigit()):
-                reconcile = _read_json(prior / "reconcile.json") or {}
-                exit_file = prior / "exit"
-                if not (reconcile.get("status") == "complete" and not reconcile.get("remaining")
-                        and exit_file.is_file()):
-                    raise RuntimeError(f"prior supervision {prior.name} not accounted; resume refused")
+        prior_attempts = sorted((d for d in sup_root.iterdir() if d.is_dir() and d.name.isdigit()),
+                                key=lambda d: int(d.name)) if sup_root.is_dir() else []
+        for prior in prior_attempts:
+            reconcile = _read_json(prior / "reconcile.json") or {}
+            exit_file = prior / "exit"
+            if not (reconcile.get("status") == "complete" and not reconcile.get("remaining")
+                    and exit_file.is_file()):
+                raise RuntimeError(f"prior supervision {prior.name} not accounted; resume refused")
+        # R7: resumed_from must be the latest prior attempt (not arbitrary/missing).
+        if not prior_attempts:
+            raise RuntimeError("resume requires a prior supervision attempt")
+        latest_prior = prior_attempts[-1].name
+        if resumed_from != latest_prior:
+            raise RuntimeError(f"resumed_from must be latest prior attempt {latest_prior}; resume refused")
+        # R7: product/identity continuity — active Task, thread, config hash, terminal jobs.
+        if not (run_dir / "active_task.json").is_file():
+            raise RuntimeError("resume requires an existing active Task; resume refused")
+        if not state.get("thread_id"):
+            raise RuntimeError("resume requires a prior thread_id; resume refused")
+        prior_launch = _read_json(prior_attempts[-1] / "launch.json") or {}
+        if prior_launch.get("binding", {}).get("config_hash") != _sha256(paths["config_path"]):
+            raise RuntimeError("resume config hash differs from prior attempt; resume refused")
+        if prior_launch.get("binding", {}).get("backend") != "linux_bwrap_seccomp_v1":
+            raise RuntimeError("resume backend differs from prior attempt; resume refused")
+        for jobpath in (run_dir / "meta_session/jobs").glob("*/job.json"):
+            job = _read_json(jobpath) or {}
+            result = _read_json(job.get("result_path"))
+            if not isinstance(result, dict) or result.get("status") in (None, "running"):
+                raise RuntimeError(f"resume blocked: job {jobpath.parent.name} has no terminal result")
     else:
         raise ValueError(f"unknown launch mode: {mode}")
     if not skip_asset_gates:
@@ -227,22 +250,38 @@ def _normalize_effective(paths, run_dir_resolved):
         {"config_path": str(paths["config_path"])})
 
 
-def collect_post_launch_identity(config_path, supervision: str, *, timeout=30.0) -> dict:
-    """H1: bounded collection of the REAL production launcher/app-server/thread identity
-    and GPU UUIDs after launch, written as an immutable post-launch attachment and bound
-    into the launch seal owners. Never uses placeholder values in real mode."""
+def collect_post_launch_identity(config_path, supervision: str, *, timeout=30.0,
+                                 gpu_observer=None, expected_thread=None) -> dict:
+    """R1/R2: one-time collection of the REAL production launcher/app-server/thread identity
+    and GPU UUIDs after launch. Verifies the state is THIS attempt's new state (not an old
+    disconnected/starting state), the launcher belongs to the current supervisor PGID and
+    argv/run, and resume thread equals the prior value. Writes an immutable post-launch
+    attachment referencing the prelaunch seal hash; never rewrites sealed history and
+    refuses re-collection. On failure the caller records actual-started/identity-pending."""
     paths = derive_paths(config_path)
     run_dir = paths["run_dir"]
     attempt_dir = run_dir / "meta_session/supervision" / supervision
+    attachment_path = attempt_dir / "post-launch-identity.json"
+    if attachment_path.exists():
+        raise RuntimeError("post-launch identity already collected; refusing to overwrite sealed history")
+    seal = _read_json(attempt_dir / "launch.json") or {}
+    prelaunch_hash = _sha256(attempt_dir / "launch.json")
+    supervisor_identity = seal.get("supervisor") or {}
+    supervisor_pgid = supervisor_identity.get("pgid")
     deadline = time.monotonic() + timeout
     state = {}
     while time.monotonic() < deadline:
         state = _read_json(run_dir / "meta_session/state.json") or {}
-        if state.get("launcher_pid") and state.get("codex_pid") and state.get("thread_id"):
+        # R1: require a NEW current-attempt state, not an old disconnected/starting one.
+        if (state.get("launcher_pid") and state.get("codex_pid") and state.get("thread_id")
+                and state.get("status") in ("running", "complete")):
             break
         time.sleep(0.1)
-    if not (state.get("launcher_pid") and state.get("codex_pid") and state.get("thread_id")):
-        raise RuntimeError("production launcher/app-server/thread identity not available")
+    if not (state.get("launcher_pid") and state.get("codex_pid") and state.get("thread_id")
+            and state.get("status") in ("running", "complete")):
+        raise RuntimeError("current-attempt production state not available (old/starting state refused)")
+    if expected_thread is not None and state.get("thread_id") != expected_thread:
+        raise RuntimeError("resume thread mismatch; post-launch identity refused")
 
     def proc_ident(pid):
         stat = _proc_stat(pid)
@@ -250,20 +289,56 @@ def collect_post_launch_identity(config_path, supervision: str, *, timeout=30.0)
 
     launcher = proc_ident(state["launcher_pid"])
     app_server = proc_ident(state["codex_pid"])
+    # R1: launcher must belong to the current supervisor PGID and bind this run via argv.
+    if supervisor_pgid is not None and launcher["pgid"] != supervisor_pgid:
+        raise RuntimeError("launcher PGID does not belong to current supervisor; identity refused")
+    try:
+        launcher_argv = Path(f"/proc/{state['launcher_pid']}/cmdline").read_bytes()
+        if str(run_dir).encode() not in launcher_argv:
+            raise RuntimeError("launcher argv does not bind this run; identity refused")
+    except FileNotFoundError:
+        raise RuntimeError("launcher process not readable; identity refused")
+    # R1: real GPU UUIDs (injected offline; real nvidia-smi in production).
+    gpu = (gpu_observer or _default_gpu_observer)() if gpu_observer else None
+    expected_gpus = gpu.get("expected_uuids") if gpu else seal.get("expected_gpus")
     attachment = {
         "kind": "rsiflow_post_launch_identity", "supervision_attempt": supervision,
-        "thread_id": state["thread_id"],
+        "run_dir": str(run_dir), "config_path": str(paths["config_path"]),
+        "prelaunch_seal_path": str(attempt_dir / "launch.json"),
+        "prelaunch_seal_hash": prelaunch_hash,
+        "thread_id": state["thread_id"], "state_status": state.get("status"),
         "owners": {"launcher": launcher, "app_server": app_server},
+        "expected_gpus": expected_gpus,
         "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    _atomic_write(attempt_dir / "post-launch-identity.json", attachment)
-    seal = _read_json(attempt_dir / "launch.json") or {}
-    seal["owners"] = {"launcher": launcher, "app_server": app_server}
-    seal["binding"]["thread_id"] = state["thread_id"]
-    seal["post_launch_identity_path"] = str(attempt_dir / "post-launch-identity.json")
-    seal["post_launch_identity_hash"] = _sha256(attempt_dir / "post-launch-identity.json")
-    _atomic_write(attempt_dir / "launch.json", seal)
+    _atomic_write(attachment_path, attachment)
     return attachment
+
+
+def _default_gpu_observer():
+    import subprocess
+    cmd = ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader,nounits"]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+    uuids = [line.split(",")[1].strip() for line in result.stdout.strip().splitlines() if line.strip()]
+    return {"expected_uuids": uuids}
+
+
+def record_post_launch_pending(config_path, supervision: str, *, reason: str) -> dict:
+    """R2: after ACK the experiment IS running; a collector failure must not be recorded as
+    experiment_executed=False. Record actual-started/identity-pending with the supervisor
+    identity and ongoing custody responsibility (controlled stop still reconciles owners)."""
+    paths = derive_paths(config_path)
+    attempt_dir = paths["run_dir"] / "meta_session/supervision" / supervision
+    seal = _read_json(attempt_dir / "launch.json") or {}
+    record = {
+        "kind": "rsiflow_actual_started_identity_pending", "supervision_attempt": supervision,
+        "experiment_executed": True, "identity_pending": True, "reason": reason,
+        "supervisor": seal.get("supervisor"),
+        "custody": "ongoing; controlled stop must reconcile durable jobs/app-server separately",
+        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    _atomic_write(attempt_dir / "identity-pending.json", record)
+    return record
 
 
 def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
@@ -274,7 +349,7 @@ def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
         raise ValueError("arbitrary run_dir override is refused; paths derive from config")
     paths = derive_paths(config_path)
     # H2: ALL static normalization / asset gates happen BEFORE Popen.
-    attempt_dir = _validate_launch_gates(paths, supervision, skip_asset_gates, mode)
+    attempt_dir = _validate_launch_gates(paths, supervision, skip_asset_gates, mode, resumed_from)
     config = paths["config"]
     project_root = Path(__file__).resolve().parents[2]
     base = (project_root / "RSIFlow" / config.get("runtime_source", "runtime") / config["base_config"]).resolve()
@@ -421,8 +496,16 @@ def main(argv=None) -> int:
         result = launch(args.config, args.supervision, command=command, timeout=args.timeout,
                         kill_after=args.kill_after, skip_asset_gates=False,
                         mode=args.launch_mode, resumed_from=args.resumed_from)
-        # H1: bind the real production launcher/app-server/thread identity after launch.
-        result["post_launch_identity"] = collect_post_launch_identity(args.config, args.supervision)
+        # R1/R2: bind real production launcher/app-server/thread + GPU UUIDs after launch.
+        # On collector failure the experiment IS running (post-ACK): record identity-pending
+        # with ongoing custody, never a silent失联 or experiment_executed=False.
+        try:
+            result["post_launch_identity"] = collect_post_launch_identity(
+                args.config, args.supervision, gpu_observer=_default_gpu_observer,
+                expected_thread=args.resumed_from and result["launch_seal"]["binding"].get("thread_id"))
+        except Exception as exc:
+            result["identity_pending"] = record_post_launch_pending(
+                args.config, args.supervision, reason=f"{type(exc).__name__}:{exc}")
         print(json.dumps(result, indent=2))
     elif args.mode == "status":
         print(json.dumps(status(args.config, args.supervision), indent=2))

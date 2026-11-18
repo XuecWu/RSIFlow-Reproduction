@@ -236,13 +236,18 @@ def _seed_run(tmp_path, supervisor, reconciler, *, jobs_active=False, services_s
         "pid": job_pid, "process_start": "1", "result_path": str(transport / "result.json"),
         "turn_dir": str(turn),
     }))
+    import hashlib as _hl
+    raw = "0, GPU-0, A800, 81920, 80000, 100, 0\n1, GPU-1, A800, 81920, 80000, 100, 0\n" \
+          "2, GPU-2, A800, 81920, 80000, 100, 0\n3, GPU-3, A800, 81920, 80000, 100, 0\n"
     gpu_obs = {
         "time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "command": ["nvidia-smi", "--query"], "command_result": 0,
         "expected_uuids": [f"GPU-{g}" for g in range(4)],
-        "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000, "memory_total": 81920} for g in range(4)],
-        "compute_apps": compute_apps if compute_apps is not None else [], "free_verified": True,
-        "stdout_hash": "offline-injected-observation",
+        "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000, "memory_total": 81920,
+                     "memory_used": 100, "utilization": 0} for g in range(4)],
+        "compute_apps": compute_apps if compute_apps is not None else [],
+        "free_verified": (compute_apps is None or not compute_apps),
+        "raw_stdout": raw, "stdout_hash": _hl.sha256(raw.encode()).hexdigest(),
     }
     return config, run, paths, gpu_obs, {"launcher_pid": launcher_pid, "app_pid": app_pid, "job_pid": job_pid}
 
@@ -536,7 +541,8 @@ def test_cleanup_lifecycle_lock_conflict_refused(tmp_path, supervisor, reconcile
     try:
         with pytest.raises(RuntimeError, match="lifecycle lock"):
             reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
-                                   stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+                                   stop_services_fn=lambda cfg: None, skip_asset_gates=True,
+                                   lifecycle_lock=lock_path)
     finally:
         fcntl.flock(holder, fcntl.LOCK_UN); holder.close()
 
@@ -634,10 +640,16 @@ def test_collect_post_launch_identity_binds_real_owners(tmp_path, supervisor):
                       kill_after="2s", skip_asset_gates=True)
     paths = supervisor.derive_paths(config)
     run = paths["run_dir"]
-    # spawn distinct real launcher/app-server processes and record production state
-    launcher = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    attempt = run / "meta_session/supervision/0001"
+    # spawn a real launcher whose argv binds this run, in the supervisor's PGID
+    launcher = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", str(run)],
+                                start_new_session=True)
     app = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
     try:
+        seal = json.loads((attempt / "launch.json").read_text())
+        seal["supervisor"]["pgid"] = launcher.pid  # launcher belongs to supervisor group
+        supervisor._atomic_write(attempt / "launch.json", seal)
+        prelaunch_hash = supervisor._sha256(attempt / "launch.json")
         (run / "meta_session/state.json").write_text(json.dumps({
             "status": "running", "launcher_pid": launcher.pid, "codex_pid": app.pid, "thread_id": "real-thread-xyz"}))
         attachment = supervisor.collect_post_launch_identity(config, "0001", timeout=10)
@@ -645,14 +657,47 @@ def test_collect_post_launch_identity_binds_real_owners(tmp_path, supervisor):
         assert attachment["owners"]["launcher"]["pid"] == launcher.pid
         assert attachment["owners"]["app_server"]["pid"] == app.pid
         assert attachment["owners"]["launcher"]["pid"] != attachment["owners"]["app_server"]["pid"]
-        seal = json.loads((run / "meta_session/supervision/0001/launch.json").read_text())
-        assert seal["binding"]["thread_id"] == "real-thread-xyz"
-        assert seal["owners"]["launcher"]["pid"] == launcher.pid
-        assert seal["post_launch_identity_hash"] == supervisor._sha256(
-            run / "meta_session/supervision/0001/post-launch-identity.json")
+        assert attachment["prelaunch_seal_hash"] == prelaunch_hash
+        assert attachment["run_dir"] == str(run)
+        # one-time: re-collection refuses to overwrite sealed history
+        with pytest.raises(RuntimeError, match="already collected"):
+            supervisor.collect_post_launch_identity(config, "0001", timeout=5)
     finally:
         launcher.terminate(); launcher.wait(timeout=10)
         app.terminate(); app.wait(timeout=10)
+
+
+def test_collect_post_launch_refuses_old_state_and_unrelated_pid(tmp_path, supervisor):
+    output_root = tmp_path / "out"
+    config = _config(tmp_path, output_root, "run")
+    supervisor.launch(config, "0001", command=_sleep_command(0.2), timeout="10s",
+                      kill_after="2s", skip_asset_gates=True)
+    paths = supervisor.derive_paths(config)
+    run = paths["run_dir"]
+    # old disconnected state must be refused (not collected as current identity)
+    (run / "meta_session/state.json").write_text(json.dumps({
+        "status": "disconnected", "launcher_pid": 999999, "codex_pid": 999998, "thread_id": "old-thread"}))
+    with pytest.raises(RuntimeError, match="old/starting state"):
+        supervisor.collect_post_launch_identity(config, "0001", timeout=1)
+
+
+def test_post_ack_collector_failure_records_identity_pending(tmp_path, supervisor):
+    output_root = tmp_path / "out"
+    config = _config(tmp_path, output_root, "run")
+    supervisor.launch(config, "0001", command=_sleep_command(0.2), timeout="10s",
+                      kill_after="2s", skip_asset_gates=True)
+    paths = supervisor.derive_paths(config)
+    run = paths["run_dir"]
+    attempt = run / "meta_session/supervision/0001"
+    # collector fails (no current state); R2 records actual-started/identity-pending,
+    # NOT experiment_executed=False (the experiment is running after ACK).
+    with pytest.raises(RuntimeError):
+        supervisor.collect_post_launch_identity(config, "0001", timeout=1)
+    record = supervisor.record_post_launch_pending(config, "0001", reason="collector_timeout")
+    assert record["kind"] == "rsiflow_actual_started_identity_pending"
+    assert record["experiment_executed"] is True
+    assert record["identity_pending"] is True
+    assert (attempt / "identity-pending.json").is_file()
 
 
 # --- H7: fresh/resume modes ---
@@ -680,12 +725,44 @@ def test_resume_existing_incomplete_run(tmp_path, supervisor):
     run = paths["run_dir"]
     assert _wait(lambda: (run / "meta_session/supervision/0001/exit").is_file())
     (run / "meta_session/state.json").write_text(json.dumps({"status": "disconnected", "thread_id": "t1"}))
+    (run / "active_task.json").write_text(json.dumps({"generation": 1}))  # R7 product continuity
     result = supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
                                kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
     seal = result["launch_seal"]
     assert seal["binding"]["mode"] == "resume"
     assert seal["binding"]["resumed_from"] == "0001"
     assert (run / "meta_session/supervision/0002").is_dir()
+
+
+def test_resume_refuses_wrong_resumed_from(tmp_path, supervisor):
+    output_root = tmp_path / "out"
+    config = _config(tmp_path, output_root, "run")
+    supervisor.launch(config, "0001", command=_sleep_command(0.2), timeout="10s",
+                      kill_after="2s", skip_asset_gates=True)
+    paths = supervisor.derive_paths(config)
+    run = paths["run_dir"]
+    assert _wait(lambda: (run / "meta_session/supervision/0001/exit").is_file())
+    (run / "meta_session/state.json").write_text(json.dumps({"status": "disconnected", "thread_id": "t1"}))
+    (run / "active_task.json").write_text(json.dumps({"generation": 1}))
+    # resumed_from must be the latest prior attempt (0001), not an arbitrary value
+    with pytest.raises(RuntimeError, match="latest prior attempt"):
+        supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0000")
+
+
+def test_resume_refuses_missing_active_task(tmp_path, supervisor):
+    output_root = tmp_path / "out"
+    config = _config(tmp_path, output_root, "run")
+    supervisor.launch(config, "0001", command=_sleep_command(0.2), timeout="10s",
+                      kill_after="2s", skip_asset_gates=True)
+    paths = supervisor.derive_paths(config)
+    run = paths["run_dir"]
+    assert _wait(lambda: (run / "meta_session/supervision/0001/exit").is_file())
+    (run / "meta_session/state.json").write_text(json.dumps({"status": "disconnected", "thread_id": "t1"}))
+    # no active_task.json => R7 product gate refuses
+    with pytest.raises(RuntimeError, match="active Task"):
+        supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
 
 
 def test_resume_refuses_unaccounted_prior_attempt(tmp_path, supervisor):

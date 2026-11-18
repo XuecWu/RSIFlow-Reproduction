@@ -46,6 +46,9 @@ def main():
         save_json(receipt, state)
         trained = None
         failure = None
+        child = None
+        child_group_exited = False
+        identity_uncertain = False
         try:
             with contextlib.ExitStack() as leases:
                 for gpu in range(4): leases.enter_context(training_gpu_lease(gpu))
@@ -58,13 +61,20 @@ def main():
                 environment = {k: v for k, v in environment.items()
                                if not any(w in k.upper() for w in ('KEY', 'TOKEN', 'PASSWORD', 'SECRET', 'AUTH'))}
                 child = subprocess.Popen(command, cwd=directory, env=environment, start_new_session=True)
-                # Record real start identity metadata for external owner reconciliation
-                # (metadata only; no training parameter/optimizer/scorer change).
-                training_identity = process_identity(child.pid) or {'pid': child.pid, 'pgid': child.pid}
+                # N1: owned-child lifecycle protection. Preserve the trackable training_pid
+                # FIRST, then collect identity inside the same try that contains wait/TERM/KILL,
+                # so any identity/receipt error still tracks the started child and never bypasses
+                # containment. (Metadata only; no training parameter/optimizer/scorer change.)
                 state.update(status='training_dispatched', training_pid=child.pid, command=command,
-                             training_identity=training_identity, training_argv=command,
-                             training_run_dir=str(runs_root), training_request_dir=str(directory),
-                             training_started_at=time.time())
+                             training_argv=command, training_run_dir=str(directory),
+                             training_request_dir=str(directory), training_started_at=time.time())
+                save_json(receipt, state)
+                try:
+                    training_identity = process_identity(child.pid) or {'pid': child.pid, 'pgid': child.pid}
+                except (PermissionError, ValueError, IndexError, OSError) as exc:
+                    training_identity = {'pid': child.pid, 'pgid': child.pid, 'identity_error': type(exc).__name__}
+                    identity_uncertain = True
+                state.update(training_identity=training_identity)
                 save_json(receipt, state)
                 try:
                     result = child.wait(timeout=config.training_timeout_seconds)
@@ -73,7 +83,9 @@ def main():
                     try: child.wait(timeout=30)
                     except subprocess.TimeoutExpired:
                         os.killpg(child.pid, signal.SIGKILL); child.wait()
+                    child_group_exited = True
                     raise
+                child_group_exited = True
                 if result != 0: raise RuntimeError(f'Four-rank trainer exited with status {result}')
                 trained = json.loads((directory / 'checkpoint_trained.json').read_text())
                 state.update(status='training_complete', training_finished_at=time.time())
@@ -81,6 +93,18 @@ def main():
         except BaseException as exc:
             failure = exc
             state.update(status='training_failed_requires_audit', error_type=type(exc).__name__)
+            if child is not None:
+                state.setdefault('training_pid', child.pid)
+            save_json(receipt, state)
+        # N1: never restore inference while the training group exit is unproven. A started
+        # child whose group has not been confirmed exited keeps requires_audit and blocks
+        # start_services; the trackable training_pid/group is preserved for audit.
+        if child is not None and not child_group_exited:
+            state.update(status='training_failed_requires_audit', inference_restore_blocked=True)
+            save_json(receipt, state)
+            raise failure if failure else RuntimeError('training group exit unproven; inference restore blocked')
+        if identity_uncertain:
+            state.update(status='training_failed_requires_audit', identity_uncertain=True)
             save_json(receipt, state)
         # Failed training never publishes its candidate. Restore the last valid checkpoint.
         checkpoint = Path(trained['checkpoint_path']) if trained else base

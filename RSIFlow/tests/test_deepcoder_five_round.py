@@ -534,6 +534,103 @@ def test_real_five_round_resume_and_retain_receipts_keep_instruction_semantics(
     assert operations.count("run_parent") == 2
 
 
+def test_f7_production_transport_resume_after_sft_no_retrain(tmp_path, monkeypatch):
+    # F7: a controlled Codex app-server/transport drives the REAL PersistentMeta resume
+    # from the next milestone after a successful SFT. The training-dispatch spy (the sft
+    # operation entry) fails on re-call and must stay calls=0; child/receipt bytes/hash
+    # unchanged; no repeat A0/parent. Not a helper-only self-proof.
+    import persistent_meta
+
+    dispatch = {"sft_calls": 0, "armed": False}
+
+    class SpyExecutor(_FiveRoundOfflineExecutor):
+        def execute(self, request):
+            if request["operation"] == "sft":
+                dispatch["sft_calls"] += 1
+                if dispatch["armed"]:
+                    raise AssertionError("production training dispatch re-called on resume")
+            return super().execute(request)
+
+    project = tmp_path / "project"; project.mkdir()
+    run = tmp_path / "run"
+    _write_five_round_policy(run)
+    loop = PersistentMeta(
+        project=project, run=run, codex_home=run / "meta_session/codex_home",
+        executor=SpyExecutor(),
+        meta_config={"model": "offline-model", "provider": "offline-provider"}, rounds=5,
+    )
+
+    def complete_job(request, turn_dir):
+        return {"status": "completed", "result": loop.tools.executor.execute(request)}
+
+    loop.tools.jobs.start = complete_job
+    _complete_five_round_tools_a0(loop)
+    # Round 1 through SFT only (run_parent, prepare_meta_evidence, decision, sft): the
+    # training product exists but candidate_rollout/compare/selection are NOT yet done.
+    _record_five_round_tools(loop, 1, steps=4)
+    assert dispatch["sft_calls"] == 1
+    sft_receipt = json.loads((run / "round_1/attempts/attempt_1/candidate_state.json").read_text()) \
+        if (run / "round_1/attempts/attempt_1/candidate_state.json").is_file() else None
+    # capture the training product bytes/hash produced by the offline sft dispatch
+    candidate_path = run / "candidate.json"
+    before_bytes = candidate_path.read_bytes() if candidate_path.is_file() else b""
+    import hashlib as _hl
+    before_hash = _hl.sha256(before_bytes).hexdigest()
+    dispatch["armed"] = True  # any further sft dispatch now fails
+    dispatch["sft_calls"] = 0
+
+    (run / "meta_session/state.json").write_text(json.dumps({
+        "transport": "app_server", "status": "disconnected",
+        "thread_id": "thread-sft-resume", "sandbox_backend": "legacy_host",
+        "capability_revision": "native_coding_v1",
+    }), encoding="utf-8")
+    config = _five_round_launcher_value(tmp_path)
+    initial = experiment_prompt(tmp_path / "launcher.json", config, loop.run)
+    captured = {"requests": [], "turns": []}
+
+    class Server:
+        def __init__(self, **kwargs):
+            self.process = type("Process", (), {"pid": 12345})()
+
+        def start(self):
+            return self
+
+        def request(self, method, params):
+            captured["requests"].append((method, params))
+            return {"thread": {"id": params["threadId"]}}
+
+        def turn(self, thread_id, prompt, environments):
+            captured["turns"].append(prompt)
+            # Continue round 1 from the NEXT milestone after sft (candidate_rollout onward),
+            # driving the real controller tools; never re-dispatch sft.
+            _record_five_round_tools(loop, 1, skip=4)
+            loop.tools.finished = True
+            loop.tools.summary = "offline resume complete"
+            return {"id": f"turn-{len(captured['turns'])}", "status": "completed"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(persistent_meta, "CodexAppServer", Server)
+    monkeypatch.setattr(persistent_meta.time, "sleep", lambda seconds: None)
+    result = loop.run_experiment(initial)
+
+    assert result["status"] == "complete"
+    assert captured["requests"][0][0] == "thread/resume"
+    assert captured["requests"][0][1]["threadId"] == "thread-sft-resume"
+    # production training dispatch was NOT re-called; child/receipt bytes/hash unchanged
+    assert dispatch["sft_calls"] == 0
+    after_bytes = candidate_path.read_bytes() if candidate_path.is_file() else b""
+    assert after_bytes == before_bytes
+    assert _hl.sha256(after_bytes).hexdigest() == before_hash
+    # no repeat A0/parent: bootstrap once, run_parent once (round 1 only)
+    commands = [json.loads(p.read_text()) for p in (run / "meta_session/turns").glob("*/command.json")]
+    operations = [c["request"]["operation"] for c in commands]
+    assert operations.count("bootstrap") == 1
+    assert operations.count("run_parent") == 1
+    assert operations.count("sft") == 1  # the original round-1 dispatch, not a retrain
+
+
 def test_five_round_b5_compact_requests_final_handoff_on_repeated_batch(tmp_path):
     loop = _five_round_persistent_meta(tmp_path)
     _complete_five_round_tools_a0(loop)

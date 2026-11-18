@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -731,13 +732,68 @@ def _verify_cleanup_evidence(receipt, receipt_path, config_path, run_dir, superv
         raise RuntimeError("cleanup ports not closed; occupier restore refused")
 
 
+DEFAULT_OCCUPIER_COMMAND = ["/data/wuxuecheng/z-occupier-ready/run.sh", "--mem-mb", "2500", "--log-interval", "20"]
+DEFAULT_OCCUPIER_IDENTITY = Path("/data/wuxuecheng/z-occupier-ready/runtime/dev4/identity.json")
+
+
+def _start_occupier_process(occupier_command=None, *, shared_identity_path=None,
+                            gpu_observer=None, exec_timeout=30.0):
+    """F8: real occupier start helper. Handles exec/self-daemon timing (run.sh self-daemons
+    into torchrun), collects the unique real PID/PGID/start_ticks/precise argv, atomically
+    updates the shared identity, verifies four-rank GPU load, and rolls back on failure.
+    Offline tests inject a temporary controlled command + GPU observation stand-in."""
+    import subprocess
+    command = list(occupier_command or DEFAULT_OCCUPIER_COMMAND)
+    identity_path = Path(shared_identity_path) if shared_identity_path else DEFAULT_OCCUPIER_IDENTITY
+    env = dict(os.environ, CUDA_VISIBLE_DEVICES="0,1,2,3", NPROC="4")
+    proc = subprocess.Popen(command, start_new_session=True, env=env,
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pgid = proc.pid
+    try:
+        # bounded wait for the exec/self-daemon to settle into a four-rank group
+        deadline = time.monotonic() + exec_timeout
+        identity = None
+        while time.monotonic() < deadline:
+            members = _group_members(pgid)
+            try:
+                stat = _proc_stat(proc.pid)
+                argv = Path(f"/proc/{proc.pid}/cmdline").read_bytes().replace(b"\0", b" ").decode().strip()
+            except (FileNotFoundError, PermissionError, OSError):
+                stat, argv = None, ""
+            if stat is not None and len(members) >= 4:
+                identity = {"pid": proc.pid, "pgid": pgid, "start_ticks": stat[19],
+                            "argv": argv, "gpus": [0, 1, 2, 3], "rank_members": members}
+                break
+            time.sleep(0.2)
+        if identity is None:
+            raise RuntimeError("occupier did not settle into a four-rank group; restore failed")
+        # verify four-rank GPU load (injected offline; real nvidia-smi in production)
+        gpu = (gpu_observer or _default_gpu_observer)()
+        if len(gpu.get("compute_apps") or []) < 4:
+            raise RuntimeError("occupier four-rank GPU load not verified; restore failed")
+        # atomically update the shared occupier identity
+        identity_path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(identity_path, {**identity, "owner": "dev4-rsiflow-idle-occupier",
+                                      "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+        return identity
+    except BaseException:
+        # rollback: terminate the started occupier group on any failure
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        raise
+
+
 def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=None,
-                     gpu_observer=None, lifecycle_lock=None) -> Path:
-    """R8: restore the idle occupier ONLY after this attempt's external cleanup receipt is
+                     gpu_observer=None, lifecycle_lock=None, occupier_command=None,
+                     shared_identity_path=None, exec_timeout=30.0) -> Path:
+    """R8/F8: restore the idle occupier ONLY after this attempt's external cleanup receipt is
     completed with fully verified kind/binding/config-hash/evidence. Acquires the global
     target-host GPU lock FIRST, re-reads the latest receipt INSIDE the lock, confirms this
-    is the current attempt, re-checks owner/GPU/ports, then starts. pending/failed/wrong
-    evidence refuses (nonzero exit) and NEVER starts the occupier."""
+    is the current attempt, re-checks owner/GPU/ports, then starts via the real occupier
+    start helper (exec identity/shared identity/four-rank load/rollback). pending/failed/
+    wrong evidence refuses (nonzero exit) and NEVER starts the occupier."""
     import fcntl
     config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
     lock_path = Path(lifecycle_lock) if lifecycle_lock else GLOBAL_GPU_LIFECYCLE_LOCK
@@ -761,9 +817,12 @@ def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=Non
         gpu = (gpu_observer or _default_gpu_observer)()
         if gpu.get("compute_apps") or not gpu.get("free_verified"):
             raise RuntimeError("GPU not free at restore time; occupier restore refused")
-        if occupier_start_fn is None:
-            raise RuntimeError("no occupier start function provided; restore not executed")
-        identity = occupier_start_fn()  # returns new occupier {pid,pgid,start_ticks,gpus,argv}
+        # F8: real start helper by default (no longer default-refuse); offline injects fn.
+        if occupier_start_fn is not None:
+            identity = occupier_start_fn()
+        else:
+            identity = _start_occupier_process(occupier_command, shared_identity_path=shared_identity_path,
+                                               gpu_observer=gpu_observer, exec_timeout=exec_timeout)
         restore_dir = attempt_dir / "external-cleanup" / ("restore-" + uuid.uuid4().hex[:12])
         restore_dir.mkdir(parents=True)
         observation = {

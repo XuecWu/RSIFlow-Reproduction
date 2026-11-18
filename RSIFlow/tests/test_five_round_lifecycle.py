@@ -842,6 +842,88 @@ def test_restore_occupier_refused_without_cleanup(tmp_path, supervisor, reconcil
     assert started == []
 
 
+def _occupier_script(tmp_path, ranks=4):
+    # controlled stand-in for run.sh: spawns `ranks` child ranks in its PGID, then sleeps
+    script = tmp_path / "occupier.sh"
+    code = ("import subprocess, sys, time\n"
+            f"for _ in range({ranks}):\n"
+            "    subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            "time.sleep(60)\n")
+    py = tmp_path / "occupier_run.py"
+    py.write_text(code)
+    return [sys.executable, str(py)]
+
+
+def _restore_gpu_observer():
+    # stateful: first call (restore free-check) => idle; later (start load-check) => 4 ranks
+    state = {"n": 0}
+    def observe():
+        from datetime import timedelta
+        n = state["n"]; state["n"] += 1
+        apps = [] if n == 0 else [{"pid": 90000 + i, "uuid": f"GPU-{i}"} for i in range(4)]
+        raw = "".join(f"{a['pid']}, {a['uuid']}\n" for a in apps)
+        import hashlib as _hl
+        return {"time": (datetime.now(timezone.utc) + timedelta(seconds=n)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "command": ["nvidia-smi", "--query"], "command_result": 0,
+                "expected_uuids": [f"GPU-{g}" for g in range(4)],
+                "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000, "memory_total": 81920,
+                             "memory_used": 100, "utilization": 0} for g in range(4)],
+                "compute_apps": apps, "free_verified": (n == 0),
+                "raw_stdout": "raw", "stdout_hash": _hl.sha256(b"raw").hexdigest(),
+                "apps_raw_stdout": raw, "apps_stdout_hash": _hl.sha256(raw.encode()).hexdigest()}
+    return observe
+
+
+def test_f8_restore_real_helper_exec_identity_and_shared_identity(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                           stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    shared_identity = tmp_path / "occupier-identity.json"
+    command = _occupier_script(tmp_path, ranks=4)
+    try:
+        obs_path = reconciler.restore_occupier(
+            config, run, "0001", gpu_observer=_restore_gpu_observer(),
+            occupier_command=command, shared_identity_path=shared_identity, exec_timeout=15)
+        obs = json.loads(obs_path.read_text())
+        assert obs["kind"] == "rsiflow_occupier_restore"
+        assert obs["cleanup_receipt_hash"]  # linked to cleanup
+        ident = obs["occupier_identity"]
+        assert ident["pid"] == ident["pgid"] and str(ident["start_ticks"]).isdigit()
+        assert ident["argv"] and len(ident["rank_members"]) >= 4
+        # shared identity atomically updated with the real exec identity
+        shared = json.loads(shared_identity.read_text())
+        assert shared["pid"] == ident["pid"] and shared["owner"] == "dev4-rsiflow-idle-occupier"
+    finally:
+        # cleanup the controlled occupier group
+        import signal as _sig
+        for entry in Path("/proc").iterdir():
+            if entry.name.isdigit():
+                try:
+                    fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+                except (OSError, ValueError, IndexError):
+                    continue
+        # terminate any lingering controlled ranks spawned by the test script
+        for child in __import__("subprocess").run(["pgrep", "-f", "occupier_run.py"],
+                                                 capture_output=True, text=True).stdout.split():
+            try:
+                os.kill(int(child), _sig.SIGTERM)
+            except (ProcessLookupError, ValueError):
+                pass
+
+
+def test_f8_restore_failure_rollback_no_four_ranks(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                           stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    shared_identity = tmp_path / "occupier-identity.json"
+    command = _occupier_script(tmp_path, ranks=1)  # only 1 rank => never settles to 4
+    with pytest.raises(RuntimeError, match="four-rank"):
+        reconciler.restore_occupier(
+            config, run, "0001", gpu_observer=_restore_gpu_observer(),
+            occupier_command=command, shared_identity_path=shared_identity, exec_timeout=2)
+    assert not shared_identity.exists()  # shared identity not updated on failure
+
+
 # --- R2: complete prelaunch asset/preflight seal before Popen -----------------
 
 REQUIRED_ASSETS = ["manifest_B1", "manifest_B2", "manifest_B3", "manifest_B4", "manifest_B5",

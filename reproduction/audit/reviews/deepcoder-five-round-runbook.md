@@ -160,14 +160,15 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
 
 只有本 attempt **真实资源 cleanup receipt completed** 且 GPU/owner 再检查通过后恢复 occupier；恢复另写 observation，关联 cleanup hash，记录新 PID/PGID/start_ticks/精确 argv，原子更新 identity，再验证四 rank/GPU 负载。资源 unknown/job pending → receipt 保持 pending，occupier 保持未恢复并明确交接持续看护 owner，绝不重复启动。occupier 恢复后 GPU 被授权占用不使历史空卡 cleanup 无效，但**绝不拿 occupier 恢复后的读数填“无 compute apps”**。
 
-已实现入口 `reconcile_deepcoder_run.py` 的 `restore_occupier`：解析本 attempt 最新 cleanup receipt，`status!=completed`/binding 不符/GPU 非空 → 抛错（CLI 非 0 退出，`set -e` 阻断），**绝不启动 occupier**；completed 且空卡再确认后经同一 lifecycle flock 调用 occupier start，原子写 `rsiflow_occupier_restore` observation 关联 cleanup hash。handoff/start/cleanup/restore 全程共用 `OUTPUT_ROOT/locks/lifecycle.lock`（`flock` 排他，锁冲突拒绝）。
+已实现入口 `reconcile_deepcoder_run.py` 的 `restore_occupier` + 真实 start helper `_start_occupier_process`：解析本 attempt 最新 cleanup receipt，`status!=completed`/binding 不符/缺完整 owner/registry/GPU/ports inventory/GPU 非空 → 抛错（CLI 非 0 退出，`set -e` 阻断），**绝不启动 occupier**；completed 且空卡再确认后经同一全局 GPU lifecycle flock 调用真实 start helper（默认 `/data/wuxuecheng/z-occupier-ready/run.sh`，GPU0-3，NPROC=4），处理 exec/self-daemon 时序，采集唯一真实 PID/PGID/start_ticks/精确 argv，原子更新共享 `runtime/dev4/identity.json`，核验四 rank GPU 负载，失败回滚（killpg），写 `rsiflow_occupier_restore` observation 关联 cleanup hash。handoff/start/cleanup/restore 全程共用全局锁 `/tmp/rsiflow-gpu-lifecycle.lock`（`flock` 排他，锁冲突拒绝）。**不得直接 nohup 绕过 helper/锁。**
 
 ```bash
-# cleanup completed 且空卡再确认后，restore_occupier 内部经 flock 调用以下 occupier start：
-# 在 /data/wuxuecheng/z-occupier-ready：
-nohup setsid env CUDA_VISIBLE_DEVICES=0,1,2,3 NPROC=4 ./run.sh --mem-mb 2500 --log-interval 20 \
-  >> runtime/dev4/occupier.log 2>&1 < /dev/null &
-# 有界等待 exec 为完整 torchrun argv，复核 PID=PGID/start_ticks 后原子写新 identity.json，实测四卡负载。
+# cleanup completed 且空卡再确认后，经 helper + 全局锁恢复（CLI 接线到真实 start helper）：
+"$PYTHON" "$ROOT/reproduction/scripts/reconcile_deepcoder_run.py" restore \
+  --config "$CONFIG" --run-dir "$RUN_DIR" --supervision 0001
+# helper 内部：Popen run.sh(start_new_session, CUDA_VISIBLE_DEVICES=0,1,2,3 NPROC=4) →
+# 有界等待 exec/self-daemon  settle 为四 rank 组 → 复核 PID=PGID/start_ticks/argv →
+# 原子写共享 identity.json → 实测四卡负载 → 写关联 cleanup 的 restore receipt；失败 killpg 回滚。
 ```
 
 ## 9. 完成判定与报告

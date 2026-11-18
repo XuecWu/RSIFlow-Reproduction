@@ -400,7 +400,7 @@ def train(args) -> dict:
         "loss_mask": options["supervision"] + "; system/user/tool observations and padding masked",
         "resolved_training_config": options, "selection": selection_report,
         "optimizer_steps": trainer.state.global_step, "learning_rate": options["learning_rate"],
-        "warmup_steps": trainer.args.warmup_steps,
+        "warmup_steps": warmup_steps_for_ratio(options["warmup_ratio"], trainer.state.max_steps),
         "batch_size": options["batch_size"], "gradient_accumulation_steps": options["gradient_accumulation_steps"],
         "max_length": options["max_length"], "optimizer": "adamw_torch",
         "learning_rate_schedule": options["lr_scheduler_type"], "lora_target_modules": options["lora_target_modules"],

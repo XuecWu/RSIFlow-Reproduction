@@ -2121,3 +2121,29 @@ def test_model_smoke_central_meta_retarget_during_sft_requires_final_audit(
     final = json.loads((root / "receipts/sft.json").read_text())
     assert final["status"] == "requires_audit"
     assert final["source_hashes_unchanged"] is False
+
+
+@pytest.mark.parametrize("spelling", ["via_source_meta", "direct_central"])
+def test_model_smoke_plan_rejects_output_root_overlapping_central_meta_storage(
+        model_smoke, model_source, tmp_path, spelling):
+    central, central_meta, link = _link_source_meta_to_central(model_source, tmp_path)
+    if spelling == "via_source_meta":
+        output_root = model_source["source_run"] / "meta/logs/model-smoke-output"
+    else:
+        output_root = central_meta / "logs/model-smoke-output"
+    resolved_output = output_root.resolve()
+    target_text = os.readlink(link)
+    target_identity = central_meta.stat()
+    owner_hash = file_hash(central / ".run-owner.json")
+    skills_hash = file_hash(central_meta / "skills.jsonl")
+
+    with pytest.raises((ValueError, RuntimeError), match="read-only|output|overlap"):
+        model_smoke.plan_model_smoke(
+            model_source["source_run"], output_root, model_source["machine_config"])
+
+    assert not output_root.exists() and not resolved_output.exists()
+    assert os.readlink(link) == target_text
+    assert central_meta.stat().st_dev == target_identity.st_dev
+    assert central_meta.stat().st_ino == target_identity.st_ino
+    assert file_hash(central / ".run-owner.json") == owner_hash
+    assert file_hash(central_meta / "skills.jsonl") == skills_hash

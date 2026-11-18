@@ -444,6 +444,10 @@ def plan_model_smoke(source_run, output_root, machine_config):
     assets = [("frozen release", release_dir), ("machine config", machine_config),
               ("base config", base_config), ("A0 checkpoint", source["checkpoint_path"]),
               ("A0 Harness", source["harness_path"])]
+    meta_seal = source.get("meta_link_seal")
+    if meta_seal:
+        assets.extend([("central meta target", meta_seal["resolved_path"]),
+                       ("central meta owner directory", Path(meta_seal["owner_path"]).parent)])
     state = load_task(read(source["state_path"]))
     assets.append(("A0 artifacts", state.artifacts.directory))
     if state.artifacts.directory:

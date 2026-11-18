@@ -177,6 +177,14 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
 # 原子写共享 identity.json → 实测四卡负载 → 写关联 cleanup 的 restore receipt；失败逐 identity 有界调和。
 ```
 
+### 8.1 真实 torchrun 拓扑与 NVML PID namespace（real-layout fix）
+
+真实 `run.sh` 是 `exec torchrun`，四个 `train.py` rank 是**独立 session/PGID**（各自 PID=PGID），**PPID 均为 leader**，并非同 PGID 五成员。helper 按 **PPID==leader + argv 匹配 train.py** 发现 rank，逐个记录各自 PID/PGID/start_ticks/argv/PPID，并只读必要 `LOCAL_RANK/RANK`（不读其他 env）做逻辑映射，要求 LOCAL_RANK 恰为 {0,1,2,3}。
+
+NVML `--query-compute-apps` 的 compute PID 与容器内 rank PID **可能属不同 PID namespace**（现场曾见 NVML 3842480… vs 容器 24920…，process_name Not Found）。**不得伪造 PID 相等**：helper 以**四唯一 GPU UUID + 真实负载（used/util>0）+ 四 rank/leader 拓扑**共同验收，记录 `pid_mapping=direct|namespace_differs` 与 `namespace_notes`，保留限制。GPU compute apps 查询字段为 **`pid,gpu_uuid`**（`uuid` 非法字段会 exit 2）；主 `--query-gpu` 的 `uuid` 字段本来有效，不改。
+
+停止/失败调和按**每个保存 identity 分别核验**：leader TERM 后有界观察 rank 自然退出，仅对仍存活且身份匹配的 rank 逐个 TERM/KILL；**leader 消失不等于 rank 退出**，不宽泛 kill、不按名字/端口杀。离线测试用受控 leader+四独立 PGID rank（带 LOCAL_RANK）、不同 NVML PID 正例与错误拓扑（缺 LOCAL_RANK）反例、 bystander 不被误杀正例覆盖。
+
 ## 9. 完成判定与报告
 
 最终完成同时核验 SOP §9 各项（state complete/last_turn completed、A0+B1–B5 milestones、current_stage COMPLETE/finish_allowed、B5 前无提前 finish、每轮单 attempt、active 链、durable jobs 终态、supervision exit/reconcile、launcher/Codex PID 不存活、owned registry services_stopped、GPU 无计算进程）+ external cleanup completed。任何缺失只报告实得轮次与 blocker。报告逐轮表格、跨轮 active/skills 链、MODEL/SFT 实际发生轮次、过程异常限制；五轮工程完成不等于五域/3000/694/744/作者复现。

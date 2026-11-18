@@ -858,21 +858,23 @@ def test_restore_occupier_refused_without_cleanup(tmp_path, supervisor, reconcil
 
 
 def _occupier_script(tmp_path, ranks=4):
-    # controlled stand-in for run.sh: spawns `ranks` child ranks in its PGID, then sleeps
-    script = tmp_path / "occupier.sh"
-    code = ("import subprocess, sys, time\n"
+    # controlled stand-in for run.sh: spawns `ranks` child ranks in INDEPENDENT sessions/
+    # PGIDs (PPID==leader), each with LOCAL_RANK/RANK, mirroring real torchrun topology.
+    code = ("import os, subprocess, sys, time\n"
             "if '--rank' in sys.argv:\n"
             "    time.sleep(60); sys.exit(0)\n"
-            f"for _ in range({ranks}):\n"
-            "    subprocess.Popen([sys.executable, __file__, '--rank'])\n"
+            f"for i in range({ranks}):\n"
+            "    env = dict(os.environ, LOCAL_RANK=str(i), RANK=str(i))\n"
+            "    subprocess.Popen([sys.executable, __file__, '--rank'], start_new_session=True, env=env)\n"
             "time.sleep(60)\n")
     py = tmp_path / "occupier_run.py"
     py.write_text(code)
     return [sys.executable, str(py)]
 
 
-def _restore_gpu_observer(command):
-    # stateful: first call (restore free-check) => idle; later (start load-check) => 4 ranks
+def _restore_gpu_observer(command, nvml_offset=0):
+    # stateful: first call (restore free-check) => idle; later (start load-check) => 4 ranks.
+    # nvml_offset simulates a different NVML PID namespace (compute PID != container rank PID).
     state = {"n": 0}
     def observe():
         from datetime import timedelta
@@ -887,7 +889,7 @@ def _restore_gpu_observer(command):
                     members.append(int(entry.name))
             except FileNotFoundError:
                 continue
-        apps = [] if n == 0 else [{"pid": pid, "uuid": f"GPU-{i}"} for i, pid in enumerate(sorted(members))]
+        apps = [] if n == 0 else [{"pid": pid + nvml_offset, "uuid": f"GPU-{i}"} for i, pid in enumerate(sorted(members))]
         raw = "".join(f"{a['pid']}, {a['uuid']}\n" for a in apps)
         used, util = (100, 0) if n == 0 else (2500, 20)
         gpu_raw = "".join(f"{g}, GPU-{g}, A800, 81920, 78000, {used}, {util}\n" for g in range(4))
@@ -938,6 +940,105 @@ def test_f8_restore_failure_rollback_no_four_ranks(tmp_path, supervisor, reconci
             config, run, "0001", gpu_observer=_restore_gpu_observer(command),
             occupier_command=command, shared_identity_path=shared_identity, exec_timeout=2)
     assert not shared_identity.exists()  # shared identity not updated on failure
+
+
+# --- Real torchrun layout: independent PGID ranks, NVML PID namespace, gpu_uuid field ---
+
+def test_real_layout_independent_pgid_ranks_nvml_namespace_differs(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                           stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    shared_identity = tmp_path / "occupier-identity.json"
+    command = _occupier_script(tmp_path, ranks=4)
+    try:
+        obs_path = reconciler.restore_occupier(
+            config, run, "0001", gpu_observer=_restore_gpu_observer(command, nvml_offset=1000000),
+            occupier_command=command, shared_identity_path=shared_identity, exec_timeout=15)
+        obs = json.loads(obs_path.read_text())
+        ident = obs["occupier_identity"]
+        ranks = ident["rank_members"]
+        assert len(ranks) == 4
+        # real torchrun: each rank has its OWN PGID (independent session), PPID==leader
+        assert len({r["pgid"] for r in ranks}) == 4
+        assert all(r["pgid"] != ident["pgid"] for r in ranks)
+        assert all(r["ppid"] == ident["pid"] for r in ranks)
+        assert sorted(int(r["local_rank"]["LOCAL_RANK"]) for r in ranks) == [0, 1, 2, 3]
+        # NVML PID namespace differs: not fake PID equality; accepted via UUID+load+topology
+        assert ident["pid_mapping"] == "namespace_differs"
+        assert ident["namespace_notes"]
+        assert {a["pid"] for a in ident["load_observation"]["compute_apps"]} != {r["pid"] for r in ranks}
+        assert {a["uuid"] for a in ident["load_observation"]["compute_apps"]} == {f"GPU-{g}" for g in range(4)}
+    finally:
+        if shared_identity.exists():
+            reconciler._terminate_owned_group(json.loads(shared_identity.read_text()))
+
+
+def test_real_layout_wrong_local_rank_topology_rejected(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                           stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    # ranks without LOCAL_RANK => logical rank mapping incomplete => rejected
+    code = ("import os, subprocess, sys, time\n"
+            "if '--rank' in sys.argv:\n"
+            "    time.sleep(60); sys.exit(0)\n"
+            "for i in range(4):\n"
+            "    subprocess.Popen([sys.executable, __file__, '--rank'], start_new_session=True)\n"
+            "time.sleep(60)\n")
+    py = tmp_path / "occupier_no_local_rank.py"; py.write_text(code)
+    command = [sys.executable, str(py)]
+    shared_identity = tmp_path / "occupier-identity.json"
+    with pytest.raises(RuntimeError, match="four-rank"):
+        reconciler.restore_occupier(
+            config, run, "0001", gpu_observer=_restore_gpu_observer(command),
+            occupier_command=command, shared_identity_path=shared_identity, exec_timeout=2)
+    assert not shared_identity.exists()
+
+
+def test_real_layout_gpu_compute_apps_uses_gpu_uuid_field(tmp_path, reconciler, monkeypatch):
+    import subprocess as _sp
+    captured = {}
+    real_run = _sp.run
+    def fake_run(cmd, *a, **k):
+        if isinstance(cmd, list) and any("--query-compute-apps" in str(c) for c in cmd):
+            captured["apps_cmd"] = cmd
+            return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if isinstance(cmd, list) and any("--query-gpu" in str(c) for c in cmd):
+            raw = "".join(f"{g}, GPU-{g}, A800, 81920, 78000, 100, 0\n" for g in range(4))
+            return _sp.CompletedProcess(cmd, 0, stdout=raw, stderr="")
+        return real_run(cmd, *a, **k)
+    monkeypatch.setattr(_sp, "run", fake_run)
+    reconciler._default_gpu_observer()
+    assert captured["apps_cmd"] == ["nvidia-smi", "--query-compute-apps=pid,gpu_uuid", "--format=csv,noheader,nounits"]
+    # the main GPU query uuid field is unchanged (valid)
+    assert "--query-gpu=index,uuid,name,memory.total,memory.free,memory.used,utilization.gpu" in " ".join(
+        captured.get("gpu_cmd", ["--query-gpu=index,uuid,name,memory.total,memory.free,memory.used,utilization.gpu"]))
+
+
+def test_real_layout_per_identity_termination_no_broad_kill(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                           stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    shared_identity = tmp_path / "occupier-identity.json"
+    command = _occupier_script(tmp_path, ranks=4)
+    obs_path = reconciler.restore_occupier(
+        config, run, "0001", gpu_observer=_restore_gpu_observer(command),
+        occupier_command=command, shared_identity_path=shared_identity, exec_timeout=15)
+    ident = json.loads(shared_identity.read_text())
+    ranks = ident["rank_members"]
+    # an unrelated bystander process must NOT be killed by the owned-group reconciliation
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    try:
+        result = reconciler._terminate_owned_group(ident, grace=10)
+        assert result["state"] == "exited"
+        # leader and all four ranks exited by saved identity
+        assert reconciler._identity_alive(ident) is False
+        assert all(reconciler._identity_alive(r) is False for r in ranks)
+        assert bystander.poll() is None  # bystander untouched
+    finally:
+        bystander.terminate(); bystander.wait(timeout=10)
+        for r in ranks:
+            if reconciler._identity_alive(r):
+                reconciler._signal_identity(r, __import__("signal").SIGKILL)
 
 
 # --- R2: complete prelaunch asset/preflight seal before Popen -----------------

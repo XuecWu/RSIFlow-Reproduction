@@ -186,7 +186,9 @@ def _default_gpu_observer():
         per_gpu.append({"gpu": int(idx), "uuid": gpu_uuid, "name": name,
                         "memory_total": int(total), "memory_free": int(free),
                         "memory_used": int(used), "utilization": int(util)})
-    apps_cmd = ["nvidia-smi", "--query-compute-apps=pid,uuid", "--format=csv,noheader,nounits"]
+    # Real NVML field is gpu_uuid (not uuid); the main --query-gpu uuid field is valid
+    # and unchanged. The raw CSV second column is the GPU UUID; internal key stays uuid.
+    apps_cmd = ["nvidia-smi", "--query-compute-apps=pid,gpu_uuid", "--format=csv,noheader,nounits"]
     apps = subprocess.run(apps_cmd, capture_output=True, text=True, timeout=30, check=True)
     compute_apps = [{"pid": int(l.split(",")[0]), "uuid": l.split(",")[1].strip()}
                     for l in apps.stdout.strip().splitlines() if l.strip()]
@@ -734,12 +736,109 @@ def _process_record(pid):
     identity = {"pid": pid, "pgid": int(stat[2]), "start_ticks": stat[19]}
     validate_identity(identity)
     argv = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
-    return {**identity, "argv": [a.decode() for a in argv if a]}
+    return {**identity, "argv": [a.decode() for a in argv if a], "ppid": int(stat[1])}
+
+
+def _local_rank_values(pid):
+    """Read-only necessary LOCAL_RANK/RANK values for logical rank mapping (no other env)."""
+    try:
+        env = (Path("/proc") / str(pid) / "environ").read_bytes().split(b"\0")
+    except (FileNotFoundError, PermissionError, OSError):
+        return None
+    values = {}
+    for item in env:
+        if item.startswith((b"LOCAL_RANK=", b"RANK=")):
+            key, _, val = item.partition(b"=")
+            values[key.decode()] = val.decode()
+    return values or None
+
+
+def _runs_script(record, expected_script):
+    return any((Path(arg).is_absolute() and str(Path(arg).resolve()) == expected_script)
+               or (arg == "train.py" and expected_script.endswith("/train.py")) for arg in record["argv"])
+
+
+def _discover_ranks(leader_pid, expected_script):
+    """Real torchrun ranks are independent sessions/PGIDs with PPID==leader; discover by
+    PPID + argv, recording each rank's own PID/PGID/start_ticks/argv/PPID/local_rank."""
+    ranks = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid == leader_pid:
+            continue
+        try:
+            record = _process_record(pid)
+        except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError, IndexError, OSError):
+            continue
+        if record["ppid"] != leader_pid or not _runs_script(record, expected_script):
+            continue
+        record["local_rank"] = _local_rank_values(pid)
+        ranks.append(record)
+    return ranks
+
+
+def _identity_alive(identity):
+    try:
+        current = _process_record(identity["pid"])
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    except (PermissionError, ValueError, IndexError, OSError):
+        return None  # unknown
+    return all(current[k] == identity[k] for k in ("pid", "pgid", "start_ticks"))
+
+
+def _signal_identity(identity, sig):
+    """Signal a single revalidated identity; never by name or unverified PID."""
+    try:
+        current = _process_record(identity["pid"])
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    if any(current[k] != identity[k] for k in ("pid", "pgid", "start_ticks")):
+        raise RuntimeError("owned identity changed; refusing to signal")
+    os.kill(identity["pid"], sig)
+    return True
 
 
 def _terminate_owned_group(identity, grace=5.0):
-    """Signal only revalidated members; never kill by name or an unverified PID."""
+    """Reconcile an owned occupier by each saved identity. Real torchrun ranks live in
+    independent PGIDs (PPID==leader), so when rank_members are recorded we TERM the leader,
+    bounded-observe natural rank exit, then individually TERM/KILL only still-alive
+    identity-matching ranks. A vanished leader does NOT prove ranks exited. No broad kill."""
     validate_identity(identity)
+    ranks = identity.get("rank_members")
+    if ranks:
+        for rank in ranks:
+            validate_identity(rank)
+        try:
+            _signal_identity(identity, signal.SIGTERM)
+        except RuntimeError:
+            raise
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            states = [_identity_alive(identity)] + [_identity_alive(r) for r in ranks]
+            if None in states:
+                raise RuntimeError("rollback observation unknown")
+            if not any(states):
+                return {"state": "exited", "group_members": [], "read_errors": []}
+            time.sleep(0.05)
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            for rank in ranks:
+                if _identity_alive(rank):
+                    _signal_identity(rank, sig)
+            if _identity_alive(identity):
+                _signal_identity(identity, sig)
+            deadline = time.monotonic() + grace
+            while time.monotonic() < deadline:
+                states = [_identity_alive(identity)] + [_identity_alive(r) for r in ranks]
+                if None in states:
+                    raise RuntimeError("rollback observation unknown")
+                if not any(states):
+                    return {"state": "exited", "group_members": [], "read_errors": []}
+                time.sleep(0.05)
+        raise RuntimeError("rollback pending: owned ranks still alive")
+    # Fallback: single-PGID group (no recorded rank topology).
     members, errors = _group_members_with_errors(identity["pgid"])
     if errors:
         raise RuntimeError("rollback owner observation unknown: " + repr(errors))
@@ -749,12 +848,6 @@ def _terminate_owned_group(identity, grace=5.0):
         if record["pgid"] != identity["pgid"] or record["start_ticks"] != member["start_ticks"]:
             raise RuntimeError("rollback identity changed")
         targets.append(record)
-    try:
-        leader = _process_record(identity["pid"])
-        if any(leader[k] != identity[k] for k in ("pid", "pgid", "start_ticks")):
-            raise RuntimeError("rollback leader reused")
-    except (FileNotFoundError, ProcessLookupError):
-        pass
     for sig in (signal.SIGTERM, signal.SIGKILL):
         for record in targets:
             try:
@@ -783,7 +876,6 @@ def _start_occupier_process(occupier_command=None, *, shared_identity_path=None,
     pending_path = identity_path.with_suffix(".pending.json")
     write_once(pending_path, {"kind": "rsiflow_occupier_start_pending", "command": command,
                               "host_identity": host_identity()})
-    # The process identity is captured before waiting for torchrun exec/ranks.
     log_path = identity_path.parent / "occupier.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("ab") as log:
@@ -797,40 +889,53 @@ def _start_occupier_process(occupier_command=None, *, shared_identity_path=None,
         initial = _process_record(proc.pid)
         if initial["pgid"] != proc.pid:
             raise RuntimeError("occupier group not owned")
+        expected_script = "/data/wuxuecheng/z-occupier-ready/train.py" if occupier_command is None else str(Path(command[1]).resolve())
         deadline = time.monotonic() + exec_timeout
         while time.monotonic() < deadline:
             leader = _process_record(proc.pid)
             if any(leader[k] != initial[k] for k in ("pid", "pgid", "start_ticks")):
                 raise RuntimeError("occupier identity changed")
-            members, errors = _group_members_with_errors(proc.pid)
-            if errors:
-                raise RuntimeError("occupier group unreadable")
-            ranks = [_process_record(m["pid"]) for m in members if m["pid"] != proc.pid]
-            expected_script = "/data/wuxuecheng/z-occupier-ready/train.py" if occupier_command is None else str(Path(command[1]).resolve())
-            def runs_script(record):
-                return any((Path(arg).is_absolute() and str(Path(arg).resolve()) == expected_script)
-                           or (arg == "train.py" and occupier_command is None) for arg in record["argv"])
-            argv_ok = all(runs_script(r) for r in [leader, *ranks])
-            if len(ranks) == 4 and argv_ok:
+            # Real torchrun: ranks are independent sessions/PGIDs with PPID==leader.
+            ranks = _discover_ranks(proc.pid, expected_script)
+            argv_ok = _runs_script(leader, expected_script) and all(_runs_script(r, expected_script) for r in ranks)
+            local_ranks = sorted(int(r["local_rank"]["LOCAL_RANK"]) for r in ranks
+                                 if r.get("local_rank") and str(r["local_rank"].get("LOCAL_RANK", "")).isdigit())
+            if len(ranks) == 4 and argv_ok and local_ranks == [0, 1, 2, 3]:
                 gpu = (gpu_observer or _default_gpu_observer)()
                 from summarize_deepcoder_five_round import validate_gpu_measurement
                 expected_inventory = [{"gpu": g["gpu"], "uuid": g["uuid"]} for g in gpu.get("per_gpu", [])]
                 validate_gpu_measurement(gpu, expected_inventory, require_idle=False)
                 apps = gpu.get("compute_apps") or []
                 expected = set(gpu.get("expected_uuids") or [])
-                if (len(apps) == 4 and len(expected) == 4
-                        and {a["pid"] for a in apps} == {r["pid"] for r in ranks}
-                        and {a["uuid"] for a in apps} == expected
-                        and all(r["pgid"] == proc.pid for r in ranks)
-                        and all(g["memory_used"] > 0 and g["utilization"] > 0 for g in gpu["per_gpu"])):
+                # Accept via four unique GPU UUID + real load + four-rank/leader topology.
+                # NVML compute PIDs may live in a different PID namespace than container
+                # ranks; never fake PID equality — record namespace_notes and the mapping.
+                uuid_ok = len(apps) == 4 and len(expected) == 4 and {a["uuid"] for a in apps} == expected
+                load_ok = all(g["memory_used"] > 0 and g["utilization"] > 0 for g in gpu["per_gpu"])
+                nvml_pids = {a["pid"] for a in apps}
+                rank_pids = {r["pid"] for r in ranks}
+                namespace_notes = []
+                if nvml_pids == rank_pids:
+                    pid_mapping = "direct"
+                else:
+                    pid_mapping = "namespace_differs"
+                    namespace_notes.append(
+                        "NVML compute PIDs differ from container rank PIDs (different PID namespace); "
+                        "accepted via four unique GPU UUID + real load + four-rank/leader topology, not PID equality")
+                if uuid_ok and load_ok:
                     return {**leader, "gpus": [0, 1, 2, 3], "rank_members": ranks,
                             "load_observation": gpu, "owner": "dev4-rsiflow-idle-occupier",
-                            "pending_path": str(pending_path)}
+                            "pending_path": str(pending_path), "pid_mapping": pid_mapping,
+                            "namespace_notes": namespace_notes}
             time.sleep(0.1)
         raise RuntimeError("occupier four-rank GPU identity/load not verified")
     except BaseException:
         if initial is not None:
-            _terminate_owned_group(initial)
+            try:
+                ranks = _discover_ranks(proc.pid, expected_script)
+                _terminate_owned_group({**initial, "rank_members": ranks})
+            except Exception:
+                _terminate_owned_group(initial)
             proc.wait(timeout=5)
             pending_path.unlink(missing_ok=True)
         raise

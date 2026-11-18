@@ -1534,3 +1534,290 @@ def test_discovery_combined_receipt_and_leader_exited(world, tmp_path, monkeypat
     finally:
         if smoke._group_alive(leader.pid):
             os.killpg(leader.pid, signal.SIGKILL)
+
+
+# --- Task 4: read-only natural-positive MODEL import smoke --------------------
+
+@pytest.fixture
+def model_smoke():
+    return importlib.import_module("deepcoder_model_smoke")
+
+
+def _source_tree_hashes(root):
+    return {str(path): file_hash(path) for path in sorted(Path(root).rglob("*"))
+            if path.is_file()}
+
+
+@pytest.fixture
+def model_source(world, tmp_path):
+    from rsiflow.task_meta.durable import load_task, task_hash
+
+    release = tmp_path / "source-release"
+    rows = [_row("deepcoder_taco", index, "function") for index in range(16)]
+    entries, pack_hash = _pack(release / "B1/deepcoder_taco.jsonl", rows)
+    tasks = [_entry("deepcoder_taco", row, release / "B1/deepcoder_taco.jsonl",
+                    offset, length, pack_hash, "function")
+             for (offset, length, row) in entries]
+    parent_manifest = make_manifest("train_evolution", 1, tasks, split_seed=42)
+    manifest_path = release / "B1/manifest.json"
+    freeze(manifest_path, parent_manifest)
+    freeze(release / "protocol.json", {"rounds": 5, "schedule": "round_repeated"})
+
+    source_run = tmp_path / "logs/source-run"
+    a0_dir = source_run / "snapshots/A0"
+    task_dir = a0_dir / "task"
+    task_dir.mkdir(parents=True)
+    harness = task_dir / "harness.json"
+    harness.write_bytes(world["harness"].read_bytes())
+    checkpoint_manifest = smoke.checkpoint_manifest(world["checkpoint"])
+    state = {"generation": 0, "model_ref": "Qwen3-4B", "harness_path": str(harness),
+             "checkpoint_path": str(world["checkpoint"]),
+             "checkpoint_manifest": checkpoint_manifest,
+             "artifacts": {"directory": None, "manifest": {}}}
+    state_path = task_dir / "task_state_snapshot.json"
+    freeze(state_path, state)
+    a0_hash = task_hash(load_task(state))
+    snapshot_receipt = {"status": "snapshotted", "destination": str(a0_dir),
+                        "restorable_task_state_path": str(state_path),
+                        "files_sha256": {"task/task_state_snapshot.json": file_hash(state_path)}}
+    freeze(a0_dir / "snapshot_receipt.json", snapshot_receipt)
+    freeze(source_run / "meta_session/state.json", {
+        "transport": "app_server", "status": "complete", "thread_id": "source-thread",
+    })
+    freeze(source_run / "round_1/attempts/attempt_1/candidate/candidate_state.json", {
+        "checkpoint_path": str(tmp_path / "accepted-candidate-must-not-be-used"),
+    })
+    (source_run / "meta").mkdir(parents=True)
+    (source_run / "meta/skills.jsonl").write_text('{"skill":"must-not-be-used"}\n')
+
+    parent = source_run / "round_1/parent"
+    parent.mkdir(parents=True)
+    harness_hash = file_hash(harness)
+    policy_hash = fingerprint(checkpoint_manifest)
+    trajectory_rows = []
+    for index, task in enumerate(tasks):
+        task_id = task["task_id"]
+        scope = {"role": "train_evolution", "purpose": "evolution_train", "round_id": 1,
+                 "manifest_hash": parent_manifest["manifest_hash"],
+                 "collection_stage": "parent_pre_update", "task_hash": a0_hash,
+                 "harness_sha256": harness_hash, "checkpoint_manifest": checkpoint_manifest,
+                 "artifacts": {}, "protocol_hash": "official-fixture-protocol"}
+        message = {"role": "assistant", "content": "def solution():\n    return 1"}
+        binding = {"checkpoint_path": str(world["checkpoint"].resolve()),
+                   "weights": checkpoint_manifest}
+        calls = [{"call_id": 0, "status": "completed",
+                  "response": {"message": message,
+                               "usage": {"prompt_tokens": 4, "completion_tokens": 4},
+                               "binding": binding, "model_ref_requested": "Qwen3-4B",
+                               "model_ref_response": "Qwen3-4B"}}]
+        row = {"task_id": task_id, "source": "deepcoder_taco", "domain": "code",
+               "source_role": "train_evolution", "purpose": "evolution_train", "round_id": 1,
+               "branch_id": "parent", "split": "evolve_train",
+               "manifest_hash": parent_manifest["manifest_hash"],
+               "collection_stage": "parent_pre_update", "question_id": task_id,
+               "rollout_id": 0, "model_call_count": 1, "transport_calls": calls,
+               "state_hash": a0_hash, "model_ref": "Qwen3-4B",
+               "harness_sha256": harness_hash, "harness_hash": harness_hash,
+               "artifact_input_manifest": {}, "parent_policy_hash": policy_hash,
+               "task_source_hash": task["content_hash"], "terminal_reward": 1.0,
+               "trajectory_id": fingerprint(["source-trajectory", task_id]),
+               "success_verifier_version": "official-deepcoder-fixture",
+               "messages": [{"role": "user", "content": "question"}, message],
+               "verification": {"status": "completed", "success": True,
+                                "verifier_id": "fixture-trusted-verifier", "full_verifier": True,
+                                "task_success": True, "exact_match": 1}}
+        trajectory_rows.append(row)
+        receipt = {"binding": {"task": task_id, "task_source_hash": task["content_hash"],
+                               "task_record": task["content_hash"], "rollout": 0, "probe": False,
+                               "state_hash": fingerprint(scope), "round_scope": scope},
+                   "row": row}
+        receipt_path = source_run / "rollout_cache" / fingerprint(scope) / "train_rollouts" / (
+            hashlib.sha256(f"{task_id}:0".encode()).hexdigest() + ".json")
+        freeze(receipt_path, receipt)
+    (parent / "train_trajectories.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in trajectory_rows), encoding="utf-8")
+    performance = {"round_id": 1, "training_manifest": parent_manifest["manifest_hash"],
+                   "feedback_role": "train_evolution", "collection_stage": "parent_pre_update",
+                   "total_rollouts": 16, "macro_success": 1.0,
+                   "evaluation_protocol": "same_round_full_B_parent_child_v2",
+                   "benchmarks": {"deepcoder_taco": {"count": 16, "successes": 16, "errors": {}}}}
+    freeze(parent / "performance.json", performance)
+
+    launcher = dict(world["launcher"])
+    launcher.update(experiment_scope="deepcoder_five_round_canary",
+                    training_schedule="round_repeated", rounds=5,
+                    allocated_tasks=80, unique_tasks=16, training_tasks_per_pass=16,
+                    train_quotas_per_round={"envscaler": 0, "deepcoder_taco": 16,
+                                            "hotpotqa": 0, "2wiki": 0},
+                    retry_rejected_from_round=6, evaluation_schedule="none",
+                    frozen_data_dir=str(release), output_root=str(source_run.parent),
+                    run_name=source_run.name)
+    machine_config = world["project"] / "model-source-machine.json"
+    freeze(machine_config, launcher)
+    return {"source_run": source_run, "release": release, "manifest": parent_manifest,
+            "manifest_path": manifest_path, "machine_config": machine_config,
+            "state_path": state_path, "snapshot_receipt": a0_dir / "snapshot_receipt.json",
+            "parent": parent, "rows": trajectory_rows, "checkpoint": world["checkpoint"]}
+
+
+def _model_plan(model_smoke, model_source, tmp_path, name="model-smoke"):
+    return model_smoke.plan_model_smoke(
+        model_source["source_run"], tmp_path / "logs" / name,
+        model_source["machine_config"])
+
+
+def _patch_model_runtime(model_smoke, monkeypatch):
+    calls = _patch_services(monkeypatch)
+    FakeAdapter.instances = []
+    monkeypatch.setattr(model_smoke, "TaskAdapter", FakeAdapter)
+    monkeypatch.setattr(model_smoke, "ensure_services", smoke.ensure_services)
+    monkeypatch.setattr(model_smoke, "verify_services", smoke.verify_services)
+    monkeypatch.setattr(model_smoke, "stop_services", smoke.stop_services)
+    monkeypatch.setattr(model_smoke, "registry_path", smoke.registry_path)
+    monkeypatch.setattr(model_smoke, "LocalTaskClient", smoke.LocalTaskClient)
+    return calls
+
+
+def test_model_smoke_plan_imports_only_a0_parent_natural_positives(
+        model_smoke, model_source, tmp_path):
+    before = _source_tree_hashes(model_source["source_run"])
+
+    receipt = _model_plan(model_smoke, model_source, tmp_path)
+
+    assert receipt["source"]["state_path"].endswith("snapshots/A0/task/task_state_snapshot.json")
+    assert receipt["source"]["parent_dir"].endswith("round_1/parent")
+    assert receipt["source"]["accepted_candidate_used"] is False
+    assert receipt["source"]["skills_used"] is False
+    assert receipt["positive_parent_count"] > 0
+    assert receipt["status"] == "planned"
+    assert receipt["source"]["task_count"] == 16
+    assert receipt["source"]["transport_calls_verified"] == 16
+    assert receipt["source"]["source_hashes_after"] == before
+    root = Path(receipt["output_root"])
+    config = model_smoke.load_effective_config(root)
+    assert config.output_root == str(root)
+    assert config.window_quotas == {"tool_use": 0, "code": 16, "searchqa": 0}
+    registry = Path(model_smoke.registry_path(config)).resolve()
+    assert registry.is_relative_to(root.resolve())
+    assert not registry.is_relative_to(model_source["source_run"].resolve())
+    assert _source_tree_hashes(model_source["source_run"]) == before
+
+
+@pytest.mark.parametrize("mode", [
+    "trajectory", "a0_snapshot", "performance", "source_state_hash",
+    "parent_candidate", "transport", "manifest",
+])
+def test_model_smoke_plan_rejects_tampered_source_evidence(
+        model_smoke, model_source, tmp_path, mode):
+    if mode == "trajectory":
+        rows = list(model_source["rows"])
+        rows[0]["verification"]["full_verifier"] = False
+        (model_source["parent"] / "train_trajectories.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in rows))
+    elif mode == "a0_snapshot":
+        state = json.loads(model_source["state_path"].read_text())
+        state["model_ref"] = "tampered"
+        model_source["state_path"].write_text(json.dumps(state))
+    elif mode == "performance":
+        path = model_source["parent"] / "performance.json"
+        value = json.loads(path.read_text())
+        value["total_rollouts"] = 15
+        path.write_text(json.dumps(value))
+    elif mode == "source_state_hash":
+        path = model_source["snapshot_receipt"]
+        value = json.loads(path.read_text())
+        value["files_sha256"]["task/task_state_snapshot.json"] = "0" * 64
+        path.write_text(json.dumps(value))
+    elif mode == "parent_candidate":
+        rows = list(model_source["rows"])
+        for row in rows:
+            row["branch_id"] = "child"
+        (model_source["parent"] / "train_trajectories.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in rows))
+    elif mode == "transport":
+        rows = list(model_source["rows"])
+        rows[0]["transport_calls"] = []
+        rows[0]["model_call_count"] = 0
+        (model_source["parent"] / "train_trajectories.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in rows))
+    elif mode == "manifest":
+        rows = list(model_source["rows"])
+        rows[0]["manifest_hash"] = "0" * 64
+        (model_source["parent"] / "train_trajectories.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in rows))
+
+    with pytest.raises((ValueError, RuntimeError)):
+        _model_plan(model_smoke, model_source, tmp_path, mode)
+
+
+def test_model_smoke_execute_uses_production_sft_and_recovers_without_retraining(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    plan = _model_plan(model_smoke, model_source, tmp_path)
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    before = _source_tree_hashes(model_source["source_run"])
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "completed", result
+    assert FakeAdapter.instances[-1].calls == ["sft"]
+    assert result["recovery"]["retrained"] is False
+    assert result["recovery"]["training_receipts_unchanged"] is True
+    assert len(result["short_generations"]) == 2
+    assert calls.count("stop") == 2
+    assert _source_tree_hashes(model_source["source_run"]) == before
+    assert result["source_hashes_unchanged"] is True
+    assert not list((root / "locks").glob("*.started.json"))
+    assert (root / "receipts/sft.json").is_file()
+    assert (root / "receipts/recovery.json").is_file()
+    assert model_smoke.main(["execute", "--output-root", str(root)]) == 0
+
+    (root / "receipts/recovery.json").unlink()
+    FakeAdapter.instances.clear()
+    recovered = model_smoke.execute_model_smoke(root)
+    assert recovered["status"] == "completed"
+    assert FakeAdapter.instances == []
+    assert _source_tree_hashes(model_source["source_run"]) == before
+
+
+def test_model_smoke_execute_missing_plan_requires_audit(model_smoke, tmp_path):
+    result = model_smoke.execute_model_smoke(tmp_path / "logs/missing-plan")
+    assert result["status"] == "requires_audit"
+    assert "plan" in result["error"].lower()
+
+
+@pytest.mark.parametrize("stage", ["sft", "recovery"])
+def test_model_smoke_execute_started_stage_requires_audit_without_training(
+        model_smoke, model_source, tmp_path, monkeypatch, stage):
+    plan = _model_plan(model_smoke, model_source, tmp_path, f"started-{stage}")
+    root = Path(plan["output_root"])
+    _patch_model_runtime(model_smoke, monkeypatch)
+    (root / "locks").mkdir(exist_ok=True)
+    (root / "locks" / f"{stage}.started.json").write_text("{}")
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert FakeAdapter.instances == []
+
+
+def test_model_smoke_execute_binding_or_source_change_requires_audit_before_training(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    plan = _model_plan(model_smoke, model_source, tmp_path)
+    other = _model_plan(model_smoke, model_source, tmp_path, "source-changed")
+    root = Path(plan["output_root"])
+    _patch_model_runtime(model_smoke, monkeypatch)
+    effective = root / "plan/effective_config.json"
+    value = json.loads(effective.read_text())
+    value["max_generations"] = 99
+    effective.write_text(json.dumps(value))
+
+    changed_binding = model_smoke.execute_model_smoke(root)
+    assert changed_binding["status"] == "requires_audit"
+    assert FakeAdapter.instances == []
+
+    with (model_source["parent"] / "train_trajectories.jsonl").open("a") as stream:
+        stream.write("\n")
+    changed_source = model_smoke.execute_model_smoke(Path(other["output_root"]))
+    assert changed_source["status"] == "requires_audit"
+    assert FakeAdapter.instances == []

@@ -550,3 +550,79 @@ def test_five_round_b5_compact_requests_final_handoff_on_repeated_batch(tmp_path
     assert "no independent validation" in compact
     assert "round-disjoint" not in compact
     assert "48 representative" not in compact
+
+
+@pytest.fixture
+def five_round_preflight():
+    return importlib.import_module("deepcoder_five_round_preflight")
+
+
+def _preflight_world(release_world, tmp_path, five_round):
+    built = five_round.build_five_round_release(
+        tmp_path / "logs/release-build", release_world["launcher_path"],
+        release_world["parent_path"])
+    value = _five_round_launcher_value(tmp_path)
+    value.update(frozen_data_dir=built["release_dir"],
+                 output_root=str(tmp_path / "logs/formal-output"),
+                 run_name="offline-preflight-only")
+    config_path = tmp_path / "five-round-machine.json"
+    freeze(config_path, value)
+    return config_path, Path(built["release_dir"]), built
+
+
+def test_five_round_preflight_drives_real_progress_and_is_repeatable(
+        release_world, tmp_path, five_round, five_round_preflight):
+    config, release, _ = _preflight_world(release_world, tmp_path, five_round)
+    output = tmp_path / "logs/preflight/receipt.json"
+
+    receipt = five_round_preflight.run_preflight(config, release, output)
+
+    assert receipt["status"] == "passed"
+    assert receipt["rounds"] == 5
+    assert receipt["real_evolution_started"] is False
+    assert receipt["model_calls"] == receipt["api_calls"] == receipt["gpu_calls"] == 0
+    assert [item["selection"] for item in receipt["round_checks"]] == [
+        "accept_candidate", "retain_parent", "accept_candidate",
+        "accept_candidate", "accept_candidate",
+    ]
+    assert [item["current_stage_after"] for item in receipt["round_checks"]] == [
+        "B2", "B3", "B4", "B5", "COMPLETE",
+    ]
+    assert [item["finish_allowed"] for item in receipt["round_checks"]] == [
+        False, False, False, False, True,
+    ]
+    assert receipt["round_checks"][1]["retain_advanced"] is True
+    assert all(item["attempt"] == 1 for item in receipt["round_checks"])
+    assert receipt["independent_validation"] == "none"
+    assert receipt["validation_milestones"] == []
+    assert receipt["same_thread_resume"]["instruction_verified"] is True
+    assert receipt["same_thread_resume"]["provider_calls"] == 0
+    assert receipt["instruction_layers"] == [
+        "initial_prompt", "persistent_instructions", "mainline_reminder",
+    ]
+    assert len(receipt["reviewed_commit"]) == 40
+    assert receipt["config_sha256"] == file_hash(config)
+    assert receipt["release_files_sha256"]
+    assert not (tmp_path / "logs/formal-output").exists()
+
+    before = output.read_bytes()
+    repeated = five_round_preflight.run_preflight(config, release, output)
+    assert repeated == receipt
+    assert output.read_bytes() == before
+    assert five_round_preflight.main([
+        "--config", str(config), "--release", str(release), "--output", str(output),
+    ]) == 0
+
+
+def test_five_round_preflight_rejects_tampered_release_without_formal_output(
+        release_world, tmp_path, five_round, five_round_preflight):
+    config, release, _ = _preflight_world(release_world, tmp_path, five_round)
+    manifest = release / "B3/manifest.json"
+    value = json.loads(manifest.read_text())
+    value["tasks"][0]["content_hash"] = "0" * 64
+    manifest.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises((ValueError, RuntimeError), match="hash|manifest|changed"):
+        five_round_preflight.run_preflight(
+            config, release, tmp_path / "logs/preflight/tampered.json")
+    assert not (tmp_path / "logs/formal-output").exists()

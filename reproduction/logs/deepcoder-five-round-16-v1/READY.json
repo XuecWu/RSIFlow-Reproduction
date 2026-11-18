@@ -1,0 +1,57 @@
+{
+  "allocated_task_slots": 80,
+  "api_calls": 0,
+  "explicit_full_benchmark": false,
+  "feedback_role": "train_evolution",
+  "formal_round_completed": false,
+  "gpu_calls": 0,
+  "model_calls": 0,
+  "output_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1",
+  "output_root_validation": {
+    "git_ignored": true,
+    "inside_project": true,
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1",
+    "preexisting": false,
+    "verification": "git_check_ignore"
+  },
+  "parent_manifest_hash": "f969d3957160ef144792b7b5d2d1d4f2f3dd0fe82c38416d3dac6b6421727dd7",
+  "parent_manifest_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/manifest.json",
+  "parent_manifest_sha256": "dd3a4821ffc9f83cadc96661dbb89cc870f3ae1ef33547d74428043a4e0529df",
+  "protocol_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/protocol.json",
+  "release_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release",
+  "round_manifest_hashes": {
+    "1": "bac88fd991813222a04812ceb6dd3c6491f7c08d391816e170ac42a475a29ca7",
+    "2": "4c895cbf002c63d7ed07572b1fffec7b6186d7413c14bc32d8fb051cb6f8db6d",
+    "3": "fb0a31d78df4947a75f4e9d32acd7b5eba44692e6dac00af4ffc82ae3188fd20",
+    "4": "14ca0aa85db5f528aea04620e88ae4e2e8221beed8b15354e99fef6857ebc51b",
+    "5": "baf8fbdd5aaa18587eaafb4317626efee44808995411a813ad50707cbcf84987"
+  },
+  "rounds": 5,
+  "schedule": "round_repeated",
+  "schema_version": 1,
+  "selection_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/selection.json",
+  "selection_rule": "first sixteen deepcoder_taco function records in frozen parent B1 manifest order; fixed before any model output; no random scoring or result-based reselection",
+  "smoke_only": true,
+  "source_asset_hashes_after": {
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/2wiki.jsonl": "9e05efb1931da3a73d42c0e96708c0e2f8886a45b7fa3725ff1bcc69e7c7c851",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/deepcoder_taco.jsonl": "44a23e9f270caff0e2a65482b93f963bc2f6b23abf37f495df14a40a66b4b8c4",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/envscaler.jsonl": "549179359069edea62d14ee3a1d2ccaf43c5527b817cf77a47749536139803dd",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/hotpotqa.jsonl": "2c8d0d172ceb3bc4905190b2196558da9a792b87b25a99213c31c74724892492",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/retrieval-v3/search.sqlite": "21e2cf64cb37ac27dd6bdf9ca88753132eb63fa3d345f419f82656223c896157",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/retrieval-v3/search.sqlite.manifest.json": "7c3d8be7f479fa49b866adbf058afa656bb0fbd8747ec466f6f37d624339e8ce"
+  },
+  "source_asset_hashes_before": {
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/2wiki.jsonl": "9e05efb1931da3a73d42c0e96708c0e2f8886a45b7fa3725ff1bcc69e7c7c851",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/deepcoder_taco.jsonl": "44a23e9f270caff0e2a65482b93f963bc2f6b23abf37f495df14a40a66b4b8c4",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/envscaler.jsonl": "549179359069edea62d14ee3a1d2ccaf43c5527b817cf77a47749536139803dd",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/RSIFlow/runtime/data/rounds_3000_5x600_v5/B1/hotpotqa.jsonl": "2c8d0d172ceb3bc4905190b2196558da9a792b87b25a99213c31c74724892492",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/retrieval-v3/search.sqlite": "21e2cf64cb37ac27dd6bdf9ca88753132eb63fa3d345f419f82656223c896157",
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/retrieval-v3/search.sqlite.manifest.json": "7c3d8be7f479fa49b866adbf058afa656bb0fbd8747ec466f6f37d624339e8ce"
+  },
+  "source_assets_unchanged": true,
+  "status": "ready",
+  "task_count": 16,
+  "tasks_per_round": 16,
+  "tasks_sqlite": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/tasks.sqlite",
+  "unique_tasks": 16
+}

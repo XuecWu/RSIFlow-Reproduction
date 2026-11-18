@@ -1,0 +1,16 @@
+{
+  "allocated_task_slots": 80,
+  "round_manifest_hashes": {
+    "1": "bac88fd991813222a04812ceb6dd3c6491f7c08d391816e170ac42a475a29ca7",
+    "2": "4c895cbf002c63d7ed07572b1fffec7b6186d7413c14bc32d8fb051cb6f8db6d",
+    "3": "fb0a31d78df4947a75f4e9d32acd7b5eba44692e6dac00af4ffc82ae3188fd20",
+    "4": "14ca0aa85db5f528aea04620e88ae4e2e8221beed8b15354e99fef6857ebc51b",
+    "5": "baf8fbdd5aaa18587eaafb4317626efee44808995411a813ad50707cbcf84987"
+  },
+  "rounds": 5,
+  "schedule": "round_repeated",
+  "schema_version": 1,
+  "sqlite_index_round": 1,
+  "tasks_per_round": 16,
+  "unique_tasks": 16
+}

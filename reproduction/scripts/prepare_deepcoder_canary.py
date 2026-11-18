@@ -44,7 +44,7 @@ def _hashes(paths):
     return {str(path): file_hash(path) for path in paths}
 
 
-def build_release(output_root, machine_config_path, parent_manifest_path):
+def _materialize_release(output_root, machine_config_path, parent_manifest_path):
     validation = smoke._validate_output_root(output_root)
     root = Path(validation["path"])
     launcher = read(machine_config_path)
@@ -63,14 +63,27 @@ def build_release(output_root, machine_config_path, parent_manifest_path):
     if hashes_after != hashes_before:
         raise smoke.SmokeBlocked("Source v5 assets changed while materializing the DeepCoder canary")
     freeze(root / "selection.json", selection)
+    return {"validation": validation, "root": root, "launcher": launcher,
+            "parent_path": parent_path, "parent": parent, "selection": selection,
+            "assets": assets, "hashes_before": hashes_before,
+            "hashes_after": hashes_after, "release": release}
+
+
+def build_release(output_root, machine_config_path, parent_manifest_path):
+    built = _materialize_release(output_root, machine_config_path, parent_manifest_path)
+    root = built["root"]
+    parent_path = built["parent_path"]
+    parent = built["parent"]
+    release = built["release"]
     receipt = {"schema_version": 1, "status": "ready", "output_root": str(root),
-               "output_root_validation": validation, "selection_path": str(root / "selection.json"),
+               "output_root_validation": built["validation"],
+               "selection_path": str(root / "selection.json"),
                "selection_rule": SELECTION_RULE, "task_count": release["task_count"],
                "parent_manifest_path": str(parent_path),
                "parent_manifest_hash": parent["manifest_hash"],
                "parent_manifest_sha256": file_hash(parent_path),
-               "source_asset_hashes_before": hashes_before,
-               "source_asset_hashes_after": hashes_after,
+               "source_asset_hashes_before": built["hashes_before"],
+               "source_asset_hashes_after": built["hashes_after"],
                "source_assets_unchanged": True, "release": release,
                "smoke_only": True, "feedback_role": "train_evolution",
                "explicit_full_benchmark": False, "formal_round_completed": False,

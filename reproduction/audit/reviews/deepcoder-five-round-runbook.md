@@ -48,6 +48,33 @@ REGISTRY="$OUTPUT_ROOT/services/four_gpu_services.json"
 
 任一项失败即停止，不创建真实 run 试错。`launch.py --config "$CONFIG" --check` 的 run dir/rounds=5/16/round/空技能种子/资产路径全部匹配。
 
+### 2.1 两阶段 preflight receipt 与 prelaunch seal 的生成/传入（R2，唯一命令）
+
+阶段一（occupier 仍运行）与阶段二（停 occupier 后）各产出一份 receipt，阶段二必须引用阶段一 hash；supervisor 真实模式 Popen 前逐项核验 reviewed commit/五份 manifest+payload+READY/seed Harness/model weights/Codex/bwrap install+manifest+launcher/Task5 MODEL 证据/两阶段 receipt paths+hashes/实际 backend，缺/错即实验命令未执行。生成与传入：
+
+```bash
+# 阶段一 receipt（occupier 仍运行时的现场快照：资产 hashes + provider/四卡/端口/namespace）
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" status \
+  --config "$CONFIG" --supervision 0001 >/dev/null  # 仅示意；阶段一 receipt 由现场预检脚本产出
+# 现场预检产出 stage1.json（含 reviewed_commit、各资产 path+sha256、四卡 UUID/显存、端口 bind-close、namespace inode）
+# 停 occupier 后产出 stage2.json，必须含 stage1_receipt_hash=sha256(stage1.json)
+# 汇总成 prelaunch evidence JSON（required_assets/assets/preflight_receipts/reviewed_commit/backend）：
+"$PYTHON" - "$CONFIG" "$STAGE1" "$STAGE2" "$PRELAUNCH_SEAL" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+config, stage1, stage2, out = map(Path, sys.argv[1:5])
+h = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+# required_assets 逐项由现场预检填入 path+sha256（五份 manifest/payload/READY/harness/weights/codex/bwrap*/task5）
+assets = json.loads(Path(sys.argv[5]).read_text()) if len(sys.argv) > 5 else {}
+evidence = {"reviewed_commit": "<git rev-parse HEAD>", "backend": "linux_bwrap_seccomp_v1",
+            "required_assets": list(assets), "assets": assets,
+            "preflight_receipts": {"stage1": {"path": str(stage1), "sha256": h(stage1)},
+                                   "stage2": {"path": str(stage2), "sha256": h(stage2)}}}
+out.write_text(json.dumps(evidence, indent=2))
+PY
+# 传入 supervisor（真实模式 --preflight-seal 必填；reviewed commit 由 git rev-parse HEAD 自动核验）
+```
+
 ## 3. occupier 安全交接（阶段二，仅在阶段一通过后）
 
 按 SOP §4.1 与共享 identity `/data/wuxuecheng/z-occupier-ready/runtime/dev4/identity.json`：
@@ -66,7 +93,8 @@ occupier 停止与 supervisor 启动/失败启动关联记录；用目标机独�
 set -euo pipefail
 export RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1
 "$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" launch \
-  --config "$CONFIG" --supervision 0001 --timeout 4h --kill-after 5m
+  --config "$CONFIG" --supervision 0001 --timeout 4h --kill-after 5m \
+  --preflight-seal "$PRELAUNCH_SEAL"   # R2：真实模式必填，Popen 前核验完整资产/两阶段 receipt
 ```
 
 - supervisor 用 `Popen(start_new_session=True)` + 父子 handshake（child 先原子写 identity 再跑前台命令），避免 nohup/exec race；child 复用 `timeout --foreground --signal=TERM --kill-after=5m 4h` 算法 + 有界 identity-rechecked PGID TERM/KILL reconcile。

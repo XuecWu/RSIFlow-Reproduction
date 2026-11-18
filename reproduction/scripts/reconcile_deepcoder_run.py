@@ -393,6 +393,12 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                 blockers.append(f"training_{i}_identity_pid_mismatch")
             if value.get("training_request_dir") and str(value["training_request_dir"]) not in str(phase):
                 blockers.append(f"training_{i}_request_run_mismatch")
+        # R7: an unsealed/dead training phase (no terminal completed status or no trained
+        # checkpoint) is requires_audit; cleanup stays pending, never certified completed.
+        if value.get("status") not in ("completed", "training_complete"):
+            blockers.append(f"training_{i}_requires_audit_unsealed")
+        elif not (phase.parent / "checkpoint_trained.json").is_file():
+            blockers.append(f"training_{i}_requires_audit_no_checkpoint")
         owners["training_phases"].append(make_owner(ident, phase, f"training_{i}"))
 
     # R5: centralized gate BEFORE any service signal. blockers must be EMPTY and every

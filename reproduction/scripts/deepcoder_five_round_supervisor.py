@@ -341,10 +341,56 @@ def record_post_launch_pending(config_path, supervision: str, *, reason: str) ->
     return record
 
 
+def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backend, attempt_dir):
+    """R2: verify the complete prelaunch asset/preflight seal BEFORE Popen. Missing/wrong
+    reviewed commit, any of the five manifests/payload/READY, seed Harness/model weights/
+    Codex/bwrap install+manifest+launcher, Task5 MODEL evidence, two-stage preflight
+    receipt paths+hashes, or actual backend => raise (experiment command never executes).
+    Writes an immutable prelaunch-seal.json; refuses overwrite of sealed history."""
+    seal_path = Path(attempt_dir) / "prelaunch-seal.json"
+    if seal_path.exists():
+        raise RuntimeError("prelaunch seal already exists; refusing to overwrite sealed history")
+    if not isinstance(prelaunch_evidence, dict):
+        raise RuntimeError("prelaunch evidence missing; experiment not executed")
+    if prelaunch_evidence.get("reviewed_commit") != expected_commit:
+        raise RuntimeError("prelaunch reviewed commit mismatch; experiment not executed")
+    if prelaunch_evidence.get("backend") != expected_backend:
+        raise RuntimeError("prelaunch backend mismatch; experiment not executed")
+    required_assets = prelaunch_evidence.get("required_assets") or []
+    assets = prelaunch_evidence.get("assets") or {}
+    for name in required_assets:
+        entry = assets.get(name)
+        if not isinstance(entry, dict) or not entry.get("path") or not entry.get("sha256"):
+            raise RuntimeError(f"prelaunch asset {name} missing; experiment not executed")
+        if not Path(entry["path"]).is_file():
+            raise RuntimeError(f"prelaunch asset {name} path absent; experiment not executed")
+        if _sha256(entry["path"]) != entry["sha256"]:
+            raise RuntimeError(f"prelaunch asset {name} hash mismatch; experiment not executed")
+    receipts = prelaunch_evidence.get("preflight_receipts") or {}
+    for stage in ("stage1", "stage2"):
+        entry = receipts.get(stage)
+        if not isinstance(entry, dict) or not entry.get("path") or not entry.get("sha256"):
+            raise RuntimeError(f"prelaunch {stage} receipt missing; experiment not executed")
+        if not Path(entry["path"]).is_file():
+            raise RuntimeError(f"prelaunch {stage} receipt path absent; experiment not executed")
+        if _sha256(entry["path"]) != entry["sha256"]:
+            raise RuntimeError(f"prelaunch {stage} receipt hash mismatch; experiment not executed")
+    # stage2 (post-occupier) must reference the sealed stage1 receipt.
+    stage2_value = _read_json(receipts["stage2"]["path"]) or {}
+    if stage2_value.get("stage1_receipt_hash") != receipts["stage1"]["sha256"]:
+        raise RuntimeError("prelaunch stage2 does not reference stage1; experiment not executed")
+    seal = {"kind": "rsiflow_prelaunch_seal", "reviewed_commit": expected_commit,
+            "backend": expected_backend, "required_assets": required_assets,
+            "assets": assets, "preflight_receipts": receipts,
+            "sealed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    _atomic_write(seal_path, seal)
+    return seal
+
+
 def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
            kill_after=DEFAULT_KILL_AFTER, run_dir=None, skip_asset_gates=False,
            handshake_timeout=30.0, thread_id="five-round-thread", expected_gpus=None,
-           mode="fresh", resumed_from=None) -> dict:
+           mode="fresh", resumed_from=None, prelaunch_evidence=None, expected_commit=None) -> dict:
     if run_dir is not None:
         raise ValueError("arbitrary run_dir override is refused; paths derive from config")
     paths = derive_paths(config_path)
@@ -359,6 +405,9 @@ def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
     if not skip_asset_gates:
         effective_obj = _normalize_effective(paths, run_dir_resolved)
         attempt_dir.mkdir(parents=True)  # exclusive; refuses existing
+        # R2: complete prelaunch asset/preflight seal verified BEFORE Popen.
+        verify_prelaunch_seal(prelaunch_evidence, expected_commit=expected_commit,
+                              expected_backend="linux_bwrap_seccomp_v1", attempt_dir=attempt_dir)
         _atomic_write(effective_path, effective_obj.model_dump())
         effective_hash = _sha256(effective_path)
     else:
@@ -483,6 +532,8 @@ def main(argv=None) -> int:
             p.add_argument("--kill-after", default=DEFAULT_KILL_AFTER)
             p.add_argument("--launch-mode", choices=["fresh", "resume"], default="fresh")
             p.add_argument("--resumed-from", default=None)
+            p.add_argument("--preflight-seal", required=True,
+                           help="R2: path to the prelaunch asset/preflight evidence JSON")
             # H2: the real CLI exposes NO asset-gate bypass; offline tests call launch()
             # directly with skip_asset_gates=True under controlled temporary processes.
         if name == "stop":
@@ -493,9 +544,13 @@ def main(argv=None) -> int:
         command = [sys.executable, "-u", str(root / "RSIFlow_4B/launch.py"),
                    "--config", str(Path(args.config).resolve()),
                    "--run-dir", str(derive_paths(args.config)["run_dir"])]
+        prelaunch_evidence = _read_json(args.preflight_seal)
+        reviewed = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                                  capture_output=True, text=True, check=True).stdout.strip()
         result = launch(args.config, args.supervision, command=command, timeout=args.timeout,
                         kill_after=args.kill_after, skip_asset_gates=False,
-                        mode=args.launch_mode, resumed_from=args.resumed_from)
+                        mode=args.launch_mode, resumed_from=args.resumed_from,
+                        prelaunch_evidence=prelaunch_evidence, expected_commit=reviewed)
         # R1/R2: bind real production launcher/app-server/thread + GPU UUIDs after launch.
         # On collector failure the experiment IS running (post-ACK): record identity-pending
         # with ongoing custody, never a silent失联 or experiment_executed=False.

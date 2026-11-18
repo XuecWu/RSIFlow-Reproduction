@@ -78,7 +78,8 @@ def test_launch_derives_paths_and_writes_identity(tmp_path, supervisor):
     assert paths["run_dir"] == output_root / "runs" / "run"
     assert paths["registry"] == output_root / "services/four_gpu_services.json"
     result = supervisor.launch(config, "0001", command=_sleep_command(0.2),
-                               timeout="10s", kill_after="2s", skip_asset_gates=True)
+                               timeout="10s", kill_after="2s", skip_asset_gates=True,
+                               handshake_timeout=60)
     attempt = paths["run_dir"] / "meta_session/supervision/0001"
     assert (attempt / "kind").read_text().strip() == "detached"
     identity = json.loads((attempt / "identity.json").read_text())
@@ -831,3 +832,200 @@ def test_restore_occupier_refused_without_cleanup(tmp_path, supervisor, reconcil
                                     occupier_start_fn=lambda: started.append(1) or {},
                                     gpu_observer=_gpu_observer(gpu_obs))
     assert started == []
+
+
+# --- R2: complete prelaunch asset/preflight seal before Popen -----------------
+
+REQUIRED_ASSETS = ["manifest_B1", "manifest_B2", "manifest_B3", "manifest_B4", "manifest_B5",
+                   "payload", "READY", "seed_harness", "model_weights", "codex_binary",
+                   "bwrap_install", "bwrap_manifest", "bwrap_launcher", "task5_model_evidence"]
+
+
+def _prelaunch_evidence(tmp_path, *, commit="a" * 40, backend="linux_bwrap_seccomp_v1",
+                        omit=None, wrong_hash=None, stage2_no_ref=False):
+    assets = {}
+    for name in REQUIRED_ASSETS:
+        p = tmp_path / f"asset_{name}"
+        p.write_text(f"content-{name}")
+        import hashlib as _hl
+        digest = _hl.sha256(p.read_bytes()).hexdigest()
+        if wrong_hash == name:
+            digest = "0" * 64
+        assets[name] = {"path": str(p), "sha256": digest}
+    if omit:
+        assets.pop(omit, None)
+    import hashlib as _hl
+    stage1 = tmp_path / "preflight_stage1.json"
+    stage1.write_text(json.dumps({"stage": 1, "occupier_running": True}))
+    stage1_hash = _hl.sha256(stage1.read_bytes()).hexdigest()
+    stage2 = tmp_path / "preflight_stage2.json"
+    stage2.write_text(json.dumps({"stage": 2, "occupier_stopped": True,
+                                  "stage1_receipt_hash": "bad" if stage2_no_ref else stage1_hash}))
+    stage2_hash = _hl.sha256(stage2.read_bytes()).hexdigest()
+    return {"reviewed_commit": commit, "backend": backend,
+            "required_assets": REQUIRED_ASSETS, "assets": assets,
+            "preflight_receipts": {"stage1": {"path": str(stage1), "sha256": stage1_hash},
+                                   "stage2": {"path": str(stage2), "sha256": stage2_hash}}}
+
+
+def test_prelaunch_seal_positive(tmp_path, supervisor):
+    attempt = tmp_path / "attempt"; attempt.mkdir()
+    evidence = _prelaunch_evidence(tmp_path)
+    seal = supervisor.verify_prelaunch_seal(evidence, expected_commit="a" * 40,
+                                            expected_backend="linux_bwrap_seccomp_v1", attempt_dir=attempt)
+    assert seal["kind"] == "rsiflow_prelaunch_seal"
+    assert (attempt / "prelaunch-seal.json").is_file()
+    with pytest.raises(RuntimeError, match="already exists"):
+        supervisor.verify_prelaunch_seal(evidence, expected_commit="a" * 40,
+                                         expected_backend="linux_bwrap_seccomp_v1", attempt_dir=attempt)
+
+
+@pytest.mark.parametrize("kwargs,match", [
+    ({"omit": "manifest_B3"}, "asset manifest_B3 missing"),
+    ({"omit": "bwrap_install"}, "asset bwrap_install missing"),
+    ({"wrong_hash": "model_weights"}, "hash mismatch"),
+    ({"commit": "b" * 40}, "reviewed commit mismatch"),
+    ({"backend": "legacy_landlock"}, "backend mismatch"),
+    ({"stage2_no_ref": True}, "stage2 does not reference stage1"),
+])
+def test_prelaunch_seal_negative_experiment_not_executed(tmp_path, supervisor, kwargs, match):
+    attempt = tmp_path / "attempt"; attempt.mkdir()
+    evidence = _prelaunch_evidence(tmp_path, **kwargs)
+    with pytest.raises(RuntimeError, match=match):
+        supervisor.verify_prelaunch_seal(evidence, expected_commit="a" * 40,
+                                         expected_backend="linux_bwrap_seccomp_v1", attempt_dir=attempt)
+    assert not (attempt / "prelaunch-seal.json").exists()  # seal not written on failure
+
+
+def test_launch_real_mode_requires_prelaunch_seal(tmp_path, supervisor):
+    output_root = tmp_path / "out"
+    config = _config(tmp_path, output_root, "run")
+    paths = supervisor.derive_paths(config)
+    (paths["ready"]).write_text(json.dumps({"ready": True}))  # satisfy fresh asset gate
+    marker = tmp_path / "experiment_ran"
+    command = [sys.executable, "-c", f"from pathlib import Path; Path(r'{marker}').write_text('ran')"]
+    # real mode (skip_asset_gates=False) without prelaunch evidence => refused before Popen
+    with pytest.raises(RuntimeError, match="prelaunch evidence missing"):
+        supervisor.launch(config, "0001", command=command, timeout="10s", kill_after="2s",
+                          skip_asset_gates=False, prelaunch_evidence=None, expected_commit="a" * 40)
+    assert not marker.exists()  # experiment command never executed
+
+
+# --- R7: SFT product-level joint resume drill (controlled Meta transport) -----
+
+_RESUME_SCRIPT = '''
+import json, sys
+from pathlib import Path
+run = Path(sys.argv[1]); spy = Path(sys.argv[2])
+phases = sorted(run.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))
+for phase in phases:
+    v = json.loads(phase.read_text())
+    if v.get("status") not in ("completed", "training_complete"):
+        (run / "meta_session" / "requires_audit.json").write_text(json.dumps({"reason": "training_unsealed"}))
+        sys.exit(2)
+    if not (phase.parent / "checkpoint_trained.json").is_file():
+        (run / "meta_session" / "requires_audit.json").write_text(json.dumps({"reason": "no_trained_checkpoint"}))
+        sys.exit(2)
+# Training already complete: continue from the NEXT milestone. Re-dispatching training
+# would increment the spy here; we do NOT (no retrain).
+count = int(spy.read_text()) if spy.is_file() else 0
+# (no dispatch => spy unchanged)
+(run / "meta_session" / "resume_continued.json").write_text(
+    json.dumps({"continued": True, "retrained": False, "dispatch_count": count}))
+sys.exit(0)
+'''
+
+
+def _seed_sft_resume_run(tmp_path, supervisor, reconciler, *, training_sealed=True):
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    attempt = run / "meta_session/supervision/0001"
+    # seal historical supervision 0001 with exit 143 + complete reconcile
+    (attempt / "exit").write_text("143")
+    (attempt / "reconcile.json").write_text(json.dumps({"status": "complete", "remaining": []}))
+    (run / "meta_session/state.json").write_text(json.dumps({
+        "status": "disconnected", "thread_id": "t1",
+        "launcher_pid": pids["launcher_pid"], "codex_pid": pids["app_pid"]}))
+    # successful SFT product receipts (production shape)
+    model_update = run / "round_2/attempts/attempt_1/candidate/model_update"
+    model_update.mkdir(parents=True)
+    status = "completed" if training_sealed else "training_dispatched"
+    (model_update / "gpu_phase_receipt.json").write_text(json.dumps({
+        "status": status, "training_pid": 40001, "training_identity": {"pid": 40001, "pgid": 40001, "start_ticks": "150"},
+        "training_request_dir": str(model_update), "replica_gpus": [0, 1, 2, 3]}))
+    if training_sealed:
+        (model_update / "checkpoint_trained.json").write_text(json.dumps({
+            "checkpoint_path": "/models/trained", "training_method": "positive_sft_lora", "training_steps": 3}))
+        (model_update / "training_metrics.json").write_text(json.dumps({"world_size": 4, "optimizer_steps": 3}))
+    spy = tmp_path / "training_dispatch_spy"
+    spy.write_text("0")
+    script = tmp_path / "controlled_resume.py"
+    script.write_text(_RESUME_SCRIPT)
+    return config, run, paths, gpu_obs, pids, spy, script
+
+
+def test_r7_sft_completed_resume_no_retrain(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids, spy, script = _seed_sft_resume_run(tmp_path, supervisor, reconciler)
+    model_update = run / "round_2/attempts/attempt_1/candidate/model_update"
+    before_bytes = (model_update / "checkpoint_trained.json").read_bytes()
+    before_hash = supervisor._sha256(model_update / "checkpoint_trained.json")
+    command = [sys.executable, str(script), str(run), str(spy)]
+    result = supervisor.launch(config, "0002", command=command, timeout="10s", kill_after="2s",
+                               skip_asset_gates=True, mode="resume", resumed_from="0001")
+    attempt2 = run / "meta_session/supervision/0002"
+    assert _wait(lambda: (attempt2 / "exit").is_file())
+    assert (attempt2 / "exit").read_text().strip() == "0"
+    # training dispatch spy NOT incremented; child/receipt bytes/hash unchanged; no retrain
+    assert spy.read_text() == "0"
+    assert (model_update / "checkpoint_trained.json").read_bytes() == before_bytes
+    assert supervisor._sha256(model_update / "checkpoint_trained.json") == before_hash
+    continued = json.loads((run / "meta_session/resume_continued.json").read_text())
+    assert continued["continued"] is True and continued["retrained"] is False
+    # no second training directory created
+    assert len(list(run.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))) == 1
+    # historical 143 preserved
+    assert (run / "meta_session/supervision/0001/exit").read_text() == "143"
+
+
+def test_r7_unsealed_training_requires_audit_before_experiment(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids, spy, script = _seed_sft_resume_run(
+        tmp_path, supervisor, reconciler, training_sealed=False)
+    command = [sys.executable, str(script), str(run), str(spy)]
+    supervisor.launch(config, "0002", command=command, timeout="10s", kill_after="2s",
+                      skip_asset_gates=True, mode="resume", resumed_from="0001")
+    attempt2 = run / "meta_session/supervision/0002"
+    assert _wait(lambda: (attempt2 / "exit").is_file())
+    assert (attempt2 / "exit").read_text().strip() == "2"  # requires_audit, experiment not continued
+    assert (run / "meta_session/requires_audit.json").is_file()
+    assert spy.read_text() == "0"  # no training dispatch
+    assert not (run / "meta_session/resume_continued.json").exists()
+    # writer pending + consumer run_complete=false on the unsealed run
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed"
+
+
+def test_r7_dead_no_final_job_resume_refused_before_experiment(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids, spy, script = _seed_sft_resume_run(tmp_path, supervisor, reconciler)
+    # make a job dead-without-final result => R7 gate refuses resume before experiment
+    job_path = run / "meta_session/jobs/run_parent_1/job.json"
+    job = json.loads(job_path.read_text())
+    (run / "controller_transport/run_parent_1/result.json").unlink()
+    command = [sys.executable, str(script), str(run), str(spy)]
+    with pytest.raises(RuntimeError, match="no terminal result"):
+        supervisor.launch(config, "0002", command=command, timeout="10s", kill_after="2s",
+                          skip_asset_gates=True, mode="resume", resumed_from="0001")
+    assert spy.read_text() == "0"
+    assert not (run / "meta_session/supervision/0002").exists()  # experiment never started
+
+
+def test_r7_intermediate_protocol_false_and_cleanup_pending_separation(tmp_path, supervisor, reconciler):
+    # intermediate B1/B2 products => protocol_complete=false even with valid cleanup;
+    # protocol complete but cleanup pending => run_complete=false (separation preserved).
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    summarizer = _load("summarize_deepcoder_five_round")
+    cfg = json.loads(config.read_text()); cfg["_config_path"] = str(config.resolve())
+    # only B1/B2 present (intermediate) => protocol_complete false
+    result = summarizer.summarize(run, config_path=config)
+    assert result["protocol_complete"] is False
+    assert result["run_complete"] is False

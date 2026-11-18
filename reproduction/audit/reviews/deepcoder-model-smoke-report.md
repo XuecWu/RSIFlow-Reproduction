@@ -52,6 +52,8 @@ operation `00001300`（stdout SHA256 `c3757dafd06a138f9744a03721c22e5d36ab96de70
 
 一次诊断断言曾错误假定 argv 只有四项（operation `00001301`，exit 1），随后只读打印实际 argv 并以完整八项复核通过；该操作员断言失败没有发出信号或改变 owner 状态。
 
+交付后又尝试把 `nvidia-smi` compute PID 直接映射到当前 `/proc`，并假定容器内能看到五个同 PGID members；两个附加断言分别因 PID 不可见和只见 leader 而失败（operations `00001312`/`00001313`）。这些只是可选交叉映射假设不成立，均未发信号或改变状态；最终 operation `00001314` 仅断言可直接证实的事实并成功：leader identity/完整 argv 不变、NVIDIA 报告四个 compute apps、四卡约 3085 MiB 和 43–50% util、source `meta` 保留、MODEL/五轮 output 不存在。stdout SHA256 `8134f10aaf02e5559b381557ce4e22347ab7bf903c008f4a0aee98c5c649ad56`。后续停止/恢复仍必须按 SOP 对实际可见 identity 有界调和，不能使用本次失败的跨命名空间假设代替核验。
+
 关键结果：`00001305-task5_model_smoke_blocker`。
 
 ## 5. 解除 blocker 的必要条件

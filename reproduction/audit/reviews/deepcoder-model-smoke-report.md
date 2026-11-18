@@ -143,3 +143,60 @@ operation `00001328`（stdout SHA256 `4aa354b03f940c3d89361766e6c1a15a2fa28e045b
 ## 无副作用与 occupier
 
 operation `00001328` 同时确认原 MODEL output root 仍不存在；occupier PID=PGID `22389`、start_ticks `2825714174` 和完整 argv 不变，四卡约 3085 MiB、49–51% util。未发 occupier 信号，无 services/training/GPU 副作用，无需恢复；五轮未启动。关键结果：`00001332-task5_model_retry3_a0_state_hash_blocker`。
+
+
+---
+
+# Retry 4：public plan PASS，真实 execute 因 Transformers API 不兼容阻断
+
+- 日期：2026-11-18（UTC）
+- reviewed/execution HEAD：`023d640c8dcb95dceb1feed87ec6e7a87b362c12`
+- 结论：**BLOCKED。public plan 首次通过并完成真实 GPU execute；SFT 在优化 step 前失败，final=`incomplete`，execute=`requires_audit`，不得自动重跑。前三次 blocked 历史均保留。**
+
+Task 4 round 5 scoped re-review 已读： relocated A0、bootstrap Harness 重建的 parent Task hash 和 scoped rollout binding hash 三层分别验证，SFT 起点仍是 sealed canonical A0；新增 Critical/Important 为 0。实现者报告完整 `631 passed, 2 skipped`、scoped `191 passed`，本次未重跑。
+
+## Public plan 与正例/seals 验收
+
+- `00001336`：dev4 HEAD/clean diff、output absent、生产 source/owner 和 occupier 原状态通过。
+- `00001337`：occupier 运行期间，同一 output root、显式 bwrap backend 的 public `plan` exit 0，`status=planned`。stdout SHA256 `3e171a34cf6920b4f3506e3f2af8fb7a2ce078a8e7468f6280e86f08ccfbbedb`。
+- plan receipt：SHA256 `505705e08f4d8a8a0c7a6905d66c336c8d5f42859177401a2681780ba1ce45f2`，plan identity `14615f31876388dd9504fb9559aec0891de123b1b2d232933855de1a1dff49eb`。
+- `00001340` 使用 runner 自身只读 `_load_execute_plan()` 重算 bindings/source/provenance 通过：16 tasks、3 official successes、51 transport calls、source before/after hashes 相同，checkpoint seals 42 项、Harness seals 2 项，central-meta seal 存在，registry 位于 smoke root，SFT/recovery 均无 started/final。
+- 生产 selector 返回 **3 个 unique 自然正例、18 个 SFT samples**，每个正例 6 samples：`deepcoder-taco-5475/879/2510`。`positive_parent_count=18` 是展开样本数，不是 18 个任务。`00001338` 曾错误要求该字段等于 3，操作员断言失败无副作用；`00001339`/`00001340` 查明并以 3 unique/18 samples 验收。
+
+## Occupier 停止与四卡释放
+
+`00001341` 严格按可见 leader identity：PID=PGID `22389`、start_ticks `2825714174`、完整 argv 复核后向该 PGID 发 TERM。初始可见 member 只有 leader，未声称看到其他 namespace ranks；无 KILL、无 pkill/按端口杀。最终无可见 PGID members、无 NVIDIA compute apps，四卡各 1 MiB，8271–8274 可 bind。Receipt `receipts/occupier-stop.json`，SHA256 `6837a44d807301e672ee5bf56fd4a1f53098f00a0315f022757d5241108d6a0d`。
+
+## 真实 execute 与训练失败根因
+
+显式 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1` 执行生产 `execute`（audit `00001342`）。四个 base replicas 实际完成 Qwen3-4B 权重加载和健康检查后停止，生产 DDP 以 GPU 0–3、`training_retried=false`、PID=PGID `23569` 派发；selection 为 18 input/18 unique、无重复。
+
+真实 `train_stdout.log`（SHA256 `a82c4eda88f7ac16810bba8d916ec9566eacdde9511ffd6199fb0bb8a51b06b5`）显示 rank 1–3 均在构造 `TrainingArguments` 时失败：
+
+```text
+TypeError: TrainingArguments.__init__() got an unexpected keyword argument 'warmup_ratio'
+```
+
+随后 torchrun 终止 ranks，未产生有效 training step。`00001346` 直接检查环境：实际 `transformers=5.22.2`，其 `TrainingArguments.__init__` 不含 `warmup_ratio`；项目 runtime 声明为 `transformers>=4.51`，当前已安装 API 与生产 trainer 不兼容。这是已确认的依赖/API 根因，不是模型质量结果。
+
+Execute stdout为 `status=requires_audit`（SHA256 `02bfaa0d0c48278af9fb26ef07f7335d02e2ee2d3d98b153e7f083ce9f8e4785`）。SFT final 保留为 `incomplete`，SHA256 `282b54ab4814e275ab7ac2cbc37c11656e785096ee699937044e81ede1e46df8`；没有删除或重跑。当前 output root 已有非 completed final，后续修复后必须按审计调和/新审阅路径处理，不能直接再次 execute。
+
+## 验收矩阵、cleanup 与恢复
+
+| 项目 | 真实结果 |
+|---|---|
+| positive-only selection | PASS：3 unique/18 unique samples，无 synthetic/held-out |
+| 四 rank / one epoch | **未验收**；DDP 已派发，但 `training_metrics.json` 不存在 |
+| merged child / weights changed | 未发生；`candidate_state.json` 不存在 |
+| child reload / 短生成 | 未发生 |
+| recovery `retrained=false` | 未运行；无 recovery started/final |
+| source/input seals | PASS：SFT final 两者均 `true` |
+| owned training cleanup | PASS：confirmed exited group `23569`，无残留组/error |
+| owned services cleanup | PASS：registry owned、`services_stopped`、四卡释放、无 error |
+| 实际 GPU cleanup | PASS：恢复 occupier 前无 compute apps、四卡各 1 MiB |
+
+`00001347` 仅在上述 cleanup 明确后恢复 occupier，原子写入新 identity：PID=PGID `24009`、start_ticks `2826576096`。精确 torchrun argv、4 个新日志 ranks、4 compute apps 均通过；GPU 0–3 各 3085 MiB、util 43/44/48/46%。Restore receipt SHA256 `fa22631b7f18627071e079500675b4615f9cbd78bae10d7da96010237c6db245`。
+
+关键结果：`00001348-task5_model_retry4_real_execute`。没有启动五轮。继续需要经审阅的 Transformers 兼容修复或固定兼容环境及真实回归，不能在此 incomplete root 上删除状态重训。
+
+Git runtime hygiene：真实 execute 将四个 tracked `RSIFlow/runtime/local_baseline/resource_leases/gpu_{0..3}.lock` 的 PID 改为本次已退出的 `23563`。已按明确 diff 恢复这四个文件的 pre-run bytes；output-root receipts/logs 保留，未提交任何 runtime 改动。

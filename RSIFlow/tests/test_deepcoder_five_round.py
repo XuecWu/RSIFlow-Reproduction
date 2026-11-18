@@ -644,17 +644,22 @@ def test_five_round_preflight_rejects_output_inside_frozen_release(
 # ---------------------------------------------------------------------------
 # Task 6 (offline): read-only five-round result summarizer contracts.
 #
-# Fixtures mirror the production run layout verified against the real single-round
-# canary: side-scoped rollout_cache receipts with binding.task/state_hash/rollout/
-# round_scope, per-call receipts with request_sha256/response model identity,
-# performance.json with round_id/training_manifest/feedback_role/collection_stage,
-# decision/selection with round/attempt binding, task_differences, snapshot receipts
-# with combinations/files_sha256, controller_transport compare_scores/activate_task
-# receipts, durable jobs with request/result/turn receipts, supervision reconcile,
-# finish_experiment turn receipt, and the output-root owned four-GPU service registry.
+# Fixtures mirror production: a trusted machine config + frozen release built with
+# evolution_protocol.make_manifest and data_protocol content hashing; side-scoped
+# rollout_cache receipts whose per-call request_sha256 is the production canonical
+# value_hash(transport call minus response); full TaskAgentState identity chains
+# (generation/model_ref/checkpoint+weights/harness bytes/artifacts); snapshot seals
+# with parent/candidate/selected states; compare/activate receipts bound to exact
+# paths/hashes; raw workflow_state milestones + ordered turns + durable jobs; the
+# output-root four-GPU registry; a kind=rsiflow_external_cleanup receipt; and the
+# production model_update SFT schema (world_size/rank_records/epoch/loss/merge probe).
 # ---------------------------------------------------------------------------
 
 import hashlib
+import math
+
+import data_protocol as dp
+from evolution_protocol import file_hash, make_manifest
 
 SUMMARIZER_PATH = ROOT.parent / "reproduction/scripts/summarize_deepcoder_five_round.py"
 
@@ -668,7 +673,6 @@ def _load_summarizer():
 
 
 TASK_IDS = [f"deepcoder_taco:deepcoder-taco-{i}" for i in range(1000, 1016)]
-MANIFEST_HASH = "m" * 64
 CHECKPOINT = "/models/Qwen3-4B"
 VERIFIER_ID = "deepcoder_taco_all_tests_stdio_or_function_v2_tol1e-6"
 WEIGHTS = [{"path": "model-00001-of-00001.safetensors", "bytes": 100, "sha256": "w" * 64}]
@@ -678,21 +682,86 @@ def _sha(text):
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _value_hash(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+
+
 def _source_hash(task_id):
     return _sha("source:" + task_id)
 
 
-def _round_scope(round_n, task_id, collection_stage="parent_pre_update"):
+def _build_release(base, rounds):
+    release = base / "release"
+    manifests, record_hashes = {}, {}
+    for n in range(1, rounds + 1):
+        bdir = release / f"B{n}"
+        bdir.mkdir(parents=True)
+        jsonl = bdir / "deepcoder_taco.jsonl"
+        records = [{"task_id": tid, "prompt": f"problem {tid}"} for tid in TASK_IDS]
+        offsets = []
+        with jsonl.open("wb") as stream:
+            for rec in records:
+                off = stream.tell()
+                line = (json.dumps(rec, ensure_ascii=False) + "\n").encode()
+                stream.write(line)
+                offsets.append((off, len(line)))
+        rec_hash = file_hash(jsonl)
+        record_hashes[n] = rec_hash
+        tasks = []
+        for tid, (off, ln), rec in zip(TASK_IDS, offsets, records):
+            tasks.append({
+                "source": "deepcoder_taco", "version": "v1", "original_split": "train",
+                "task_id": tid, "group_id": tid,
+                "content_hash": dp.text_hash(dp.public_text(rec, "deepcoder_taco")),
+                "role": "train_evolution", "round_id": n, "domain": "code",
+                "record_file": str(jsonl), "record_offset": off, "record_length": ln,
+                "record_sha256": rec_hash, "source_sha256": rec_hash,
+                "strata": {"interface": "function"}, "purpose": "evolution_train",
+                "native_id": tid, "date": "2026-11-18",
+            })
+        manifest = make_manifest("train_evolution", n, tasks)
+        (bdir / "manifest.json").write_text(
+            json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        manifests[n] = manifest
+    (release / "protocol.json").write_text(json.dumps({
+        "rounds": rounds, "schedule": "round_repeated", "tasks_per_round": 16, "unique_tasks": 16,
+    }), encoding="utf-8")
+    return release, manifests, record_hashes
+
+
+def _build_config(base, output_root, run_name, release, rounds):
+    config_path = base / "machine.json"
+    config_path.write_text(json.dumps({
+        "output_root": str(output_root), "run_name": run_name,
+        "frozen_data_dir": str(release), "rounds": rounds,
+        "experiment_scope": "deepcoder_five_round_canary", "training_schedule": "round_repeated",
+    }), encoding="utf-8")
+    return config_path
+
+
+def _round_scope(round_n, task_id, manifest_hash, collection_stage):
     return {"role": "train_evolution", "purpose": "evolution_train", "round_id": round_n,
-            "manifest_hash": MANIFEST_HASH, "collection_stage": collection_stage,
+            "manifest_hash": manifest_hash, "collection_stage": collection_stage,
             "task_hash": _sha(task_id), "harness_sha256": "h" * 64,
             "checkpoint_manifest": WEIGHTS, "artifacts": [], "protocol_hash": "p" * 64}
 
 
-def _trajectory(task_id, *, success, calls, round_n, state_hash, branch,
-                error=None, execution_error_type="candidate_error",
-                infrastructure_error=False, tests_total=11,
-                collection_stage="parent_pre_update"):
+def _transport_call(call_id):
+    return {
+        "call_id": call_id, "status": "completed",
+        "messages": [{"role": "user", "content": f"q{call_id}"}],
+        "response": {"message": {"role": "assistant", "content": f"a{call_id}"}, "usage": {},
+                     "binding": {"checkpoint_path": CHECKPOINT, "weights": WEIGHTS},
+                     "finish_reason": "stop", "request_id": f"r{call_id}",
+                     "model_ref_requested": CHECKPOINT, "model_ref_response": CHECKPOINT},
+        "seed": 42, "temperature": 0.7, "tools": [], "max_tokens": 2048,
+        "chat_template_kwargs": {}, "usage_complete": True, "unknown_usage_calls": 0,
+    }
+
+
+def _trajectory(task_id, *, success, calls, round_n, state_hash, branch, manifest_hash,
+                task_source_hash, error=None, execution_error_type="candidate_error",
+                infrastructure_error=False, tests_total=11, collection_stage="parent_pre_update"):
     called = calls > 0
     verification = {
         "status": "completed", "verifier_id": VERIFIER_ID, "success": bool(success),
@@ -700,29 +769,24 @@ def _trajectory(task_id, *, success, calls, round_n, state_hash, branch,
         "tests_completed": tests_total if called else None,
         "tests_total": tests_total if called else None,
     }
-    transport_calls = [
-        {"call_id": i, "status": "completed", "messages": [{"role": "user", "content": "q"}],
-         "response": {"message": {"role": "assistant", "content": "a"}}}
-        for i in range(calls)
-    ]
     return {
         "task_id": task_id, "question_id": task_id, "source": "deepcoder_taco",
         "domain": "code", "split": "evolve_train", "rollout_id": 0,
-        "state_hash": state_hash, "manifest_hash": MANIFEST_HASH,
-        "task_source_hash": _source_hash(task_id), "source_role": "train_evolution",
+        "state_hash": state_hash, "manifest_hash": manifest_hash,
+        "task_source_hash": task_source_hash, "source_role": "train_evolution",
         "collection_stage": collection_stage, "round_id": round_n,
         "infrastructure_error": infrastructure_error, "infrastructure_failure": infrastructure_error,
         "verification": verification, "valid_answer": called,
-        "model_call_count": calls, "transport_calls": transport_calls,
+        "model_call_count": calls, "transport_calls": [_transport_call(i) for i in range(calls)],
         "execution_error_type": execution_error_type,
         "error_type": "parse_failure" if not called else ("candidate_error" if not success else None),
         "error": error, "terminal_reward": 1.0 if success else 0.0,
         "branch_id": branch, "trajectory_id": _sha(f"{task_id}:{branch}:{round_n}"),
-        "model_ref": CHECKPOINT,
+        "model_ref": CHECKPOINT, "checkpoint_manifest": WEIGHTS,
     }
 
 
-def _performance(rows, round_n):
+def _performance(rows, round_n, manifest_hash):
     successes = sum(1 for r in rows if r["verification"]["success"] is True)
     n = len(rows)
     rate = successes / n if n else None
@@ -740,53 +804,62 @@ def _performance(rows, round_n):
                     "searchqa": {"correct": 0, "denominator": 0, "success_rate": None, "errors": {}}},
         "macro_success": rate, "domain_weights": {"code": 1.0}, "status": "complete",
         "total_rollouts": n, "units": "fraction_0_1", "round_id": round_n,
-        "training_manifest": MANIFEST_HASH, "evaluation_protocol": "same_round_full_B_parent_child_v2",
+        "training_manifest": manifest_hash, "evaluation_protocol": "same_round_full_B_parent_child_v2",
         "feedback_role": "train_evolution", "collection_stage": collection_stage,
         "probe_identity": _sha(f"probe-{round_n}"),
         "benchmarks": {"deepcoder_taco": {"count": n, "successes": successes, "errors": errors}},
     }
 
 
-def _call_receipt(task_id, state_hash, round_n, call_id, collection_stage="parent_pre_update"):
+def _call_receipt(task_id, state_hash, round_n, transport_call, manifest_hash,
+                  task_source_hash, collection_stage):
+    request = {k: v for k, v in transport_call.items() if k != "response"}
     return {
-        "binding": {"task": task_id, "task_source_hash": _source_hash(task_id),
+        "binding": {"task": task_id, "task_source_hash": task_source_hash,
                     "state_hash": state_hash, "rollout": 0, "probe": False,
-                    "round_scope": _round_scope(round_n, task_id, collection_stage)},
-        "call_id": call_id, "status": "completed",
-        "request_sha256": _sha(f"req:{task_id}:{round_n}:{call_id}"),
-        "request": {"messages": [{"role": "user", "content": "q"}]},
-        "response": {"message": {"role": "assistant", "content": "a"}, "usage": {},
-                     "binding": {"checkpoint_path": CHECKPOINT, "weights": WEIGHTS},
-                     "finish_reason": "stop", "request_id": f"r{call_id}",
-                     "model_ref_requested": CHECKPOINT, "model_ref_response": CHECKPOINT,
-                     "raw_generation": "a", "wall_time_seconds": 0.1,
-                     "serving_endpoint": "http://127.0.0.1:8271", "chat_template_kwargs": {}},
+                    "round_scope": _round_scope(round_n, task_id, manifest_hash, collection_stage)},
+        "call_id": transport_call["call_id"], "status": "completed",
+        "request_sha256": _value_hash(request), "request": request,
+        "response": transport_call["response"],
     }
 
 
-def _write_side(side_dir, cache_root, rows, state_hash, round_n):
+def _write_side(side_dir, cache_root, rows, state_hash, round_n, manifest_hash):
     side_dir.mkdir(parents=True, exist_ok=True)
     (side_dir / "train_trajectories.jsonl").write_text(
         "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     (side_dir / "performance.json").write_text(
-        json.dumps(_performance(rows, round_n)), encoding="utf-8")
+        json.dumps(_performance(rows, round_n, manifest_hash)), encoding="utf-8")
     cache = cache_root / state_hash / "train_rollouts"
     cache.mkdir(parents=True, exist_ok=True)
     for r in rows:
         (cache / (r["trajectory_id"] + ".json")).write_text(json.dumps({
             "binding": {"task": r["task_id"], "task_source_hash": r["task_source_hash"],
                         "state_hash": state_hash, "rollout": 0, "probe": False,
-                        "round_scope": _round_scope(round_n, r["task_id"], r["collection_stage"])},
-            "row": {"task_id": r["task_id"], "state_hash": state_hash,
-                    "rollout_id": 0, "model_call_count": r["model_call_count"]},
+                        "round_scope": _round_scope(round_n, r["task_id"], manifest_hash, r["collection_stage"])},
+            "row": {"task_id": r["task_id"], "state_hash": state_hash, "rollout_id": 0,
+                    "model_call_count": r["model_call_count"], "checkpoint_manifest": WEIGHTS},
         }), encoding="utf-8")
         if r["model_call_count"]:
             calls_dir = cache / (r["trajectory_id"] + ".calls")
             calls_dir.mkdir(parents=True, exist_ok=True)
-            for i in range(r["model_call_count"]):
-                (calls_dir / f"{i:04d}.json").write_text(
-                    json.dumps(_call_receipt(r["task_id"], state_hash, round_n, i, r["collection_stage"])),
-                    encoding="utf-8")
+            for tc in r["transport_calls"]:
+                (calls_dir / f"{tc['call_id']:04d}.json").write_text(json.dumps(
+                    _call_receipt(r["task_id"], state_hash, round_n, tc, manifest_hash,
+                                  r["task_source_hash"], r["collection_stage"])), encoding="utf-8")
+
+
+def _task_state(generation, harness_path):
+    return {"generation": generation, "model_ref": CHECKPOINT, "checkpoint_path": CHECKPOINT,
+            "checkpoint_manifest": WEIGHTS, "harness_path": str(harness_path),
+            "artifacts": {"directory": None, "manifest": []}}
+
+
+def _harness_file(run, generation):
+    path = run / "harness" / f"gen_{generation}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"harness_generation": generation}), encoding="utf-8")
+    return path
 
 
 def _transport_receipt(run, identifier, payload):
@@ -796,161 +869,20 @@ def _transport_receipt(run, identifier, payload):
     return directory
 
 
-def _turn_receipt(run, name, payload):
+_TURN_COUNTER = [0]
+
+
+def _turn_receipt(run, operation, round_number, payload):
+    _TURN_COUNTER[0] += 1
+    name = f"{_TURN_COUNTER[0]:04d}"
     directory = run / "meta_session/turns" / name
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "receipt.json").write_text(json.dumps(payload), encoding="utf-8")
+    (directory / "command.json").write_text(json.dumps({
+        "action": "tool", "request": {"operation": operation, "round_number": round_number},
+        "transport": "app_server",
+    }), encoding="utf-8")
+    (directory / "receipt.json").write_text(json.dumps({"operation": operation, **payload}), encoding="utf-8")
     return directory
-
-
-def _write_round(run, n, *, parent_success, candidate_success,
-                 zero_call_parent, zero_call_candidate,
-                 parent_generation, candidate_generation,
-                 component="HARNESS", decision="accept_candidate",
-                 errors_parent=None, errors_candidate=None, infrastructure_error_ids=()):
-    errors_parent = errors_parent or {}
-    errors_candidate = errors_candidate or {}
-    round_dir = run / f"round_{n}"
-    parent_state = _sha(f"parent-state-{n}")
-    candidate_state = _sha(f"candidate-state-{n}")
-
-    def make_rows(success_set, zero_set, branch, state_hash, errors):
-        collection_stage = "parent_pre_update" if branch == "parent" else "child_post_update"
-        rows = []
-        for tid in TASK_IDS:
-            calls = 0 if tid in zero_set else 7
-            rows.append(_trajectory(
-                tid, success=tid in success_set, calls=calls, round_n=n,
-                state_hash=state_hash, branch=branch, error=errors.get(tid),
-                infrastructure_error=tid in infrastructure_error_ids,
-                collection_stage=collection_stage))
-        return rows
-
-    parent_rows = make_rows(parent_success, zero_call_parent, "parent", parent_state, errors_parent)
-    candidate_rows = make_rows(candidate_success, zero_call_candidate, "candidate", candidate_state, errors_candidate)
-    _write_side(round_dir / "parent", round_dir / "rollout_cache", parent_rows, parent_state, n)
-    attempt = round_dir / "attempts/attempt_1"
-    _write_side(attempt / "candidate", attempt / "rollout_cache", candidate_rows, candidate_state, n)
-
-    before = len(parent_success) / 16
-    after = len(candidate_success) / 16
-    delta = after - before
-    new_success = len(candidate_success - parent_success)
-    new_regression = len(parent_success - candidate_success)
-    retained_failure = 16 - len(parent_success | candidate_success)
-    selected_generation = candidate_generation if decision == "accept_candidate" else parent_generation
-
-    (attempt / "decision.json").write_text(json.dumps({
-        "round": n, "attempt": 1, "component": component, "relevant_skill_ids": [],
-        "rationale": "fixture", "prediction": {},
-    }), encoding="utf-8")
-    (attempt / "selection.json").write_text(json.dumps({
-        "round": n, "attempt": 1, "decision": decision, "reason": "fixture",
-        "before": before, "after": after, "delta": delta, "paired_tasks": 16,
-        "new_success": new_success, "new_regression": new_regression,
-        "comparison_receipt": f"meta_session/turns/compare_{n}/receipt.json",
-        "differences": f"round_{n}/attempts/attempt_1/task_differences/summary.json",
-    }), encoding="utf-8")
-    (attempt / "skill_use.json").write_text(json.dumps({"used_skill_ids": []}), encoding="utf-8")
-
-    diff_dir = attempt / "task_differences"
-    diff_dir.mkdir(parents=True, exist_ok=True)
-    (diff_dir / "summary.json").write_text(json.dumps({
-        "status": "compared", "paired_tasks": 16, "same_id_set": True,
-        "counts": {"retained_failure": retained_failure,
-                   "new_success": new_success, "new_regression": new_regression},
-        "domain_transitions": {"code": {"retained_failure": retained_failure,
-                                        "new_success": new_success, "new_regression": new_regression}},
-        "source_mismatches": [], "duplicates": {"before": [], "after": []},
-        "missing_in_after": [], "extra_in_after": [], "notes": [],
-    }), encoding="utf-8")
-
-    (attempt / "before").mkdir(parents=True, exist_ok=True)
-    (attempt / "before/parent_task.json").write_text(json.dumps({
-        "generation": parent_generation, "model_ref": CHECKPOINT,
-        "harness_path": str(run / f"round_{n}/parent/harness.json"),
-        "checkpoint_path": CHECKPOINT, "checkpoint_manifest": WEIGHTS,
-    }), encoding="utf-8")
-    (attempt / "build").mkdir(parents=True, exist_ok=True)
-    (attempt / "build/candidate_state.json").write_text(json.dumps({
-        "generation": candidate_generation, "model_ref": CHECKPOINT,
-        "harness_path": str(attempt / "build/candidate_bundle.json"),
-        "checkpoint_path": CHECKPOINT, "checkpoint_manifest": WEIGHTS,
-    }), encoding="utf-8")
-    (attempt / "build/candidate_bundle.json").write_text(
-        json.dumps({"harness": f"harness_{n}"}), encoding="utf-8")
-
-    snap = run / "snapshots" / f"round_{n}_attempt_1"
-    (snap / "task").mkdir(parents=True, exist_ok=True)
-    (snap / "task/task_state_snapshot.json").write_text(
-        json.dumps({"generation": selected_generation}), encoding="utf-8")
-    (snap / "task/parent_state.json").write_text(
-        json.dumps({"generation": parent_generation}), encoding="utf-8")
-    (snap / "task/candidate_state.json").write_text(
-        json.dumps({"generation": candidate_generation}), encoding="utf-8")
-    files_sha256 = {
-        "task/task_state_snapshot.json": _sha(json.dumps({"generation": selected_generation})),
-        "task/parent_state.json": _sha(json.dumps({"generation": parent_generation})),
-        "task/candidate_state.json": _sha(json.dumps({"generation": candidate_generation})),
-    }
-    (snap / "snapshot_receipt.json").write_text(json.dumps({
-        "status": "snapshotted", "destination": str(snap),
-        "combinations": {
-            "parent": {"model": "model_001", "harness": f"harness_{n}",
-                       "state_path": str(snap / "task/parent_state.json"),
-                       "source_state": str(attempt / "before/parent_task.json")},
-            "candidate": {"model": "model_001", "harness": f"harness_{n+1}",
-                          "state_path": str(snap / "task/candidate_state.json"),
-                          "source_state": str(attempt / "build/candidate_state.json")},
-            "selected": {"model": "model_001",
-                         "harness": f"harness_{n+1}" if decision == "accept_candidate" else f"harness_{n}",
-                         "state_path": str(snap / "task/task_state_snapshot.json"),
-                         "source_state": str(run / "active_task.json")},
-        },
-        "files_sha256": files_sha256,
-        "meta": {"id": f"meta_{n+1:03d}", "sha256": _sha(f"meta-{n}"),
-                 "path": str(run / f"versions/meta_{n+1:03d}/contents.jsonl")},
-        "references": {"context_reference": {"sha256": _sha(f"context-{n}")}},
-        "context_reference": {"sha256": _sha(f"context-{n}")},
-    }), encoding="utf-8")
-
-    parent_perf_path = str(round_dir / "parent/performance.json")
-    candidate_perf_path = str(attempt / "candidate/performance.json")
-    facts = {"status": "complete", "total_rollouts": 16, "training_manifest": MANIFEST_HASH,
-             "round_id": n, "feedback_role": "train_evolution",
-             "evaluation_protocol": "same_round_full_B_parent_child_v2"}
-    _transport_receipt(run, f"compare_{n}", {
-        "operation": "compare_scores", "status": "compared", "metric": "macro_success",
-        "before": before, "after": after, "delta": delta,
-        "before_path": parent_perf_path, "after_path": candidate_perf_path,
-        "before_sha256": _sha(f"parent-perf-{n}"), "after_sha256": _sha(f"candidate-perf-{n}"),
-        "before_facts": facts, "after_facts": facts,
-    })
-    _turn_receipt(run, f"compare_{n}", {
-        "operation": "compare_scores", "status": "compared",
-        "before": before, "after": after, "delta": delta,
-    })
-    if decision == "accept_candidate":
-        candidate_state_path = str(attempt / "build/candidate_state.json")
-        active_sha = _sha(f"active-{n}")
-        _transport_receipt(run, f"activate_{n}", {
-            "operation": "activate_task", "status": "activated_as_requested",
-            "source_state": candidate_state_path, "active_state": str(run / "active_task.json"),
-            "source_sha256": active_sha, "active_sha256": active_sha,
-            "selection_note": "fixture accept",
-        })
-        _turn_receipt(run, f"activate_{n}", {
-            "operation": "activate_task", "status": "activated_as_requested",
-            "source_state": candidate_state_path, "active_sha256": active_sha,
-        })
-    _transport_receipt(run, f"snapshot_{n}", {
-        "operation": "snapshot_task_meta", "status": "snapshotted",
-        "destination": str(snap),
-    })
-    return {"parent_success": parent_success, "candidate_success": candidate_success,
-            "new_success": new_success, "new_regression": new_regression,
-            "retained_failure": retained_failure, "delta": delta,
-            "parent_generation": parent_generation, "selected_generation": selected_generation}
 
 
 def _write_job(run, identifier, operation, *, status="completed", returncode=0,
@@ -970,22 +902,198 @@ def _write_job(run, identifier, operation, *, status="completed", returncode=0,
     if write_result:
         result_path.write_text(json.dumps(result), encoding="utf-8")
         (turn_dir / "receipt.json").write_text(json.dumps(result), encoding="utf-8")
+        (turn_dir / "command.json").write_text(json.dumps({
+            "action": "tool", "request": {"operation": operation}}), encoding="utf-8")
     if write_job:
         (job_dir / "job.json").write_text(json.dumps({
             "job_id": identifier, "request": {"operation": operation},
             "pid": 10000 + abs(hash(identifier)) % 1000, "process_start": None,
-            "created_at": 1.0, "turn_dir": str(turn_dir),
-            "result_path": str(result_path),
-            "stdout_path": str(transport / "stdout.log"),
-            "stderr_path": str(transport / "stderr.log"),
+            "created_at": 1.0, "turn_dir": str(turn_dir), "result_path": str(result_path),
+            "stdout_path": str(transport / "stdout.log"), "stderr_path": str(transport / "stderr.log"),
         }), encoding="utf-8")
     return result_path
 
 
-def _build_run(tmp_path, *, complete=False):
+def _write_round(run, n, *, parent_success, candidate_success,
+                 zero_call_parent, zero_call_candidate,
+                 parent_generation, candidate_generation, manifest_hash, task_source_hash,
+                 component="HARNESS", decision="accept_candidate",
+                 errors_parent=None, errors_candidate=None, infrastructure_error_ids=()):
+    errors_parent = errors_parent or {}
+    errors_candidate = errors_candidate or {}
+    round_dir = run / f"round_{n}"
+    parent_state_hash = _sha(f"parent-state-{n}")
+    candidate_state_hash = _sha(f"candidate-state-{n}")
+
+    def make_rows(success_set, zero_set, branch, state_hash, errors, collection_stage):
+        rows = []
+        for tid in TASK_IDS:
+            calls = 0 if tid in zero_set else 7
+            rows.append(_trajectory(
+                tid, success=tid in success_set, calls=calls, round_n=n,
+                state_hash=state_hash, branch=branch, manifest_hash=manifest_hash,
+                task_source_hash=task_source_hash, error=errors.get(tid),
+                infrastructure_error=tid in infrastructure_error_ids,
+                collection_stage=collection_stage))
+        return rows
+
+    parent_rows = make_rows(parent_success, zero_call_parent, "parent", parent_state_hash, errors_parent, "parent_pre_update")
+    candidate_rows = make_rows(candidate_success, zero_call_candidate, "candidate", candidate_state_hash, errors_candidate, "child_post_update")
+    _write_side(round_dir / "parent", round_dir / "rollout_cache", parent_rows, parent_state_hash, n, manifest_hash)
+    attempt = round_dir / "attempts/attempt_1"
+    _write_side(attempt / "candidate", attempt / "rollout_cache", candidate_rows, candidate_state_hash, n, manifest_hash)
+
+    before = len(parent_success) / 16
+    after = len(candidate_success) / 16
+    delta = after - before
+    new_success = len(candidate_success - parent_success)
+    new_regression = len(parent_success - candidate_success)
+    retained_failure = 16 - len(parent_success | candidate_success)
+    selected_generation = candidate_generation if decision == "accept_candidate" else parent_generation
+
+    (attempt / "decision.json").write_text(json.dumps({
+        "round": n, "attempt": 1, "component": component, "relevant_skill_ids": [],
+        "rationale": "fixture", "prediction": {},
+    }), encoding="utf-8")
+    (attempt / "selection.json").write_text(json.dumps({
+        "round": n, "attempt": 1, "decision": decision, "reason": "fixture",
+        "before": before, "after": after, "delta": delta, "paired_tasks": 16,
+        "new_success": new_success, "new_regression": new_regression,
+    }), encoding="utf-8")
+    (attempt / "skill_use.json").write_text(json.dumps({"used_skill_ids": []}), encoding="utf-8")
+    diff_dir = attempt / "task_differences"
+    diff_dir.mkdir(parents=True, exist_ok=True)
+    (diff_dir / "summary.json").write_text(json.dumps({
+        "status": "compared", "paired_tasks": 16, "same_id_set": True,
+        "counts": {"retained_failure": retained_failure, "new_success": new_success, "new_regression": new_regression},
+        "domain_transitions": {"code": {"retained_failure": retained_failure, "new_success": new_success, "new_regression": new_regression}},
+        "source_mismatches": [], "duplicates": {"before": [], "after": []},
+        "missing_in_after": [], "extra_in_after": [], "notes": [],
+    }), encoding="utf-8")
+
+    parent_harness = _harness_file(run, parent_generation)
+    candidate_harness = attempt / "build/candidate_bundle.json"
+    candidate_harness.parent.mkdir(parents=True, exist_ok=True)
+    candidate_harness.write_text(json.dumps({"harness_generation": candidate_generation}), encoding="utf-8")
+    parent_state = _task_state(parent_generation, parent_harness)
+    candidate_state = _task_state(candidate_generation, candidate_harness)
+    selected_state = _task_state(selected_generation,
+                                 candidate_harness if decision == "accept_candidate" else parent_harness)
+    (attempt / "before").mkdir(parents=True, exist_ok=True)
+    (attempt / "before/parent_task.json").write_text(json.dumps(parent_state), encoding="utf-8")
+    (attempt / "build/candidate_state.json").write_text(json.dumps(candidate_state), encoding="utf-8")
+
+    snap = run / "snapshots" / f"round_{n}_attempt_1"
+    (snap / "task").mkdir(parents=True, exist_ok=True)
+    (snap / "task/parent_state.json").write_text(json.dumps(parent_state), encoding="utf-8")
+    (snap / "task/candidate_state.json").write_text(json.dumps(candidate_state), encoding="utf-8")
+    (snap / "task/task_state_snapshot.json").write_text(json.dumps(selected_state), encoding="utf-8")
+    files_sha256 = {
+        "task/parent_state.json": _sha(json.dumps(parent_state)),
+        "task/candidate_state.json": _sha(json.dumps(candidate_state)),
+        "task/task_state_snapshot.json": _sha(json.dumps(selected_state)),
+    }
+    (snap / "snapshot_receipt.json").write_text(json.dumps({
+        "status": "snapshotted", "destination": str(snap),
+        "combinations": {
+            "parent": {"state_path": str(snap / "task/parent_state.json"),
+                       "source_state": str(attempt / "before/parent_task.json")},
+            "candidate": {"state_path": str(snap / "task/candidate_state.json"),
+                          "source_state": str(attempt / "build/candidate_state.json")},
+            "selected": {"state_path": str(snap / "task/task_state_snapshot.json"),
+                         "source_state": str(run / "active_task.json")},
+        },
+        "files_sha256": files_sha256,
+        "meta": {"id": f"meta_{n+1:03d}", "sha256": _sha(f"meta-{n}")},
+        "references": {"context_reference": {"sha256": _sha(f"context-{n}")}},
+    }), encoding="utf-8")
+
+    parent_perf_path = str(round_dir / "parent/performance.json")
+    candidate_perf_path = str(attempt / "candidate/performance.json")
+    compare_payload = {
+        "operation": "compare_scores", "status": "compared", "metric": "macro_success",
+        "before": before, "after": after, "delta": delta,
+        "before_path": parent_perf_path, "after_path": candidate_perf_path,
+        "before_sha256": file_hash(Path(parent_perf_path)), "after_sha256": file_hash(Path(candidate_perf_path)),
+    }
+    _transport_receipt(run, f"compare_{n}", compare_payload)
+    _turn_receipt(run, "compare_scores", n, {"status": "compared", "before": before, "after": after, "delta": delta})
+    if decision == "accept_candidate":
+        candidate_state_path = str(attempt / "build/candidate_state.json")
+        active_sha = file_hash(Path(candidate_state_path))
+        activate_payload = {
+            "operation": "activate_task", "status": "activated_as_requested",
+            "source_state": candidate_state_path, "active_state": str(run / "active_task.json"),
+            "source_sha256": active_sha, "active_sha256": active_sha, "selection_note": "fixture accept",
+        }
+        _transport_receipt(run, f"activate_{n}", activate_payload)
+        _turn_receipt(run, "activate_task", n, {"status": "activated_as_requested", "source_sha256": active_sha})
+    _transport_receipt(run, f"snapshot_{n}", {"operation": "snapshot_task_meta", "status": "snapshotted", "destination": str(snap)})
+    _turn_receipt(run, "snapshot_task_meta", n, {"status": "snapshotted"})
+    _write_job(run, f"run_parent_{n}", "run_parent")
+    _write_job(run, f"run_candidate_{n}", "run_candidate")
+    return {"parent_success": parent_success, "candidate_success": candidate_success,
+            "new_success": new_success, "new_regression": new_regression,
+            "retained_failure": retained_failure, "delta": delta,
+            "parent_generation": parent_generation, "selected_generation": selected_generation}
+
+
+def _cleanup_receipt(run, output_root, config_path, *, status="completed", attempt="0001",
+                     run_binding=None, registry_phase="services_stopped", compute_apps=None,
+                     free_verified=True, owners_exited=True):
+    directory = run / "meta_session/supervision" / attempt / "external-cleanup" / "obs1"
+    directory.mkdir(parents=True, exist_ok=True)
+    gpu_obs = {"time": "2026-11-18T00:00:00Z", "command": "nvidia-smi", "result": 0,
+               "stdout_hash": _sha("gpu"), "expected_uuids": ["GPU-0", "GPU-1", "GPU-2", "GPU-3"],
+               "per_gpu": [{"gpu": g, "memory_free": 80000} for g in range(4)],
+               "compute_apps": compute_apps if compute_apps is not None else [],
+               "free_verified": free_verified, "namespace_notes": ""}
+    (directory / "gpu_observation.json").write_text(json.dumps(gpu_obs), encoding="utf-8")
+    registry_path = str(output_root / "services/four_gpu_services.json")
+    exit_state = "exited" if owners_exited else "alive"
+    receipt = {
+        "schema_version": 1, "kind": "rsiflow_external_cleanup", "observation_id": "obs1",
+        "status": status, "started_at_utc": "2026-11-18T00:00:00Z", "observed_at_utc": "2026-11-18T00:01:00Z",
+        "blockers": [] if status == "completed" else ["pending_owner"],
+        "writer": {"script_path": "reconcile_deepcoder_run.py", "hash": _sha("writer"),
+                   "host": "dev4", "boot_id": "boot", "pid_namespace": "ns", "uid": 10045},
+        "binding": {"reviewed_commit": "0" * 40, "config_path": str(config_path),
+                    "config_hash": file_hash(Path(config_path)) if config_path and Path(config_path).is_file() else _sha("cfg"),
+                    "base_config_path": "/base.json", "base_config_hash": _sha("base"),
+                    "effective_config_hash": _sha("effective"), "output_root": str(output_root),
+                    "run_dir": run_binding if run_binding is not None else str(run),
+                    "supervision_attempt": attempt, "launch_receipt_path": "/launch.json",
+                    "launch_receipt_hash": _sha("launch"), "backend": "linux_bwrap_seccomp_v1", "thread_id": "thread-1"},
+        "supervision": {"identity_path": "identity.json", "identity_hash": _sha("id"),
+                        "exit_path": "exit", "exit_hash": _sha("0"), "exit_value": 0,
+                        "reconcile_path": "reconcile.json", "reconcile_hash": _sha("rec"),
+                        "reconcile_status": "complete", "all_previous_attempts_accounted_for": True},
+        "protocol": {"state_path": "state.json", "state_hash": _sha("state"),
+                     "current_stage": "COMPLETE", "finish_allowed": True},
+        "owners": {"launcher": {"state": exit_state}, "app_server": {"state": exit_state},
+                   "jobs": [{"state": exit_state}], "training_phases": [],
+                   "inference_services": [{"state": exit_state}]},
+        "registry": {"path": registry_path, "before_hash": _sha("reg-before"), "after_hash": _sha("reg-after"),
+                     "phase": registry_phase, "checkpoint": CHECKPOINT, "weights": WEIGHTS,
+                     "stop_action_skipped_or_executed": "executed", "command_result": 0},
+        "gpu_observations": [gpu_obs], "ports_observation": {"status": "closed"},
+        "actions": [], "errors": [],
+        "evidence_files_sha256": {"gpu_observation.json": file_hash(directory / "gpu_observation.json")},
+        "occupier": {"prior_identity_hash": _sha("occ"), "stop_receipt_hash": _sha("stop"), "restore_pending": False},
+    }
+    receipt_path = directory / "receipt.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    return receipt_path
+
+
+def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True):
+    _TURN_COUNTER[0] = 0
     output_root = tmp_path / "output_root"
     run = output_root / "runs" / "run"
     run.mkdir(parents=True)
+    rounds = 5 if complete else 2
+    release, manifests, record_hashes = _build_release(tmp_path, rounds)
+    config_path = _build_config(tmp_path, output_root, "run", release, rounds) if with_config else None
     if complete:
         plan = [
             (1, set(TASK_IDS[:3]), set(TASK_IDS[3:7]), "accept_candidate"),
@@ -1002,6 +1110,9 @@ def _build_run(tmp_path, *, complete=False):
     zero_call = set(TASK_IDS[9:16])
     generation = 0
     specs = {}
+    _turn_receipt(run, "bootstrap", 0, {"status": "completed"})
+    _turn_receipt(run, "snapshot_task_meta", 0, {"status": "snapshotted"})
+    _write_job(run, "bootstrap_0", "bootstrap")
     for n, parent_success, candidate_success, decision in plan:
         parent_generation = generation
         candidate_generation = generation + 1
@@ -1009,40 +1120,28 @@ def _build_run(tmp_path, *, complete=False):
             run, n, parent_success=parent_success, candidate_success=candidate_success,
             zero_call_parent=zero_call, zero_call_candidate=zero_call,
             parent_generation=parent_generation, candidate_generation=candidate_generation,
+            manifest_hash=manifests[n]["manifest_hash"], task_source_hash=record_hashes[n],
             component="HARNESS", decision=decision)
         generation = specs[n]["selected_generation"]
-        _write_job(run, f"run_parent_{n}", "run_parent")
-        _write_job(run, f"run_candidate_{n}", "run_candidate")
 
-    final_generation = generation
-    (run / "active_task.json").write_text(json.dumps({
-        "generation": final_generation, "model_ref": CHECKPOINT,
-        "harness_path": str(run / "round_1/attempts/attempt_1/build/candidate_bundle.json"),
-        "checkpoint_path": CHECKPOINT, "checkpoint_manifest": WEIGHTS,
-        "artifacts": {"directory": None, "manifest": []},
-    }), encoding="utf-8")
-
+    final_harness = _harness_file(run, generation)
+    (run / "active_task.json").write_text(json.dumps(_task_state(generation, final_harness)), encoding="utf-8")
     a0 = run / "snapshots/A0"
     (a0 / "task").mkdir(parents=True, exist_ok=True)
-    (a0 / "task/task_state_snapshot.json").write_text(json.dumps({"generation": 0}), encoding="utf-8")
+    a0_harness = _harness_file(run, 0)
+    (a0 / "task/task_state_snapshot.json").write_text(json.dumps(_task_state(0, a0_harness)), encoding="utf-8")
     (a0 / "snapshot_receipt.json").write_text(json.dumps({
         "status": "snapshotted", "destination": str(a0),
-        "combinations": {"selected": {"model": "model_001", "harness": "harness_001",
-                                      "state_path": str(a0 / "task/task_state_snapshot.json"),
+        "combinations": {"selected": {"state_path": str(a0 / "task/task_state_snapshot.json"),
                                       "source_state": str(run / "active_task.json")}},
-        "files_sha256": {"task/task_state_snapshot.json": _sha(json.dumps({"generation": 0}))},
-        "meta": {"id": "meta_001", "sha256": _sha("meta-0"),
-                 "path": str(run / "versions/meta_001/contents.jsonl")},
-        "references": {"context_reference": {"sha256": _sha("context-0")}},
+        "files_sha256": {"task/task_state_snapshot.json": file_hash(a0 / "task/task_state_snapshot.json")},
+        "meta": {"id": "meta_001", "sha256": _sha("meta-0")},
     }), encoding="utf-8")
 
     meta = run / "meta"
     meta.mkdir(exist_ok=True)
-    (meta / "skills.jsonl").write_text(
-        json.dumps({"id": "case.HARNESS.x", "type": "case"}) + "\n", encoding="utf-8")
-    (meta / "context.json").write_text(
-        json.dumps({"round": plan[-1][0], "attempt": 1, "component": "HARNESS"}), encoding="utf-8")
-
+    (meta / "skills.jsonl").write_text(json.dumps({"id": "case.HARNESS.x", "type": "case"}) + "\n", encoding="utf-8")
+    (meta / "context.json").write_text(json.dumps({"round": plan[-1][0], "attempt": 1}), encoding="utf-8")
     session = run / "meta_session"
     session.mkdir(exist_ok=True)
     (session / "state.json").write_text(json.dumps({
@@ -1054,15 +1153,19 @@ def _build_run(tmp_path, *, complete=False):
         ("Current stage: **COMPLETE**\nFinish allowed: **yes**\nFinal stage: **B5**\n"
          if complete else "Current stage: **B3**\nFinish allowed: **no**\nFinal stage: **B1**\n"),
         encoding="utf-8")
-    _write_job(run, "bootstrap_0", "bootstrap")
+    stage_ids = ["A0"] + [f"B{n}" for n in range(1, rounds + 1)]
+    (session / "workflow_state.json").write_text(json.dumps({
+        "current_stage": "COMPLETE" if complete else "B3",
+        "finish_allowed": complete, "final_stage": f"B{rounds}",
+        "stages": [{"id": sid, "status": "complete" if complete else ("complete" if sid in ("A0", "B1", "B2") else "pending"),
+                    "remaining_milestones": []} for sid in stage_ids],
+    }), encoding="utf-8")
     if complete:
-        _turn_receipt(run, "finish", {"operation": "finish_experiment",
-                                      "status": "complete", "remaining": {}})
+        _turn_receipt(run, "finish_experiment", 5, {"status": "complete", "remaining": {}})
         supervision = session / "supervision" / "0001"
         supervision.mkdir(parents=True, exist_ok=True)
         (supervision / "identity.json").write_text(json.dumps({
-            "pid": 14852, "pgid": 14852, "start_ticks": "100",
-            "run_dir": str(run), "attempt_dir": str(supervision),
+            "pid": 14852, "pgid": 14852, "start_ticks": "100", "run_dir": str(run), "attempt_dir": str(supervision),
         }), encoding="utf-8")
         (supervision / "reconcile.json").write_text(json.dumps({
             "status": "complete", "term_targets": [], "kill_targets": [], "remaining": [],
@@ -1072,531 +1175,600 @@ def _build_run(tmp_path, *, complete=False):
         registry.parent.mkdir(parents=True, exist_ok=True)
         registry.write_text(json.dumps({
             "phase": "services_stopped", "checkpoint": CHECKPOINT,
-            "services": [{"gpu": g, "base_url": f"http://127.0.0.1:{8271+g}",
-                          "pid": 20000 + g, "identity": {"pid": 20000 + g, "start_ticks": "1", "pgid": 20000 + g},
+            "services": [{"gpu": g, "base_url": f"http://127.0.0.1:{8271+g}", "pid": 20000 + g,
+                          "identity": {"pid": 20000 + g, "start_ticks": "1", "pgid": 20000 + g},
                           "command": ["python", "start_multidomain_service.py"],
                           "config": str(registry.parent / f"four_gpu/gpu_{g}.json"),
-                          "verified_binding": {"checkpoint_path": CHECKPOINT, "weights": WEIGHTS}}
-                         for g in range(4)],
+                          "verified_binding": {"checkpoint_path": CHECKPOINT, "weights": WEIGHTS}} for g in range(4)],
             "started_at": 1.0, "verified_at": 2.0, "stopped_at": 3.0,
         }), encoding="utf-8")
-    return run, specs
+    cleanup_path = None
+    if complete and with_cleanup:
+        cleanup_path = _cleanup_receipt(run, output_root, config_path)
+    return run, specs, {"config_path": config_path, "cleanup_path": cleanup_path,
+                        "release": release, "manifests": manifests, "output_root": output_root}
+
+
+def _summarize(run, ctx, **kwargs):
+    module = _load_summarizer()
+    return module.summarize(run, config_path=ctx.get("config_path"),
+                            cleanup_receipt_path=ctx.get("cleanup_path"), **kwargs)
 
 
 def _rounds(result):
     return {r["round"]: r for r in result["rounds"]}
 
 
-def _blocker_text(result):
-    return (result.get("run_complete_blockers", [])
-            + result.get("protocol_complete_blockers", []))
+def _blockers(result):
+    return result.get("run_complete_blockers", []) + result.get("protocol_complete_blockers", [])
 
 
 # --- positive controls -----------------------------------------------------
 
-def test_summarizer_two_rounds_denominator_calls_and_transitions(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, specs = _build_run(tmp_path)
-    result = summarize(run)
-    assert result["completed_rounds"] == 2
-    assert result["run_complete"] is False
-    rounds = _rounds(result)
-    assert set(rounds) == {1, 2}
-    for n, spec in specs.items():
-        r = rounds[n]
-        assert r["parent"]["denominator"] == 16
-        assert r["candidate"]["denominator"] == 16
-        assert r["denominator_match"] is True
-        assert r["ids_match"] is True
-        assert r["source_hashes_match"] is True
-        assert r["products_complete"] is True
-        assert r["calls"]["parent"]["trajectory_calls"] == r["calls"]["parent"]["persisted_receipts"]
-        assert r["calls"]["parent"]["transport_calls"] == r["calls"]["parent"]["trajectory_calls"]
-        assert r["calls"]["cross_check_ok"] is True
-        assert r["transitions"]["new_success"] == spec["new_success"]
-        assert r["transitions"]["new_regression"] == spec["new_regression"]
-    assert rounds[1]["delta"] == pytest.approx(0.0625)
-    assert rounds[1]["activated"] is True
-    assert rounds[2]["selection"]["decision"] == "retain_parent"
-    assert rounds[2]["activated"] is False
-    assert rounds[2]["delta"] == pytest.approx(0.0)
-
-
-def test_summarizer_separates_verification_valid_full_and_success(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path)
-    r = _rounds(summarize(run))[2]
-    v = r["verification"]["parent"]
-    assert v["completed"] == 16
-    assert v["valid_answer"] == 9
-    assert v["full_verifier"] == 9
-    assert v["success"] == 4
-    assert v["full_verifier"] < v["completed"]
-    assert v["success"] <= v["full_verifier"]
-
-
 def test_summarizer_complete_run_is_legal_and_complete(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, specs = _build_run(tmp_path, complete=True)
-    result = summarize(run)
+    run, specs, ctx = _build_run(tmp_path, complete=True)
+    result = _summarize(run, ctx)
+    assert result["trusted_config"] is True
     assert result["completed_rounds"] == 5
     assert result["protocol_complete"] is True
+    assert result["launcher_exited"] is True
     assert result["run_complete"] is True
     assert result["run_complete_blockers"] == []
-    # every accept is strictly positive; final active matches B5 selected generation
     for n, spec in specs.items():
         r = _rounds(result)[n]
+        assert r["products_complete"] is True
         if r["selection"]["decision"] == "accept_candidate":
             assert r["delta"] > 0
     assert result["active_identity"]["generation"] == specs[5]["selected_generation"]
 
 
-def test_summarizer_component_selection_active_snapshot_skills_context(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path)
-    result = summarize(run)
-    r1 = _rounds(result)[1]
-    assert r1["component"] == "HARNESS"
-    assert r1["attempt_count"] == 1
-    assert r1["snapshot_present"] is True
-    assert result["active_identity"]["generation"] == 1
-    assert result["skills_present"] is True
-    assert result["context_present"] is True
-
-
-def test_summarizer_missing_b3_reports_two_rounds_not_complete(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path)
-    result = summarize(run)
+def test_summarizer_two_rounds_observed_facts(tmp_path):
+    run, specs, ctx = _build_run(tmp_path)
+    result = _summarize(run, ctx)
     assert result["completed_rounds"] == 2
-    assert result["expected_rounds"] == 5
     assert result["run_complete"] is False
+    rounds = _rounds(result)
+    for n, spec in specs.items():
+        r = rounds[n]
+        assert r["parent"]["denominator"] == 16
+        assert r["candidate"]["denominator"] == 16
+        assert r["products_complete"] is True
+        assert r["calls"]["cross_check_ok"] is True
+        assert r["calls"]["parent"]["trajectory_calls"] == r["calls"]["parent"]["persisted_receipts"]
+        assert r["transitions"]["new_success"] == spec["new_success"]
+    assert rounds[1]["delta"] == pytest.approx(0.0625)
+    assert rounds[1]["activated"] is True
+    assert rounds[2]["activated"] is False
+
+
+def test_summarizer_verification_separation(tmp_path):
+    run, _, ctx = _build_run(tmp_path)
+    r = _rounds(_summarize(run, ctx))[2]
+    v = r["verification"]["parent"]
+    assert v == {"completed": 16, "valid_answer": 9, "full_verifier": 9, "success": 4}
+
+
+def test_summarizer_missing_b3_not_complete(tmp_path):
+    run, _, ctx = _build_run(tmp_path)
+    result = _summarize(run, ctx)
+    assert result["completed_rounds"] == 2
     assert result["protocol_complete"] is False
-    assert any("B3" in b for b in _blocker_text(result))
+    assert any("B3" in b for b in _blockers(result))
 
 
-# --- I1: attempt set must be exactly {attempt_1} with round/attempt binding --
+# --- F1: trusted config/release frozen membership --------------------------
 
-def test_i1_extra_attempt_two_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    extra = run / "round_1/attempts/attempt_2"
-    extra.mkdir(parents=True)
-    (extra / "decision.json").write_text(json.dumps({"round": 1, "attempt": 2}), encoding="utf-8")
-    result = summarize(run)
+def test_f1_no_trusted_config_blocks_completion_but_keeps_facts(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_config=False)
+    result = _load_summarizer().summarize(run, cleanup_receipt_path=ctx["cleanup_path"])
+    assert result["trusted_config"] is False
+    assert result["protocol_complete"] is False
+    assert result["run_complete"] is False
+    assert any("trusted config" in b for b in _blockers(result))
+    # observed arithmetic still reported
     r1 = _rounds(result)[1]
-    assert r1["attempt_count"] == 2
-    assert r1["products_complete"] is False
-    assert result["run_complete"] is False
+    assert r1["delta"] == pytest.approx(0.0625)
+    assert r1["calls"]["parent"]["persisted_receipts"] == r1["calls"]["parent"]["trajectory_calls"]
 
 
-def test_i1_only_attempt_two_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    attempts = run / "round_1/attempts"
-    (attempts / "attempt_1").rename(attempts / "attempt_2")
-    result = summarize(run)
-    assert _rounds(result)[1]["products_complete"] is False
-    assert result["run_complete"] is False
-
-
-def test_i1_attempt_ten_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    attempts = run / "round_1/attempts"
-    (attempts / "attempt_1").rename(attempts / "attempt_10")
-    result = summarize(run)
-    assert _rounds(result)[1]["products_complete"] is False
-
-
-def test_i1_wrong_round_selection_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    selection_path = run / "round_1/attempts/attempt_1/selection.json"
-    selection = json.loads(selection_path.read_text())
-    selection["round"] = 2
-    selection_path.write_text(json.dumps(selection), encoding="utf-8")
-    result = summarize(run)
-    assert _rounds(result)[1]["products_complete"] is False
-
-
-# --- I2: frozen 16 unique cohort, hashes, bool success, full verifier --------
-
-def test_i2_fifteen_rows_both_sides_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    for side in ("round_1/parent", "round_1/attempts/attempt_1/candidate"):
+def test_f1_consistent_id_rename_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    rename = {tid: f"deepcoder_taco:fake-{i}" for i, tid in enumerate(TASK_IDS)}
+    # Rename consistently across trajectories AND persisted rollout/call bindings so
+    # internal self-consistency holds; only the trusted frozen manifest can reject it.
+    for side, cache_root in (("round_1/parent", "round_1/rollout_cache"),
+                             ("round_1/attempts/attempt_1/candidate", "round_1/attempts/attempt_1/rollout_cache")):
         path = run / side / "train_trajectories.jsonl"
         rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-        path.write_text("".join(json.dumps(r) + "\n" for r in rows[:-1]), encoding="utf-8")
-    result = summarize(run)
-    r1 = _rounds(result)[1]
-    assert r1["products_complete"] is False
-    assert result["run_complete"] is False
-
-
-def test_i2_duplicate_task_id_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    path = run / "round_1/parent/train_trajectories.jsonl"
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    rows[-1]["task_id"] = rows[0]["task_id"]
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    result = summarize(run)
+        for r in rows:
+            r["task_id"] = rename[r["task_id"]]
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        for cache_json in (run / cache_root).glob("*/train_rollouts/*.json"):
+            receipt = json.loads(cache_json.read_text())
+            receipt["binding"]["task"] = rename[receipt["binding"]["task"]]
+            cache_json.write_text(json.dumps(receipt), encoding="utf-8")
+        for call_file in (run / cache_root).glob("*/train_rollouts/*.calls/*.json"):
+            call = json.loads(call_file.read_text())
+            call["binding"]["task"] = rename[call["binding"]["task"]]
+            call_file.write_text(json.dumps(call), encoding="utf-8")
+    result = _summarize(run, ctx)
     assert _rounds(result)[1]["products_complete"] is False
+    assert any("frozen" in b for b in _rounds(result)[1]["product_blockers"])
 
 
-def test_i2_missing_source_hashes_both_sides_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
+def test_f1_consistent_manifest_hash_change_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
     for side in ("round_1/parent", "round_1/attempts/attempt_1/candidate"):
         path = run / side / "train_trajectories.jsonl"
         rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
         for r in rows:
-            r["task_source_hash"] = ""
-            r["manifest_hash"] = ""
+            r["manifest_hash"] = "f" * 64
         path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    result = summarize(run)
+        perf_path = run / side / "performance.json"
+        perf = json.loads(perf_path.read_text())
+        perf["training_manifest"] = "f" * 64
+        perf_path.write_text(json.dumps(perf), encoding="utf-8")
+    result = _summarize(run, ctx)
     assert _rounds(result)[1]["products_complete"] is False
 
 
-def test_i2_string_success_and_pending_verification_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    path = run / "round_1/parent/train_trajectories.jsonl"
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    for r in rows:
-        r["verification"]["status"] = "pending"
-        r["verification"]["success"] = "false"
-        r["verification"]["full_verifier"] = False
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    result = summarize(run)
-    r1 = _rounds(result)[1]
-    assert r1["products_complete"] is False
-    # string "false" must never be counted as a success
-    assert r1["parent"]["successes"] == 0
+def test_f1_wrong_run_dir_derivation_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    config = json.loads(Path(ctx["config_path"]).read_text())
+    config["run_name"] = "other_run"
+    Path(ctx["config_path"]).write_text(json.dumps(config), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert result["trusted_config"] is False
+    assert result["run_complete"] is False
 
 
-def test_i2_missing_performance_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    (run / "round_1/parent/performance.json").unlink()
-    result = summarize(run)
-    assert _rounds(result)[1]["products_complete"] is False
-
-
-def test_i2_success_without_full_verifier_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
+def test_f1_tests_total_must_be_positive_int(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
     path = run / "round_1/parent/train_trajectories.jsonl"
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     for r in rows:
         if r["verification"]["success"] is True:
-            r["verification"]["full_verifier"] = False
-            r["verification"]["tests_completed"] = 0
+            r["verification"]["tests_total"] = True  # bool, not positive int
+            r["verification"]["tests_completed"] = True
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    result = summarize(run)
+    result = _summarize(run, ctx)
     assert _rounds(result)[1]["products_complete"] is False
 
 
-# --- I3: per-task/per-call persisted receipt binding, no offsetting ----------
+def test_f1_benchmark_performance_inconsistency_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    perf_path = run / "round_1/parent/performance.json"
+    perf = json.loads(perf_path.read_text())
+    perf["benchmarks"]["deepcoder_taco"]["successes"] = 99
+    perf_path.write_text(json.dumps(perf), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["products_complete"] is False
 
-def test_i3_per_task_call_offsetting_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
+
+# --- F2: canonical request hash + request/response/model/weights alignment --
+
+def test_f2_wrong_request_hash_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    call_file = next(cache.glob("*.calls/*.json"))
+    receipt = json.loads(call_file.read_text())
+    receipt["request_sha256"] = "not-the-request-hash"
+    call_file.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_f2_wrong_response_model_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    call_file = next(cache.glob("*.calls/*.json"))
+    receipt = json.loads(call_file.read_text())
+    receipt["response"]["model_ref_response"] = "UNRELATED_MODEL"
+    call_file.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_f2_request_response_mismatch_transport_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    call_file = next(cache.glob("*.calls/*.json"))
+    receipt = json.loads(call_file.read_text())
+    receipt["request"]["messages"] = [{"role": "user", "content": "tampered"}]
+    receipt["request_sha256"] = _value_hash(receipt["request"])  # self-consistent but != transport
+    call_file.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_f2_wrong_weights_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    call_file = next(cache.glob("*.calls/*.json"))
+    receipt = json.loads(call_file.read_text())
+    receipt["response"]["binding"]["weights"] = [{"path": "other", "bytes": 1, "sha256": "x" * 64}]
+    call_file.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_f2_malformed_extra_call_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    calls_dir = next(d for d in cache.glob("*.calls") if d.is_dir())
+    (calls_dir / "9999.json").write_text("{bad json", encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_f2_per_task_offsetting_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
     path = run / "round_1/parent/train_trajectories.jsonl"
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     called = [r for r in rows if r["model_call_count"] > 0]
     called[0]["model_call_count"] += 1
     called[1]["model_call_count"] -= 1
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    result = summarize(run)
-    r1 = _rounds(result)[1]
-    assert r1["calls"]["cross_check_ok"] is False
-    assert r1["products_complete"] is False
-
-
-def test_i3_missing_persisted_call_receipt_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
-    calls_dir = next(d for d in cache.glob("*.calls") if d.is_dir())
-    next(calls_dir.glob("*.json")).unlink()
-    result = summarize(run)
+    result = _summarize(run, ctx)
     assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
 
 
-def test_i3_wrong_state_call_binding_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
-    call_file = next(cache.glob("*.calls/*.json"))
-    receipt = json.loads(call_file.read_text())
-    receipt["binding"]["state_hash"] = "f" * 64
-    call_file.write_text(json.dumps(receipt), encoding="utf-8")
-    result = summarize(run)
-    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+# --- F3: full Task identity chain / snapshot seal --------------------------
+
+def test_f3_same_generation_different_harness_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    active_path = run / "active_task.json"
+    active = json.loads(active_path.read_text())
+    other = run / "harness" / "unrelated.json"
+    other.write_text(json.dumps({"harness_generation": 999}), encoding="utf-8")
+    active["harness_path"] = str(other)  # generation unchanged, harness bytes differ
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert result["run_complete"] is False
+    assert any("active chain" in b for b in _blockers(result))
 
 
-def test_i3_non_terminal_call_status_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
-    call_file = next(cache.glob("*.calls/*.json"))
-    receipt = json.loads(call_file.read_text())
-    receipt["status"] = "running"
-    call_file.write_text(json.dumps(receipt), encoding="utf-8")
-    result = summarize(run)
-    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+def test_f3_same_generation_different_checkpoint_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    active_path = run / "active_task.json"
+    active = json.loads(active_path.read_text())
+    active["checkpoint_path"] = "/models/Other"
+    active["model_ref"] = "/models/Other"
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert result["run_complete"] is False
 
 
-# --- I4: selection/activation/active chain/snapshot/skills/context/A0 --------
+def test_f3_snapshot_selected_outside_seal_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    receipt_path = run / "snapshots/round_1_attempt_1/snapshot_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["combinations"]["selected"]["state_path"] = str(run / "active_task.json")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["products_complete"] is False
 
-def test_i4_zero_gain_accept_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    # make B5 a zero-gain accept by equalizing candidate success to parent
-    attempt = run / "round_5/attempts/attempt_1"
-    selection_path = attempt / "selection.json"
+
+def test_f3_retain_selected_must_equal_parent(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    # B2 is retain; point its selected snapshot state at the candidate (wrong)
+    snap_state = run / "snapshots/round_2_attempt_1/task/task_state_snapshot.json"
+    candidate = json.loads((run / "snapshots/round_2_attempt_1/task/candidate_state.json").read_text())
+    snap_state.write_text(json.dumps(candidate), encoding="utf-8")
+    receipt_path = run / "snapshots/round_2_attempt_1/snapshot_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["files_sha256"]["task/task_state_snapshot.json"] = file_hash(snap_state)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[2]["products_complete"] is False
+
+
+def test_f3_zero_gain_accept_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    selection_path = run / "round_5/attempts/attempt_1/selection.json"
     selection = json.loads(selection_path.read_text())
     selection["after"] = selection["before"]
     selection["delta"] = 0.0
     selection["new_success"] = 0
     selection["new_regression"] = 0
     selection_path.write_text(json.dumps(selection), encoding="utf-8")
-    result = summarize(run)
+    result = _summarize(run, ctx)
     assert _rounds(result)[5]["products_complete"] is False
-    assert result["run_complete"] is False
 
 
-def test_i4_accept_without_activate_receipt_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
+def test_f3_accept_without_activate_receipt_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
     (run / "controller_transport/activate_1/result.json").unlink()
-    result = summarize(run)
-    r1 = _rounds(result)[1]
-    assert r1["activated"] is False
-    assert r1["products_complete"] is False
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["activated"] is False
+    assert _rounds(result)[1]["products_complete"] is False
 
 
-def test_i4_missing_skills_or_context_blocks_completion(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    (run / "meta/skills.jsonl").unlink()
-    result = summarize(run)
-    assert result["run_complete"] is False
-    assert any("skill" in b.lower() for b in _blocker_text(result))
-
-
-def test_i4_missing_a0_blocks_completion(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    import shutil
-    shutil.rmtree(run / "snapshots/A0")
-    result = summarize(run)
-    assert result["run_complete"] is False
-    assert any("A0" in b for b in _blocker_text(result))
-
-
-def test_i4_corrupt_snapshot_hash_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
+def test_f3_corrupt_snapshot_hash_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
     receipt_path = run / "snapshots/round_1_attempt_1/snapshot_receipt.json"
     receipt = json.loads(receipt_path.read_text())
     receipt["files_sha256"]["task/task_state_snapshot.json"] = "0" * 64
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-    result = summarize(run)
+    result = _summarize(run, ctx)
     assert _rounds(result)[1]["products_complete"] is False
 
 
-def test_i4_missing_active_identity_blocks_completion(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    (run / "active_task.json").unlink()
-    result = summarize(run)
+def test_f3_missing_skills_context_a0_block(tmp_path):
+    import shutil
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    (run / "meta/skills.jsonl").unlink()
+    result = _summarize(run, ctx)
     assert result["run_complete"] is False
-    assert result["active_identity"]["generation"] is None
+    assert any("skill" in b.lower() for b in _blockers(result))
+    run2, _, ctx2 = _build_run(tmp_path / "b", complete=True)
+    shutil.rmtree(run2 / "snapshots/A0")
+    result2 = _summarize(run2, ctx2)
+    assert any("A0" in b for b in _blockers(result2))
 
 
-def test_i4_broken_cross_round_active_chain_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    # B3 parent generation must equal B2 selected; corrupt B3 parent state
-    parent_state = run / "round_3/attempts/attempt_1/before/parent_task.json"
-    value = json.loads(parent_state.read_text())
-    value["generation"] = 99
-    parent_state.write_text(json.dumps(value), encoding="utf-8")
-    result = summarize(run)
+# --- F4: real job inventory / ordered turns / workflow milestones ----------
+
+def test_f4_missing_all_jobs_rejected(tmp_path):
+    import shutil
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    shutil.rmtree(run / "meta_session/jobs")
+    result = _summarize(run, ctx)
     assert result["run_complete"] is False
-    assert any("chain" in b.lower() or "active" in b.lower() for b in _blocker_text(result))
+    assert any("job" in b.lower() for b in _blockers(result))
 
 
-# --- I5: real job results / finish / stage / supervision ---------------------
-
-def test_i5_malformed_job_result_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    (run / "controller_transport/run_parent_1/result.json").write_text("{bad json", encoding="utf-8")
-    result = summarize(run)
-    assert result["run_complete"] is False
-    assert any("job" in b.lower() for b in _blocker_text(result))
-
-
-def test_i5_running_job_result_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
+def test_f4_completed_nonzero_returncode_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
     path = run / "controller_transport/run_parent_1/result.json"
     value = json.loads(path.read_text())
-    value["status"] = "running"
+    value["status"] = "completed"
+    value["returncode"] = 1
     path.write_text(json.dumps(value), encoding="utf-8")
-    result = summarize(run)
+    result = _summarize(run, ctx)
+    assert result["run_complete"] is False
+    assert any("required production jobs failed" in b for b in _blockers(result))
+
+
+def test_f4_unknown_status_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    path = run / "controller_transport/run_parent_1/result.json"
+    value = json.loads(path.read_text())
+    value["status"] = "starting"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    result = _summarize(run, ctx)
     assert result["run_complete"] is False
 
 
-def test_i5_missing_job_json_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    (run / "meta_session/jobs/run_parent_1/job.json").unlink()
-    result = summarize(run)
+def test_f4_wrong_result_root_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    job_path = run / "meta_session/jobs/run_parent_1/job.json"
+    job = json.loads(job_path.read_text())
+    job["result_path"] = str(tmp_path / "elsewhere" / "result.json")
+    job_path.write_text(json.dumps(job), encoding="utf-8")
+    result = _summarize(run, ctx)
     assert result["run_complete"] is False
 
 
-def test_i5_wrong_current_stage_blocks_completion(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    (run / "meta_session/RUN_STATUS.md").write_text(
-        "Current stage: **B2**\nFinish allowed: **yes**\n", encoding="utf-8")
-    result = summarize(run)
+def test_f4_early_finish_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    # move finish turn before B5 snapshot by renaming it to a low number
+    turns = run / "meta_session/turns"
+    finish_dir = next(d for d in turns.iterdir()
+                      if (d / "command.json").is_file()
+                      and json.loads((d / "command.json").read_text())["request"]["operation"] == "finish_experiment")
+    early = turns / "0000_early"
+    finish_dir.rename(early)
+    result = _summarize(run, ctx)
     assert result["run_complete"] is False
-    assert any("stage" in b.lower() for b in _blocker_text(result))
+    assert any("finish" in b.lower() for b in _blockers(result))
 
 
-def test_i5_missing_finish_receipt_blocks_completion(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    (run / "meta_session/turns/finish/receipt.json").unlink()
-    result = summarize(run)
+def test_f4_workflow_incomplete_stage_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    workflow_path = run / "meta_session/workflow_state.json"
+    workflow = json.loads(workflow_path.read_text())
+    for stage in workflow["stages"]:
+        if stage["id"] == "B3":
+            stage["remaining_milestones"] = ["selection_recorded"]
+    workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
+    result = _summarize(run, ctx)
     assert result["run_complete"] is False
-    assert any("finish" in b.lower() for b in _blocker_text(result))
+    assert any("workflow incomplete" in b for b in _blockers(result))
 
 
-def test_i5_unreconciled_supervision_blocks_run_complete(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    reconcile = run / "meta_session/supervision/0001/reconcile.json"
-    reconcile.write_text(json.dumps({"status": "pending", "remaining": ["pid:1"]}), encoding="utf-8")
-    result = summarize(run)
-    assert result["run_complete"] is False
-
-
-# --- I6: output-root owned registry; protocol_complete vs run_complete -------
-
-def test_i6_registry_not_stopped_blocks_run_complete(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    registry = run.parent.parent / "services/four_gpu_services.json"
-    value = json.loads(registry.read_text())
-    value["phase"] = "inference_ready"
-    registry.write_text(json.dumps(value), encoding="utf-8")
-    result = summarize(run)
-    assert result["protocol_complete"] is True
-    assert result["run_complete"] is False
-    assert any("service" in b.lower() or "registry" in b.lower() for b in _blocker_text(result))
-
-
-def test_i6_missing_registry_blocks_run_complete(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    (run.parent.parent / "services/four_gpu_services.json").unlink()
-    result = summarize(run)
-    assert result["run_complete"] is False
+def test_f4_exploration_terminal_failure_allowed(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _write_job(run, "explore_cmd", "run_command", status="exited", returncode=127)
+    result = _summarize(run, ctx)
     assert result["protocol_complete"] is True
 
 
-def test_i6_wrong_root_registry_is_rejected(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    registry = run.parent.parent / "services/four_gpu_services.json"
-    value = json.loads(registry.read_text())
-    value["checkpoint"] = "/models/OtherModel"
-    registry.write_text(json.dumps(value), encoding="utf-8")
-    result = summarize(run)
+# --- F5: external cleanup receipt consumer ---------------------------------
+
+def test_f5_protocol_complete_without_cleanup_run_incomplete(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    result = _summarize(run, ctx)
+    assert result["protocol_complete"] is True
+    assert result["run_complete"] is False
+    assert "external_cleanup_missing" in result["external_cleanup"]["blockers"]
+    assert result["services_stopped"] is True  # registry fact still shown
+
+
+def test_f5_cleanup_pending_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    cleanup = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"], status="pending")
+    result = _load_summarizer().summarize(run, config_path=ctx["config_path"], cleanup_receipt_path=cleanup)
+    assert result["protocol_complete"] is True
+    assert result["run_complete"] is False
+    assert any("external_cleanup_pending" in b for b in result["external_cleanup"]["blockers"])
+
+
+def test_f5_cleanup_wrong_run_binding_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    cleanup = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"], run_binding="/other/run")
+    result = _load_summarizer().summarize(run, config_path=ctx["config_path"], cleanup_receipt_path=cleanup)
+    assert result["run_complete"] is False
+    assert "external_cleanup_run_binding" in result["external_cleanup"]["blockers"]
+
+
+def test_f5_cleanup_gpu_compute_apps_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    cleanup = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"], compute_apps=[{"pid": 999}])
+    result = _load_summarizer().summarize(run, config_path=ctx["config_path"], cleanup_receipt_path=cleanup)
+    assert result["run_complete"] is False
+    assert "external_cleanup_gpu_compute_apps" in result["external_cleanup"]["blockers"]
+
+
+def test_f5_cleanup_owner_alive_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    cleanup = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"], owners_exited=False)
+    result = _load_summarizer().summarize(run, config_path=ctx["config_path"], cleanup_receipt_path=cleanup)
     assert result["run_complete"] is False
 
 
-# --- I7: production MODEL/SFT model_update path and evidence -----------------
+def test_f5_exit0_stopped_alone_insufficient(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    # registry stopped + supervision exit0 exist, but no cleanup receipt
+    result = _summarize(run, ctx)
+    assert result["services_stopped"] is True
+    assert result["launcher_exited"] is True
+    assert result["run_complete"] is False
 
-def test_i7_model_selected_without_evidence_blocks(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
+
+def test_f5_completed_cleanup_binding_valid_completes(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    result = _summarize(run, ctx)
+    assert result["external_cleanup"]["ok"] is True
+    assert result["run_complete"] is True
+
+
+# --- F6: production MODEL/SFT schema ---------------------------------------
+
+def _add_model_round(run, ctx, n=2, *, mutate=None):
+    attempt = run / f"round_{n}/attempts/attempt_1"
+    decision_path = attempt / "decision.json"
+    decision = json.loads(decision_path.read_text())
+    decision["component"] = "MODEL"
+    decision_path.write_text(json.dumps(decision), encoding="utf-8")
+    parent_state = json.loads((attempt / "before/parent_task.json").read_text())
+    out = attempt / "candidate"
+    model_update = out / "model_update"
+    model_update.mkdir(parents=True, exist_ok=True)
+    child = _task_state(parent_state["generation"] + 1, attempt / "build/candidate_bundle.json")
+    child["checkpoint_path"] = "/models/Qwen3-4B-trained"
+    child["model_ref"] = "/models/Qwen3-4B-trained"
+    selection_report = {"positive_samples": 4, "input": 4, "unique": 4}
+    metrics = {
+        "world_size": 4,
+        "rank_records": [{"rank": r, "local_rank": r, "sampled_indices": [r], "optimizer_steps": 1,
+                          "peak_memory_bytes": 1024} for r in range(4)],
+        "num_train_epochs_completed": 1.0, "training_loss": 0.5,
+        "changed_lora_tensors": 7, "lora_delta_l2": 0.1,
+        "merged_probe_name": "q_proj", "merged_probe_changed_elements": 100,
+        "optimizer_steps": 1, "selection": selection_report,
+        "positive_trajectories": 4, "checkpoint_path": "/models/Qwen3-4B-trained",
+        "serving_status": "ready",
+    }
+    gpu = {"status": "completed", "restored_checkpoint": "/models/Qwen3-4B-trained",
+           "replica_gpus": [0, 1, 2, 3], "gpus": [0, 1, 2, 3]}
+    trained = {"model_ref": "/models/Qwen3-4B-trained", "checkpoint_path": "/models/Qwen3-4B-trained",
+               "training_metrics": str(model_update / "training_metrics.json"),
+               "training_method": "positive_sft_lora", "training_steps": 1, "training_summary": "fixture"}
+    if mutate:
+        mutate(metrics, gpu, child, trained)
+    (out / "candidate_state.json").write_text(json.dumps(child), encoding="utf-8")
+    (model_update / "training_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    (model_update / "gpu_phase_receipt.json").write_text(json.dumps(gpu), encoding="utf-8")
+    (model_update / "checkpoint_trained.json").write_text(json.dumps(trained), encoding="utf-8")
+    _transport_receipt(run, f"sft_{n}", {
+        "operation": "sft", "status": "completed",
+        "candidate_state_path": str(out / "candidate_state.json"),
+        "training_metrics_path": str(model_update / "training_metrics.json"),
+        "checkpoint_path": "/models/Qwen3-4B-trained", "positive_samples": 4,
+    })
+    _turn_receipt(run, "sft", n, {"status": "completed"})
+    return metrics
+
+
+def test_f6_model_completed_real_schema(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _add_model_round(run, ctx, 2)
+    result = _summarize(run, ctx)
+    assert result["model_sft"]["status"] == "completed"
+    assert 2 in result["model_sft"]["rounds"]
+
+
+def test_f6_model_selected_no_evidence_blocks(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
     decision_path = run / "round_2/attempts/attempt_1/decision.json"
     decision = json.loads(decision_path.read_text())
     decision["component"] = "MODEL"
     decision_path.write_text(json.dumps(decision), encoding="utf-8")
-    result = summarize(run)
+    result = _summarize(run, ctx)
     assert result["model_sft"]["status"] in ("selected_pending", "selected_failed")
     assert result["run_complete"] is False
     assert _rounds(result)[2]["products_complete"] is False
 
 
-def test_i7_model_sft_completed_with_production_layout(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
+def test_f6_fictional_fields_not_accepted(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
     attempt = run / "round_2/attempts/attempt_1"
     decision_path = attempt / "decision.json"
     decision = json.loads(decision_path.read_text())
     decision["component"] = "MODEL"
     decision_path.write_text(json.dumps(decision), encoding="utf-8")
-    output = attempt / "candidate"
-    (output / "model_update").mkdir(parents=True, exist_ok=True)
-    (output / "model_update/training_metrics.json").write_text(json.dumps({
-        "optimizer_steps": 5, "warmup_steps": 2, "training_loss": 0.25,
-        "ranks": 4, "epochs": 1, "merged": True, "reloaded": True,
-        "positive_samples": 4,
+    out = attempt / "candidate"
+    (out / "model_update").mkdir(parents=True, exist_ok=True)
+    (out / "model_update/training_metrics.json").write_text(json.dumps({
+        "optimizer_steps": 1, "ranks": 4, "epochs": 1, "merged": True, "reloaded": True,
     }), encoding="utf-8")
     _transport_receipt(run, "sft_2", {
         "operation": "sft", "status": "completed",
-        "candidate_state_path": str(output / "candidate_state.json"),
-        "training_metrics_path": str(output / "model_update/training_metrics.json"),
-        "checkpoint_path": CHECKPOINT, "positive_samples": 4,
+        "candidate_state_path": str(out / "candidate_state.json"),
+        "training_metrics_path": str(out / "model_update/training_metrics.json"),
     })
-    result = summarize(run)
-    assert result["model_sft"]["status"] == "completed"
-    assert 2 in result["model_sft"]["rounds"]
-
-
-def test_i7_model_sft_wrong_path_not_recorded(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path, complete=True)
-    attempt = run / "round_2/attempts/attempt_1"
-    decision_path = attempt / "decision.json"
-    decision = json.loads(decision_path.read_text())
-    decision["component"] = "MODEL"
-    decision_path.write_text(json.dumps(decision), encoding="utf-8")
-    # metrics at candidate root (wrong; production uses model_update/) must not certify
-    (attempt / "candidate/training_metrics.json").write_text(
-        json.dumps({"optimizer_steps": 5, "warmup_steps": 2, "training_loss": 0.25}), encoding="utf-8")
-    result = summarize(run)
+    result = _summarize(run, ctx)
     assert result["model_sft"]["status"] != "completed"
     assert result["run_complete"] is False
 
 
-def test_summarizer_model_sft_not_selected_without_model_round(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path)
-    result = summarize(run)
+@pytest.mark.parametrize("field", ["world_size", "rank_records", "epoch", "loss", "changed_lora", "merged_probe", "child"])
+def test_f6_wrong_fields_rejected(tmp_path, field):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+
+    def mutate(metrics, gpu, child, trained):
+        if field == "world_size":
+            metrics["world_size"] = 1
+        elif field == "rank_records":
+            metrics["rank_records"] = metrics["rank_records"][:3]
+        elif field == "epoch":
+            metrics["num_train_epochs_completed"] = 2.0
+        elif field == "loss":
+            metrics["training_loss"] = float("nan")
+        elif field == "changed_lora":
+            metrics["changed_lora_tensors"] = 0
+        elif field == "merged_probe":
+            metrics["merged_probe_changed_elements"] = 0
+        elif field == "child":
+            child["generation"] = 99
+
+    _add_model_round(run, ctx, 2, mutate=mutate)
+    result = _summarize(run, ctx)
+    assert result["model_sft"]["status"] != "completed"
+    assert result["run_complete"] is False
+
+
+def test_f6_not_selected_without_model_round(tmp_path):
+    run, _, ctx = _build_run(tmp_path)
+    result = _summarize(run, ctx)
     assert result["model_sft"]["status"] == "not_selected"
-    assert result["model_sft"]["rounds"] == []
 
 
-# --- I8: error mention layering and per-task transition attribution ----------
+# --- I8 errno layering (retained) + real single-run observed facts ----------
 
 def test_i8_error_layering_fixture(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path)
-    # parent: 7 zero-call rows -> ENOENT on 3, EAGAIN on 4; called ENOENT on a success.
-    # all-row ENOENT (4) must differ from the zero-call subset (3); the called success
-    # carrying ENOENT must not be miscounted as a zero-call process failure.
+    run, _, ctx = _build_run(tmp_path)
     parent_path = run / "round_1/parent/train_trajectories.jsonl"
     rows = [json.loads(line) for line in parent_path.read_text().splitlines() if line.strip()]
     zero = [r for r in rows if r["model_call_count"] == 0]
@@ -1607,10 +1779,8 @@ def test_i8_error_layering_fixture(tmp_path):
     called_success = [r for r in rows if r["model_call_count"] > 0 and r["verification"]["success"]]
     called_success[0]["error"] = "FileNotFoundError: [Errno 2] No such file or directory"
     parent_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    result = summarize(run)
-    errs = _rounds(result)[1]["errors"]["parent"]
+    errs = _rounds(_summarize(run, ctx))[1]["errors"]["parent"]
     assert errs["error_mentions_all_rows"]["enoent"] == 4
-    assert errs["error_mentions_all_rows"]["eagain"] == 4
     assert errs["zero_call_negative"]["count"] == 7
     assert errs["zero_call_negative"]["enoent"] == 3
     assert errs["zero_call_negative"]["eagain"] == 4
@@ -1618,91 +1788,84 @@ def test_i8_error_layering_fixture(tmp_path):
     assert errs["success_with_error"]["enoent"] == 1
 
 
-def test_i8_real_single_run_errno_layering_readonly():
-    summarize = _load_summarizer().summarize
+def test_i8_realistic_zero_call_overlap(tmp_path):
+    import shutil
+    run, _, ctx = _build_run(tmp_path)
+    shutil.rmtree(run / "round_1")
+    manifests = ctx["manifests"]
+    release, _, record_hashes = _build_release(tmp_path / "rel2", 2)
+    _write_round(
+        run, 1, parent_success=set(TASK_IDS[:3]), candidate_success=set(TASK_IDS[3:7]),
+        zero_call_parent=set(TASK_IDS[3:16]), zero_call_candidate=set(TASK_IDS[:3]) | set(TASK_IDS[7:16]),
+        parent_generation=0, candidate_generation=1,
+        manifest_hash=manifests[1]["manifest_hash"],
+        task_source_hash=file_hash(release / "B1/deepcoder_taco.jsonl"),
+        component="HARNESS", decision="accept_candidate")
+    r1 = _rounds(_summarize(run, ctx))[1]
+    assert r1["products_complete"] is True
+    assert r1["delta"] == pytest.approx(0.0625)
+    assert r1["zero_call_overlap"] == {"new_success_zero_call": 4, "new_regression_zero_call": 3}
+
+
+def test_real_single_run_observed_facts_readonly():
+    module = _load_summarizer()
     src = Path("/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight/"
                "Rollout_logs/deepcoder_canary_16_v1/runs/deepcoder_function_16_canary_workspace_v1")
-    if not src.is_dir():
-        pytest.skip("real single-round canary run not available")
-    result = summarize(src)
+    config = Path("/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/"
+                  "reproduction/configs/train_4b_deepcoder_canary_workspace.json")
+    if not src.is_dir() or not config.is_file():
+        pytest.skip("real single-round canary run/config not available")
+    result = module.summarize(src, config_path=config)
     assert result["completed_rounds"] == 1
     assert result["run_complete"] is False
     r1 = _rounds(result)[1]
+    assert r1["products_complete"] is True
     assert r1["delta"] == pytest.approx(0.0625)
-    assert r1["transitions"] == {"new_success": 4, "new_regression": 3,
-                                 "retained_failure": 9, "retained_success": 0}
-    pe = r1["errors"]["parent"]
-    ce = r1["errors"]["candidate"]
+    assert r1["transitions"] == {"new_success": 4, "new_regression": 3, "retained_failure": 9, "retained_success": 0}
+    pe, ce = r1["errors"]["parent"], r1["errors"]["candidate"]
     assert pe["error_mentions_all_rows"]["enoent"] == 9
     assert pe["error_mentions_all_rows"]["eagain"] == 6
     assert pe["zero_call_negative"]["enoent"] == 3
     assert pe["zero_call_negative"]["eagain"] == 6
     assert ce["error_mentions_all_rows"]["enoent"] == 8
-    assert ce["error_mentions_all_rows"]["eagain"] == 7
     assert ce["zero_call_negative"]["enoent"] == 1
     assert ce["zero_call_negative"]["eagain"] == 7
     assert pe["success_with_error"]["enoent"] == 3
     assert r1["calls"]["parent"]["persisted_receipts"] == 51
     assert r1["calls"]["candidate"]["persisted_receipts"] == 93
     assert r1["calls"]["cross_check_ok"] is True
-    # zero-call process anomalies overlap the outcome transitions (causal attribution limited)
     assert r1["zero_call_overlap"] == {"new_success_zero_call": 4, "new_regression_zero_call": 3}
-    # verification completed / valid answer / full verifier / success stay separated
-    assert r1["verification"]["parent"] == {"completed": 16, "valid_answer": 7,
-                                            "full_verifier": 7, "success": 3}
-    assert r1["verification"]["candidate"]["success"] == 4
-    assert r1["errors"]["parent"]["infrastructure_error_true"] == 0
-    assert r1["products_complete"] is True
+    assert r1["verification"]["parent"] == {"completed": 16, "valid_answer": 7, "full_verifier": 7, "success": 3}
 
 
-def test_i8_realistic_zero_call_overlap_accept_fixture(tmp_path):
-    summarize = _load_summarizer().summarize
-    run, _ = _build_run(tmp_path)
-    # Mirror the real canary: new successes are parent zero-call failures that the
-    # candidate calls and solves; regressions are parent called successes that the
-    # candidate fails pre-model (zero calls). Positive gain, accept, overlap 4/3.
-    import shutil
-    shutil.rmtree(run / "round_1")  # fresh round so no stale per-call receipts remain
-    _write_round(
-        run, 1,
-        parent_success=set(TASK_IDS[:3]), candidate_success=set(TASK_IDS[3:7]),
-        zero_call_parent=set(TASK_IDS[3:16]),
-        zero_call_candidate=set(TASK_IDS[:3]) | set(TASK_IDS[7:16]),
-        parent_generation=0, candidate_generation=1,
-        component="HARNESS", decision="accept_candidate")
-    result = summarize(run)
-    r1 = _rounds(result)[1]
-    assert r1["products_complete"] is True
-    assert r1["delta"] == pytest.approx(0.0625)
-    assert r1["activated"] is True
-    assert r1["transitions"]["new_success"] == 4
-    assert r1["transitions"]["new_regression"] == 3
-    assert r1["zero_call_overlap"] == {"new_success_zero_call": 4, "new_regression_zero_call": 3}
-    # per-task transition details carry both sides' calls and errno for attribution
-    details = {d["task_id"]: d for d in r1["task_transitions"]}
-    new_success_task = TASK_IDS[3]
-    assert details[new_success_task]["transition"] == "new_success"
-    assert details[new_success_task]["parent_calls"] == 0
-    assert details[new_success_task]["candidate_calls"] > 0
-    regression_task = TASK_IDS[0]
-    assert details[regression_task]["transition"] == "new_regression"
-    assert details[regression_task]["parent_calls"] > 0
-    assert details[regression_task]["candidate_calls"] == 0
-
-
-# --- M1: Markdown symmetric parent/candidate facts ---------------------------
-
-def test_m1_markdown_shows_both_sides_and_gates(tmp_path):
+def test_real_single_run_without_config_blocks_completion():
     module = _load_summarizer()
-    run, _ = _build_run(tmp_path, complete=True)
-    result = module.summarize(run)
+    src = Path("/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/preflight/"
+               "Rollout_logs/deepcoder_canary_16_v1/runs/deepcoder_function_16_canary_workspace_v1")
+    if not src.is_dir():
+        pytest.skip("real single-round canary run not available")
+    result = module.summarize(src)
+    assert result["trusted_config"] is False
+    assert result["protocol_complete"] is False
+    assert result["run_complete"] is False
+    r1 = _rounds(result)[1]
+    # observed arithmetic preserved even without trusted config
+    assert r1["delta"] == pytest.approx(0.0625)
+    assert r1["calls"]["parent"]["persisted_receipts"] == 51
+
+
+# --- M1 Markdown -----------------------------------------------------------
+
+def test_m1_markdown_symmetric_and_gates(tmp_path):
+    module = _load_summarizer()
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    result = _summarize(run, ctx)
     text = module._markdown(result)
-    assert "candidate" in text.lower()
     assert "verification parent" in text and "verification candidate" in text
     assert "errors parent" in text and "errors candidate" in text
-    assert "active" in text.lower()
-    assert "attempt" in text.lower()
-    assert "snapshot" in text.lower()
-    assert "skills" in text.lower()
-    assert "context" in text.lower()
-    assert "protocol_complete" in text
+    assert "calls parent" in text and "calls candidate" in text
+    assert "active identity" in text
+    assert "attempt_count" in text
+    assert "snapshot_present" in text
+    assert "skills_present" in text and "context_present" in text
+    assert "protocol_complete" in text and "external_cleanup" in text

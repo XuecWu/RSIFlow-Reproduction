@@ -730,19 +730,24 @@ def _build_release(base, rounds):
 
 
 def _build_config(base, output_root, run_name, release, rounds):
+    value = _five_round_launcher_value(base)
+    value.update(output_root=str(output_root), run_name=run_name, frozen_data_dir=str(release))
     config_path = base / "machine.json"
-    config_path.write_text(json.dumps({
-        "output_root": str(output_root), "run_name": run_name,
-        "frozen_data_dir": str(release), "rounds": rounds,
-        "experiment_scope": "deepcoder_five_round_canary", "training_schedule": "round_repeated",
-    }), encoding="utf-8")
+    config_path.write_text(json.dumps(value), encoding="utf-8")
     return config_path
 
 
+def _fixture_protocol(config_path):
+    from evolution_protocol import fingerprint
+    cfg = TaskAdapter(ROOT, Path(config_path).parent / "receipts")._config({"config_path": str(config_path)})
+    return fingerprint({"runtime_config": cfg.model_dump(), "stage": "train_evolution_v1"})
+
+
 def _make_scope(round_n, manifest_hash, collection_stage, state, protocol_hash):
+    from rsiflow.task_meta.durable import task_hash, load_task
     return {"role": "train_evolution", "purpose": "evolution_train", "round_id": round_n,
             "manifest_hash": manifest_hash, "collection_stage": collection_stage,
-            "task_hash": _sha(f"task-hash-{round_n}-{collection_stage}"),
+            "task_hash": task_hash(load_task(state)),
             "harness_sha256": file_hash(Path(state["harness_path"])),
             "checkpoint_manifest": state["checkpoint_manifest"],
             "artifacts": _artifact_manifest_fixture(state["artifacts"]["directory"]),
@@ -791,7 +796,7 @@ def _trajectory(task_id, *, success, calls, round_n, state_hash, branch, manifes
         "task_id": task_id, "question_id": task_id, "source": "deepcoder_taco",
         "domain": "code", "split": "evolve_train", "rollout_id": 0,
         "state_hash": state_hash, "manifest_hash": manifest_hash,
-        "task_source_hash": task_source_hash, "source_role": "train_evolution",
+        "task_source_hash": task_source_hash, "source_role": "train_evolution", "purpose": "evolution_train",
         "collection_stage": collection_stage, "round_id": round_n,
         "infrastructure_error": infrastructure_error, "infrastructure_failure": infrastructure_error,
         "verification": verification, "valid_answer": called,
@@ -805,7 +810,8 @@ def _trajectory(task_id, *, success, calls, round_n, state_hash, branch, manifes
         "harness_hash": scope.get("harness_sha256"), "harness_sha256": scope.get("harness_sha256"),
         "parent_policy_hash": _fingerprint_fixture(checkpoint_manifest),
         "success_verifier_version": scope.get("protocol_hash"),
-        "model_ref": model_ref, "checkpoint_manifest": checkpoint_manifest,
+        "model_ref": model_ref, "artifact_input_manifest": [],
+        "messages": [{"role": "user", "content": task_id}, {"role": "assistant", "content": "answer"}],
     }
 
 
@@ -836,6 +842,7 @@ def _performance(rows, round_n, manifest_hash):
 
 def _call_receipt(task_id, state_hash, transport_call, scope, task_record, task_source_hash):
     request = {k: v for k, v in transport_call.items() if k != "response"}
+    request.update(status="started", usage_complete=False, unknown_usage_calls=1)
     return {
         "binding": {"task": task_id, "task_source_hash": task_source_hash,
                     "state_hash": state_hash, "rollout": 0, "probe": False,
@@ -861,9 +868,7 @@ def _write_side(side_dir, cache_root, rows, state_hash, round_n, manifest_hash, 
             "binding": {"task": r["task_id"], "task_source_hash": r["task_source_hash"],
                         "state_hash": state_hash, "rollout": 0, "probe": False,
                         "round_scope": scope, "task_record": task_record},
-            "row": {"task_id": r["task_id"], "state_hash": state_hash, "rollout_id": 0,
-                    "model_call_count": r["model_call_count"], "checkpoint_manifest": r["checkpoint_manifest"],
-                    "verification": r["verification"], "valid_answer": r["valid_answer"]},
+            "row": r,
         }), encoding="utf-8")
         if r["model_call_count"]:
             calls_dir = cache / (r["trajectory_id"] + ".calls")
@@ -885,6 +890,28 @@ def _harness_file(run, generation):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"harness_generation": generation}), encoding="utf-8")
     return path
+
+
+def _fixture_snapshot(run, snap, parent, candidate, selected):
+    from component_versions import ComponentVersions, snapshot
+    import shutil
+    if snap.exists():
+        shutil.rmtree(snap)
+    meta = run / "snapshot_inputs" / snap.name
+    meta.mkdir(parents=True, exist_ok=True)
+    skills = meta / "skills.jsonl"
+    skills.write_text("" if snap.name == "A0" else json.dumps({"id": snap.name}) + "\n")
+    context = meta / "context.json"
+    context.write_text(json.dumps({"snapshot": snap.name}))
+    active = run / "active_task.json"
+    active.write_text(json.dumps(selected))
+    states = {"selected": active}
+    if parent is not None:
+        attempt = run / snap.name.split("_attempt")[0] / "attempts/attempt_1"
+        states.update(parent=attempt / "before/parent_task.json", candidate=attempt / "build/candidate_state.json")
+    return snapshot(ComponentVersions(run / "versions", ROOT), snap, states, skills,
+                    {"context_path": str(context), "context_reference": {
+                        "source": str(context), "path": str(context), "sha256": file_hash(context)}})
 
 
 def _transport_receipt(run, identifier, payload):
@@ -919,6 +946,7 @@ def _write_job(run, identifier, operation, *, status="completed", returncode=0,
     transport = run / "controller_transport" / identifier
     transport.mkdir(parents=True, exist_ok=True)
     result_path = transport / "result.json"
+    (transport / "request.json").write_text(json.dumps({"operation": operation}))
     turn_dir = run / "meta_session/turns" / identifier
     turn_dir.mkdir(parents=True, exist_ok=True)
     result = {"operation": operation, "status": status, "returncode": returncode}
@@ -1019,40 +1047,7 @@ def _write_round(run, n, *, parent_success, candidate_success,
     (attempt / "build/candidate_state.json").write_text(json.dumps(candidate_state), encoding="utf-8")
 
     snap = run / "snapshots" / f"round_{n}_attempt_1"
-    (snap / "task").mkdir(parents=True, exist_ok=True)
-    (snap / "task/parent_state.json").write_text(json.dumps(parent_state), encoding="utf-8")
-    (snap / "task/candidate_state.json").write_text(json.dumps(candidate_state), encoding="utf-8")
-    (snap / "task/task_state_snapshot.json").write_text(json.dumps(selected_state), encoding="utf-8")
-    checkpoint_reference = {"model_ref": selected_state["model_ref"],
-                            "checkpoint_path": selected_state["checkpoint_path"],
-                            "checkpoint_manifest": selected_state["checkpoint_manifest"],
-                            "weights_copied": False}
-    (snap / "task/checkpoint_reference.json").write_text(json.dumps(checkpoint_reference), encoding="utf-8")
-    (snap / "meta_contents.jsonl").write_text(json.dumps({"id": f"meta_{n+1:03d}"}) + "\n", encoding="utf-8")
-    meta_entry = {"id": f"meta_{n+1:03d}", "sha256": file_hash(snap / "meta_contents.jsonl"),
-                  "path": str(snap / "meta_contents.jsonl")}
-    context_reference = {"sha256": _sha(f"context-{n}")}
-    versions_record = {"versions_root": str(snap), "index_path": str(snap / "versions.json"),
-                       "combinations": {}, "meta": meta_entry,
-                       "references": {"context_reference": context_reference}}
-    (snap / "versions.json").write_text(json.dumps(versions_record), encoding="utf-8")
-    files_sha256 = {p.relative_to(snap).as_posix(): file_hash(p)
-                    for p in snap.rglob("*") if p.is_file() and p.name != "snapshot_receipt.json"}
-    (snap / "snapshot_receipt.json").write_text(json.dumps({
-        "status": "snapshotted", "destination": str(snap),
-        "combinations": {
-            "parent": {"state_path": str(snap / "task/parent_state.json"),
-                       "source_state": str(attempt / "before/parent_task.json")},
-            "candidate": {"state_path": str(snap / "task/candidate_state.json"),
-                          "source_state": str(attempt / "build/candidate_state.json")},
-            "selected": {"state_path": str(snap / "task/task_state_snapshot.json"),
-                         "source_state": str(run / "active_task.json")},
-        },
-        "files_sha256": files_sha256,
-        "meta": meta_entry,
-        "references": {"context_reference": context_reference},
-        "context_reference": context_reference,
-    }), encoding="utf-8")
+    _fixture_snapshot(run, snap, parent_state, candidate_state, selected_state)
 
     parent_perf_path = str(round_dir / "parent/performance.json")
     candidate_perf_path = str(attempt / "candidate/performance.json")
@@ -1084,56 +1079,175 @@ def _write_round(run, n, *, parent_success, candidate_success,
             "parent_generation": parent_generation, "selected_generation": selected_generation}
 
 
+def _fixture_journal(run, config_path, complete):
+    """Use real commands/receipts and the production progress rebuilder in tmp."""
+    from experiment_progress import ExperimentProgress
+    import shutil
+    turns = run / "meta_session/turns"
+    shutil.rmtree(turns, ignore_errors=True)
+    _TURN_COUNTER[0] = 0
+    config = json.loads(Path(config_path).read_text())
+    policy = {k: config[k] for k in ("rounds", "experiment_scope", "retry_rejected_from_round", "evaluation_schedule")}
+    (run / "meta_session/workflow_policy.json").write_text(json.dumps(policy))
+
+    def emit(op, number, request, receipt, job=None):
+        turn = _turn_receipt(run, op, number, receipt)
+        request = {"operation": op, "round_number": number, **request}
+        (turn / "command.json").write_text(json.dumps({"action": "tool", "request": request}))
+        if job:
+            transport = run / "controller_transport" / job
+            transport.mkdir(exist_ok=True)
+            (transport / "request.json").write_text(json.dumps(request))
+            (transport / "result.json").write_text(json.dumps({"operation": op, **receipt}))
+            path = run / "meta_session/jobs" / job / "job.json"
+            old = json.loads(path.read_text()) if path.exists() else {}
+            old.update(job_id=job, request=request, pid=10000 + len(list((run / "meta_session/jobs").glob("*/job.json"))),
+                       process_start="100", turn_dir=str(turn), result_path=str(transport / "result.json"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(old))
+        return turn
+
+    emit("bootstrap", 0, {"config_path": str(config_path)},
+         {"status": "completed", "state_path": str(run / "active_task.json")}, "bootstrap_0")
+    a0 = run / "snapshots/A0/snapshot_receipt.json"
+    emit("snapshot_task_meta", 0, {"destination": str(a0.parent)}, json.loads(a0.read_text()))
+    for n in range(1, 6):
+        rd = run / f"round_{n}"
+        if not rd.exists():
+            break
+        at = rd / "attempts/attempt_1"
+        common = {"config_path": str(config_path)}
+        for op, state, output in (("run_parent", at / "before/parent_task.json", rd / "parent"),):
+            emit(op, n, {**common, "state_path": str(state), "output_dir": str(output)},
+                 {"status": "completed", "state_path": str(state), "output_dir": str(output),
+                  "performance_path": str(output / "performance.json")}, f"{op}_{n}")
+        ev = rd / "evidence/statistics.json"
+        ev.parent.mkdir(exist_ok=True); ev.write_text("{}")
+        emit("prepare_meta_evidence", n, {"output_dir": str(ev.parent)},
+             {"status": "completed", "statistics_path": str(ev)})
+        emit("write_text", n, {"path": str(at / "decision.json")},
+             {"status": "written", "path": str(at / "decision.json")})
+        component = json.loads((at / "decision.json").read_text())["component"]
+        if component == "MODEL":
+            result = json.loads((run / f"controller_transport/sft_{n}/result.json").read_text())
+            emit("sft", n, {**common, "state_path": str(at / "before/parent_task.json"),
+                            "parent_rollout_dir": str(rd / "parent"), "output_dir": str(at / "candidate")},
+                 result, f"sft_{n}")
+        else:
+            emit("rsiflow", n, {"output_dir": str(at / "build")},
+                 {"status": "completed", "candidate_state_path": str(at / "build/candidate_state.json")})
+        emit("run_candidate", n, {**common, "state_path": str(at / "build/candidate_state.json"),
+                                 "output_dir": str(at / "candidate")},
+             {"status": "completed", "state_path": str(at / "build/candidate_state.json"),
+              "output_dir": str(at / "candidate"), "performance_path": str(at / "candidate/performance.json")}, f"run_candidate_{n}")
+        compare = run / f"controller_transport/compare_{n}/result.json"
+        emit("compare_scores", n, {"before": str(rd / "parent/performance.json"),
+                                   "after": str(at / "candidate/performance.json")}, json.loads(compare.read_text()))
+        sel = json.loads((at / "selection.json").read_text())
+        # Production progress recognizes the explicit accept_or_retain field.
+        sel["accept_or_retain"] = sel["decision"]
+        (at / "selection.json").write_text(json.dumps(sel))
+        emit("write_text", n, {"path": str(at / "selection.json"), "content": json.dumps(sel)},
+             {"status": "written", "path": str(at / "selection.json")})
+        if sel["decision"] == "accept_candidate":
+            act = run / f"controller_transport/activate_{n}/result.json"
+            emit("activate_task", n, {"source": str(at / "build/candidate_state.json")}, json.loads(act.read_text()))
+        emit("append_skills", n, {"path": str(run / "meta/skills.jsonl")},
+             {"status": "appended", "appended_count": 1, "path": str(run / "meta/skills.jsonl")})
+        emit("write_text", n, {"path": str(run / "meta/context.json")},
+             {"status": "written", "path": str(run / "meta/context.json")})
+        snap = run / f"snapshots/round_{n}_attempt_1/snapshot_receipt.json"
+        emit("snapshot_task_meta", n, {"destination": str(snap.parent)}, json.loads(snap.read_text()))
+    if complete:
+        emit("finish_experiment", 5, {}, {"status": "complete", "remaining": {}})
+    ExperimentProgress(run / "meta_session", rounds=5).rebuild()
+
+
 def _cleanup_receipt(run, output_root, config_path, *, status="completed", attempt="0001",
                      run_binding=None, registry_phase="services_stopped", compute_apps=None,
                      free_verified=True, owners_exited=True):
-    directory = run / "meta_session/supervision" / attempt / "external-cleanup" / "obs1"
+    # A consumer fixture, not a production cleanup writer: all process/GPU
+    # observations below are synthetic tmp files and no live inspection occurs.
+    directory = run / "meta_session/supervision" / attempt / "external-cleanup/obs1"
     directory.mkdir(parents=True, exist_ok=True)
-    gpu_obs = {"time": "2026-11-18T00:00:00Z", "command": "nvidia-smi", "result": 0, "command_result": 0,
-               "stdout_hash": _sha("gpu"), "expected_uuids": ["GPU-0", "GPU-1", "GPU-2", "GPU-3"],
-               "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000} for g in range(4)],
-               "compute_apps": compute_apps if compute_apps is not None else [],
-               "free_verified": free_verified, "namespace_notes": ""}
-    (directory / "gpu_observation.json").write_text(json.dumps(gpu_obs), encoding="utf-8")
-    registry_path = str(output_root / "services/four_gpu_services.json")
-    registry_after_hash = file_hash(Path(registry_path)) if Path(registry_path).is_file() else _sha("reg-after")
-    exit_state = "exited" if owners_exited else "alive"
+    evidence = {}
 
-    def owner(pid):
-        return {"state": exit_state, "identity": {"pid": pid, "start_ticks": "1", "pgid": pid}}
+    def seal(path):
+        path = Path(path)
+        evidence[str(path)] = file_hash(path)
+        return str(path), evidence[str(path)]
 
-    receipt = {
-        "schema_version": 1, "kind": "rsiflow_external_cleanup", "observation_id": "obs1",
-        "status": status, "started_at_utc": "2026-11-18T00:00:00Z", "observed_at_utc": "2026-11-18T00:01:00Z",
-        "blockers": [] if status == "completed" else ["pending_owner"],
-        "writer": {"script_path": "reconcile_deepcoder_run.py", "hash": _sha("writer"),
-                   "host": "dev4", "boot_id": "boot", "pid_namespace": "ns", "uid": 10045},
-        "binding": {"reviewed_commit": "0" * 40, "config_path": str(config_path),
-                    "config_hash": file_hash(Path(config_path)) if config_path and Path(config_path).is_file() else _sha("cfg"),
-                    "base_config_path": "/base.json", "base_config_hash": _sha("base"),
-                    "effective_config_hash": _sha("effective"), "output_root": str(output_root),
-                    "run_dir": run_binding if run_binding is not None else str(run),
-                    "supervision_attempt": attempt, "launch_receipt_path": "/launch.json",
-                    "launch_receipt_hash": _sha("launch"), "backend": "linux_bwrap_seccomp_v1", "thread_id": "thread-1"},
-        "supervision": {"identity_path": "identity.json", "identity_hash": _sha("id"),
-                        "exit_path": "exit", "exit_hash": _sha("0"), "exit_value": 0,
-                        "reconcile_path": "reconcile.json", "reconcile_hash": _sha("rec"),
-                        "reconcile_status": "complete", "all_previous_attempts_accounted_for": True},
-        "protocol": {"state_path": "state.json", "state_hash": _sha("state"),
-                     "current_stage": "COMPLETE", "finish_allowed": True},
-        "owners": {"launcher": owner(14852), "app_server": owner(14896),
-                   "jobs": [owner(10001)], "training_phases": [],
-                   "inference_services": [owner(20000 + g) for g in range(4)]},
-        "registry": {"path": registry_path, "before_hash": _sha("reg-before"), "after_hash": registry_after_hash,
-                     "phase": registry_phase, "checkpoint": CHECKPOINT, "weights": WEIGHTS,
-                     "stop_action_skipped_or_executed": "executed", "command_result": 0},
-        "gpu_observations": [gpu_obs], "ports_observation": {"status": "closed"},
-        "actions": [], "errors": [],
-        "evidence_files_sha256": {"gpu_observation.json": file_hash(directory / "gpu_observation.json")},
-        "occupier": {"prior_identity_hash": _sha("occ"), "stop_receipt_hash": _sha("stop"), "restore_pending": False},
-    }
+    def write(path, value):
+        path.write_text(json.dumps(value))
+        return seal(path)
+
+    actual_config = config_path or run.parent.parent.parent / "machine.json"
+    config = json.loads(Path(actual_config).read_text())
+    base = (ROOT / config.get("runtime_source", "runtime") / config["base_config"]).resolve()
+    effective_path = directory / "effective.json"
+    effective = TaskAdapter(ROOT, directory)._config({"config_path": str(actual_config)}).model_dump()
+    write(effective_path, effective)
+    binding = {"config_path": str(actual_config), "config_hash": file_hash(Path(actual_config)),
+               "base_config_path": str(base), "base_config_hash": file_hash(base),
+               "effective_config_path": str(effective_path), "effective_config_hash": file_hash(effective_path),
+               "run_dir": run_binding or str(run), "output_root": str(output_root),
+               "supervision_attempt": attempt, "thread_id": "thread-1"}
+    seal(actual_config); seal(base); seal(run / "meta_session/state.json")
+    expected_gpus = [{"gpu": g, "uuid": f"GPU-{g}"} for g in range(4)]
+    identities = {"launcher": {"pid": 14871, "pgid": 14852, "start_ticks": "100"},
+                  "app_server": {"pid": 14896, "pgid": 14896, "start_ticks": "101"}}
+    launch_path = run / "meta_session/supervision" / attempt / "launch.json"
+    write(launch_path, {"kind": "rsiflow_launch", "binding": binding, "owners": identities,
+                        "expected_gpus": expected_gpus})
+    binding = {**binding, "launch_receipt_path": str(launch_path), "launch_receipt_hash": file_hash(launch_path)}
+    history = []
+    for sup in sorted((run / "meta_session/supervision").iterdir()):
+        if not sup.name.isdigit():
+            continue
+        item = {"attempt": sup.name}
+        for name, filename in (("identity", "identity.json"), ("exit", "exit"), ("reconcile", "reconcile.json")):
+            item[name + "_path"], item[name + "_hash"] = seal(sup / filename)
+        history.append(item)
+
+    def owner(identity, source, label):
+        exit_state = "exited" if owners_exited else "alive"
+        obs = {"kind": "rsiflow_owner_exit", "run_dir": str(run), "identity": identity,
+               "state": exit_state, "group_members": [], "read_errors": [], "observed_at": "2026-11-18T00:01:00Z"}
+        obs_path, digest = write(directory / (label + ".json"), obs)
+        seal(source)
+        return {"identity": identity, "source_path": str(source), "state": exit_state,
+                "evidence_path": obs_path, "evidence_sha256": digest}
+
+    owners = {kind: owner(identity, launch_path, kind) for kind, identity in identities.items()}
+    owners["jobs"] = []
+    for i, jobpath in enumerate(sorted((run / "meta_session/jobs").glob("*/job.json"))):
+        job = json.loads(jobpath.read_text())
+        ident = {"pid": job["pid"], "pgid": job["pid"], "start_ticks": str(job["process_start"])}
+        owners["jobs"].append(owner(ident, jobpath, f"job_{i}"))
+    registry_path = output_root / "services/four_gpu_services.json"
+    registry = json.loads(registry_path.read_text())
+    active = json.loads((run / "active_task.json").read_text())
+    owners["inference_services"] = [owner(service["identity"], registry_path, f"service_{i}")
+                                    for i, service in enumerate(registry["services"])]
+    owners["training_phases"] = []
+    for i, phase in enumerate(sorted(run.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))):
+        value = json.loads(phase.read_text())
+        identity = {"pid": value["training_pid"], "pgid": value["training_pid"], "start_ticks": "150"}
+        owners["training_phases"].append(owner(identity, phase, f"training_{i}"))
+    gpu = {"time": "2026-11-18T00:01:00Z", "command": ["nvidia-smi", "--query"], "command_result": 0,
+           "expected_uuids": [g["uuid"] for g in expected_gpus],
+           "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000, "memory_total": 81920} for g in range(4)],
+           "compute_apps": compute_apps if compute_apps is not None else [], "free_verified": free_verified}
+    gpu_path, gpu_hash = write(directory / "gpu_observation.json", gpu)
+    receipt = {"schema_version": 1, "kind": "rsiflow_external_cleanup", "status": status,
+               "started_at_utc": "2026-11-18T00:00:00Z", "observed_at_utc": "2026-11-18T00:02:00Z",
+               "binding": binding, "supervision": {"all_previous_attempts_accounted_for": True, "attempts": history},
+               "registry": {"path": str(registry_path), "after_hash": file_hash(registry_path),
+                            "phase": registry_phase, "checkpoint": active["checkpoint_path"], "weights": active["checkpoint_manifest"]},
+               "owners": owners, "gpu_observations": [{**gpu, "evidence_path": gpu_path, "evidence_sha256": gpu_hash}],
+               "evidence_files_sha256": evidence, "errors": [], "blockers": [] if status == "completed" else ["pending"]}
     receipt_path = directory / "receipt.json"
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt))
     return receipt_path
 
 
@@ -1144,7 +1258,8 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
     run.mkdir(parents=True)
     rounds = 5 if complete else 2
     release, manifests, record_hashes = _build_release(tmp_path, rounds)
-    config_path = _build_config(tmp_path, output_root, "run", release, rounds) if with_config else None
+    actual_config = _build_config(tmp_path, output_root, "run", release, rounds)
+    config_path = actual_config if with_config else None
     if complete:
         plan = [
             (1, set(TASK_IDS[:3]), set(TASK_IDS[3:7]), "accept_candidate"),
@@ -1161,7 +1276,7 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
     zero_call = set(TASK_IDS[9:16])
     generation = 0
     specs = {}
-    protocol_hash = file_hash(release / "protocol.json")
+    protocol_hash = _fixture_protocol(actual_config)
     _turn_receipt(run, "bootstrap", 0, {"status": "completed"})
     _turn_receipt(run, "snapshot_task_meta", 0, {"status": "snapshotted"})
     _write_job(run, "bootstrap_0", "bootstrap")
@@ -1179,32 +1294,8 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
     final_harness = _harness_file(run, generation)
     (run / "active_task.json").write_text(json.dumps(_task_state(generation, final_harness)), encoding="utf-8")
     a0 = run / "snapshots/A0"
-    (a0 / "task").mkdir(parents=True, exist_ok=True)
-    a0_harness = _harness_file(run, 0)
-    a0_state = _task_state(0, a0_harness)
-    for rel in ("task/parent_state.json", "task/candidate_state.json", "task/task_state_snapshot.json"):
-        (a0 / rel).write_text(json.dumps(a0_state), encoding="utf-8")
-    (a0 / "task/checkpoint_reference.json").write_text(json.dumps({
-        "model_ref": a0_state["model_ref"], "checkpoint_path": a0_state["checkpoint_path"],
-        "checkpoint_manifest": a0_state["checkpoint_manifest"], "weights_copied": False}), encoding="utf-8")
-    (a0 / "meta_contents.jsonl").write_text(json.dumps({"id": "meta_001"}) + "\n", encoding="utf-8")
-    a0_meta = {"id": "meta_001", "sha256": file_hash(a0 / "meta_contents.jsonl"),
-               "path": str(a0 / "meta_contents.jsonl")}
-    a0_context = {"sha256": _sha("context-0")}
-    (a0 / "versions.json").write_text(json.dumps({
-        "versions_root": str(a0), "index_path": str(a0 / "versions.json"),
-        "combinations": {}, "meta": a0_meta, "references": {"context_reference": a0_context}}), encoding="utf-8")
-    a0_files = {p.relative_to(a0).as_posix(): file_hash(p)
-                for p in a0.rglob("*") if p.is_file() and p.name != "snapshot_receipt.json"}
-    (a0 / "snapshot_receipt.json").write_text(json.dumps({
-        "status": "snapshotted", "destination": str(a0),
-        "combinations": {role: {"state_path": str(a0 / rel), "source_state": str(run / "active_task.json")}
-                         for role, rel in (("parent", "task/parent_state.json"),
-                                           ("candidate", "task/candidate_state.json"),
-                                           ("selected", "task/task_state_snapshot.json"))},
-        "files_sha256": a0_files, "meta": a0_meta,
-        "references": {"context_reference": a0_context}, "context_reference": a0_context,
-    }), encoding="utf-8")
+    _fixture_snapshot(run, a0, None, None, _task_state(0, _harness_file(run, 0)))
+    (run / "active_task.json").write_text(json.dumps(_task_state(generation, final_harness)))
 
     meta = run / "meta"
     meta.mkdir(exist_ok=True)
@@ -1214,7 +1305,7 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
     session.mkdir(exist_ok=True)
     (session / "state.json").write_text(json.dumps({
         "status": "complete" if complete else "running", "transport": "app_server",
-        "last_turn_status": "completed" if complete else "running",
+        "last_turn_status": "completed" if complete else "running", "thread_id": "thread-1",
         "launcher_pid": 14871, "codex_pid": 14896,
     }), encoding="utf-8")
     (session / "RUN_STATUS.md").write_text(
@@ -1263,6 +1354,7 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
                           "verified_binding": {"checkpoint_path": CHECKPOINT, "weights": WEIGHTS}} for g in range(4)],
             "started_at": 1.0, "verified_at": 2.0, "stopped_at": 3.0,
         }), encoding="utf-8")
+    _fixture_journal(run, actual_config, complete)
     cleanup_path = None
     if complete and with_cleanup:
         cleanup_path = _cleanup_receipt(run, output_root, config_path)
@@ -1285,6 +1377,7 @@ def _blockers(result):
 
 
 # --- positive controls -----------------------------------------------------
+
 
 def test_summarizer_complete_run_is_legal_and_complete(tmp_path):
     run, specs, ctx = _build_run(tmp_path, complete=True)
@@ -1338,6 +1431,7 @@ def test_summarizer_missing_b3_not_complete(tmp_path):
 
 
 # --- F1: trusted config/release frozen membership --------------------------
+
 
 def test_f1_no_trusted_config_blocks_completion_but_keeps_facts(tmp_path):
     run, _, ctx = _build_run(tmp_path, complete=True, with_config=False)
@@ -1427,6 +1521,7 @@ def test_f1_benchmark_performance_inconsistency_rejected(tmp_path):
 
 
 # --- F2: canonical request hash + request/response/model/weights alignment --
+
 
 def test_f2_wrong_request_hash_rejected(tmp_path):
     run, _, ctx = _build_run(tmp_path, complete=True)
@@ -1557,6 +1652,7 @@ def test_if2_wrong_response_checkpoint_path_rejected(tmp_path):
 
 
 # --- F3: full Task identity chain / snapshot seal --------------------------
+
 
 def test_f3_same_generation_different_harness_rejected(tmp_path):
     run, _, ctx = _build_run(tmp_path, complete=True)
@@ -1696,6 +1792,7 @@ def test_if3_artifacts_relocation_allowed_content_change_rejected(tmp_path):
 
 # --- F4: real job inventory / ordered turns / workflow milestones ----------
 
+
 def test_f4_missing_all_jobs_rejected(tmp_path):
     import shutil
     run, _, ctx = _build_run(tmp_path, complete=True)
@@ -1773,6 +1870,7 @@ def test_f4_exploration_terminal_failure_allowed(tmp_path):
 
 # --- F5: external cleanup receipt consumer ---------------------------------
 
+
 def test_f5_protocol_complete_without_cleanup_run_incomplete(tmp_path):
     run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
     result = _summarize(run, ctx)
@@ -1832,9 +1930,6 @@ def test_f5_completed_cleanup_binding_valid_completes(tmp_path):
 
 # --- F6: production MODEL/SFT schema ---------------------------------------
 
-TRAINED_CHECKPOINT = "/models/Qwen3-4B-trained"
-TRAINED_WEIGHTS = [{"path": "model-00001-of-00001.safetensors", "bytes": 200, "sha256": "t" * 64}]
-
 
 def _add_model_round(run, ctx, n=2, *, mutate=None):
     attempt = run / f"round_{n}/attempts/attempt_1"
@@ -1846,33 +1941,40 @@ def _add_model_round(run, ctx, n=2, *, mutate=None):
     manifest = ctx["manifests"][n]
     manifest_hash = manifest["manifest_hash"]
     task_source_hash = manifest["tasks"][0]["record_sha256"]
-    protocol_hash = file_hash(ctx["release"] / "protocol.json")
+    protocol_hash = _fixture_protocol(ctx["config_path"])
     out = attempt / "candidate"
     model_update = out / "model_update"
     model_update.mkdir(parents=True, exist_ok=True)
-    child = _task_state(parent_state["generation"] + 1, attempt / "build/candidate_bundle.json")
-    child["checkpoint_path"] = TRAINED_CHECKPOINT
-    child["model_ref"] = TRAINED_CHECKPOINT
-    child["checkpoint_manifest"] = TRAINED_WEIGHTS
-    selection_report = {"input_rows": 4, "unique_rows": 4, "duplicates": 0, "deduplication_applied": True}
+    from rsiflow.task_meta.storage import checkpoint_manifest
+    checkpoint = model_update / "checkpoint"
+    checkpoint.mkdir(exist_ok=True)
+    (checkpoint / "model.safetensors").write_bytes(b"offline fixture checkpoint bytes")
+    trained_checkpoint = str(checkpoint)
+    trained_weights = checkpoint_manifest(checkpoint)
+    child = _task_state(parent_state["generation"] + 1, parent_state["harness_path"])
+    child["checkpoint_path"] = trained_checkpoint
+    child["model_ref"] = trained_checkpoint
+    child["checkpoint_manifest"] = trained_weights
+    from rsiflow.task_meta.sft import select_positive_rows
+    selection_report = {"input_rows": 4, "unique_rows": 4, "duplicates": [], "deduplication_applied": True}
     metrics = {
         "world_size": 4,
         "rank_records": [{"rank": r, "local_rank": r, "sampled_indices": [r], "optimizer_steps": 1,
                           "peak_memory_bytes": 1024} for r in range(4)],
-        "num_train_epochs_completed": 1.0, "training_loss": 0.5,
+        "num_train_epochs_completed": 1.0, "training_loss": 0.5, "batch_size": 1, "gradient_accumulation_steps": 8,
         "changed_lora_tensors": 7, "lora_delta_l2": 0.1,
         "merged_probe_name": "q_proj", "merged_probe_changed_elements": 100,
         "optimizer_steps": 1, "selection": selection_report,
         "positive_trajectories": 4, "sampled_training_examples": 4, "sampled_row_indices": [0, 1, 2, 3],
-        "checkpoint_path": TRAINED_CHECKPOINT, "serving_status": "ready",
+        "checkpoint_path": trained_checkpoint, "serving_status": "ready",
     }
-    gpu = {"status": "completed", "restored_checkpoint": TRAINED_CHECKPOINT,
+    gpu = {"status": "completed", "training_pid": 17000, "restored_checkpoint": trained_checkpoint,
            "replica_gpus": [0, 1, 2, 3], "gpus": [0, 1, 2, 3]}
-    trained = {"model_ref": TRAINED_CHECKPOINT, "checkpoint_path": TRAINED_CHECKPOINT,
+    trained = {"model_ref": trained_checkpoint, "checkpoint_path": trained_checkpoint,
                "training_metrics": str(model_update / "training_metrics.json"),
                "training_method": "positive_sft_lora", "training_steps": 1, "training_summary": "fixture"}
-    verified = {"checkpoint_path": TRAINED_CHECKPOINT, "model_ref": TRAINED_CHECKPOINT,
-                "weights": TRAINED_WEIGHTS, "served_binding": {"checkpoint_path": TRAINED_CHECKPOINT, "weights": TRAINED_WEIGHTS},
+    verified = {"checkpoint_path": trained_checkpoint, "model_ref": trained_checkpoint,
+                "weights": trained_weights, "served_binding": {"checkpoint_path": trained_checkpoint, "weights": trained_weights},
                 "checkpoint_before": {"path": parent_state["checkpoint_path"], "weights": parent_state["checkpoint_manifest"]},
                 "training_method": "positive_sft_lora", "training_steps": 1}
     before = {"path": parent_state["checkpoint_path"], "weights": parent_state["checkpoint_manifest"]}
@@ -1912,14 +2014,27 @@ def _add_model_round(run, ctx, n=2, *, mutate=None):
     (model_update / "checkpoint_before.json").write_text(json.dumps(before), encoding="utf-8")
     (model_update / "sft_selection.json").write_text(json.dumps(selection_report), encoding="utf-8")
     (model_update / "sft_positive.jsonl").write_text(
-        "".join(json.dumps({"task_id": tid, "rollout_id": 0}) + "\n" for tid in TASK_IDS[3:7]), encoding="utf-8")
+        "".join(json.dumps(row) + "\n" for row in select_positive_rows(
+            [json.loads(line) for line in (run / f"round_{n}/parent/train_trajectories.jsonl").read_text().splitlines()], profile="multidomain")), encoding="utf-8")
     _transport_receipt(run, f"sft_{n}", {
         "operation": "sft", "status": "completed",
         "candidate_state_path": str(out / "candidate_state.json"),
         "training_metrics_path": str(model_update / "training_metrics.json"),
-        "checkpoint_path": TRAINED_CHECKPOINT, "positive_samples": 4,
+        "checkpoint_path": trained_checkpoint, "positive_samples": 4,
     })
-    _turn_receipt(run, "sft", n, {"status": "completed"})
+    selected = json.loads((attempt / "before/parent_task.json").read_text())
+    _fixture_snapshot(run, snap, selected, child, selected)
+    final = json.loads((run / "round_5/attempts/attempt_1/build/candidate_state.json").read_text())
+    (run / "active_task.json").write_text(json.dumps(final))
+    request = {"model_ref": parent_state["model_ref"], "checkpoint_path": parent_state["checkpoint_path"],
+               "rollouts": "rollouts.jsonl", "sft_positive": "sft_positive.jsonl", "sft_profile": "multidomain",
+               "training_method": "positive_sft_lora", "positive_samples": 4,
+               "length_eligibility": {"excluded": [], "truncation_applied": False}}
+    (model_update / "training_request.json").write_text(json.dumps(request))
+    (model_update / "rollouts.jsonl").write_text((run / f"round_{n}/parent/train_trajectories.jsonl").read_text())
+    _fixture_journal(run, ctx["config_path"], True)
+    if ctx.get("cleanup_path"):
+        ctx["cleanup_path"] = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"])
     return metrics
 
 
@@ -1999,6 +2114,7 @@ def test_f6_not_selected_without_model_round(tmp_path):
 
 # --- I-F4: job identity / terminal whitelist / milestone evidence -----------
 
+
 def test_if4_wrong_job_id_rejected(tmp_path):
     run, _, ctx = _build_run(tmp_path, complete=True)
     job_path = run / "meta_session/jobs/run_parent_1/job.json"
@@ -2042,6 +2158,7 @@ def _read_json_or_none(path):
 
 
 # --- I-F5: cleanup binding / owner inventory / historical supervision -------
+
 
 def test_if5_wrong_config_hash_rejected(tmp_path):
     run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
@@ -2097,6 +2214,7 @@ def test_if5_historical_143_latest_0_passes(tmp_path):
 
 
 # --- I-F6: SFT child binding / ranks / sampling / selection / verified ------
+
 
 def test_if6_cross_run_child_rejected(tmp_path):
     run, _, ctx = _build_run(tmp_path, complete=True)
@@ -2155,6 +2273,7 @@ def test_if6_missing_verified_rejected(tmp_path):
 
 # --- I8 errno layering (retained) + real single-run observed facts ----------
 
+
 def test_i8_error_layering_fixture(tmp_path):
     run, _, ctx = _build_run(tmp_path)
     parent_path = run / "round_1/parent/train_trajectories.jsonl"
@@ -2185,7 +2304,7 @@ def test_i8_realistic_zero_call_overlap(tmp_path):
         run, 1, parent_success=set(TASK_IDS[:3]), candidate_success=set(TASK_IDS[3:7]),
         zero_call_parent=set(TASK_IDS[3:16]), zero_call_candidate=set(TASK_IDS[:3]) | set(TASK_IDS[7:16]),
         parent_generation=0, candidate_generation=1,
-        manifest=manifests[1], protocol_hash=file_hash(ctx["release"] / "protocol.json"),
+        manifest=manifests[1], protocol_hash=_fixture_protocol(ctx["config_path"]),
         component="HARNESS", decision="accept_candidate")
     r1 = _rounds(_summarize(run, ctx))[1]
     assert r1["products_complete"] is True
@@ -2242,6 +2361,7 @@ def test_real_single_run_without_config_blocks_completion():
 
 # --- M1 Markdown -----------------------------------------------------------
 
+
 def test_m1_markdown_symmetric_and_gates(tmp_path):
     module = _load_summarizer()
     run, _, ctx = _build_run(tmp_path, complete=True)
@@ -2255,3 +2375,323 @@ def test_m1_markdown_symmetric_and_gates(tmp_path):
     assert "snapshot_present" in text
     assert "skills_present" in text and "context_present" in text
     assert "protocol_complete" in text and "external_cleanup" in text
+
+
+# Fix4: behavior regressions from the independent r3 review. These must fail on
+# e3915fb even though its old complete fixture passes.
+@pytest.mark.parametrize("field", ["model_ref", "harness_sha256", "rollout_id",
+                                   "terminal_reward", "infrastructure_error"])
+def test_fix4_full_persisted_row_rejected(tmp_path, field):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    path = next((run / "round_1/rollout_cache").glob("*/train_rollouts/*.json"))
+    value = json.loads(path.read_text())
+    value["row"][field] = "WRONG"
+    path.write_text(json.dumps(value))
+    assert not _rounds(_summarize(run, ctx))[1]["products_complete"]
+
+
+@pytest.mark.parametrize("field", ["round_scope", "task_record", "task_source_hash", "probe"])
+def test_fix4_full_call_binding_rejected(tmp_path, field):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _, path = _first_parent_call(run)
+    value = json.loads(path.read_text())
+    value["binding"][field] = "WRONG"
+    path.write_text(json.dumps(value))
+    assert not _rounds(_summarize(run, ctx))[1]["products_complete"]
+
+
+@pytest.mark.parametrize("field", ["meta", "context_reference", "selected"])
+def test_fix4_snapshot_actual_references_sealed(tmp_path, field):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    path = run / "snapshots/round_1_attempt_1/snapshot_receipt.json"
+    value = json.loads(path.read_text())
+    if field == "selected":
+        alias = path.parent / "unsealed.json"
+        alias.write_text(Path(value["combinations"]["selected"]["state_path"]).read_text())
+        value["combinations"]["selected"]["state_path"] = str(alias)
+    else:
+        value[field] = {"path": "/missing", "sha256": "0" * 64}
+    path.write_text(json.dumps(value))
+    assert not _rounds(_summarize(run, ctx))[1]["products_complete"]
+
+
+def test_fix4_production_selected_only_a0(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    path = run / "snapshots/A0/snapshot_receipt.json"
+    value = json.loads(path.read_text())
+    for role in ("parent", "candidate"):
+        value["combinations"].pop(role, None)
+        rel = f"task/{role}_state.json"
+        value["files_sha256"].pop(rel, None)
+        (path.parent / rel).unlink(missing_ok=True)
+    path.write_text(json.dumps(value))
+    assert _summarize(run, ctx)["protocol_complete"]
+
+
+def test_fix4_artifacts_identity_idempotent_and_final_chain(tmp_path):
+    m = _load_summarizer()
+    h = _harness_file(tmp_path, 0)
+    state = _task_state(0, h)
+    state["artifacts"]["manifest"] = [{"path": "a", "bytes": 1, "sha256": "a" * 64}]
+    identity = m._task_identity(state)
+    assert m._task_identity(identity) == identity
+    other = copy.deepcopy(state)
+    other["artifacts"]["manifest"][0]["sha256"] = "b" * 64
+    summary = {"round": 1, "parent_state": state, "candidate_state": state,
+               "snapshot_states": {"selected": state}, "selection": {"decision": "retain_parent"}}
+    assert m._active_chain([summary], other, identity)
+
+
+@pytest.mark.parametrize("mutation", ["request", "empty_turn", "invented_milestones"])
+def test_fix4_job_and_milestone_binding(tmp_path, mutation):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    if mutation == "invented_milestones":
+        path = run / "meta_session/workflow_state.json"
+        value = json.loads(path.read_text())
+        for stage in value["stages"]:
+            stage.update(required_milestones=["INVENTED"], completed_milestones=["INVENTED"],
+                         evidence=["MISSING_PATH"])
+    else:
+        path = run / "meta_session/jobs/run_parent_1/job.json"
+        value = json.loads(path.read_text())
+        if mutation == "request":
+            value["request"]["output_dir"] = "/WRONG"
+        else:
+            path = Path(value["turn_dir"]) / "receipt.json"
+            value = {}
+    path.write_text(json.dumps(value))
+    assert not _summarize(run, ctx)["protocol_complete"]
+
+
+@pytest.mark.parametrize("mutation", ["launch_hash", "thread", "weights", "owner",
+                                      "gpu", "missing_compute_apps"])
+def test_fix4_cleanup_actual_evidence(tmp_path, mutation):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    path = ctx["cleanup_path"]
+    value = json.loads(path.read_text())
+    if mutation == "launch_hash":
+        value["binding"]["launch_receipt_hash"] = "0" * 64
+    elif mutation == "thread":
+        value["binding"]["thread_id"] = "UNRELATED"
+    elif mutation == "weights":
+        value["registry"]["weights"] = [{"path": "wrong"}]
+    elif mutation == "owner":
+        value["owners"]["jobs"] = value["owners"]["jobs"][:1]
+    elif mutation == "gpu":
+        value["gpu_observations"][-1]["expected_uuids"] = ["DUPLICATE"] * 4
+        value["gpu_observations"][-1]["per_gpu"] = [{}] * 4
+    else:
+        value["gpu_observations"][-1].pop("compute_apps", None)
+    path.write_text(json.dumps(value))
+    assert not _summarize(run, ctx)["external_cleanup"]["ok"]
+
+
+@pytest.mark.parametrize("mutation", ["out_of_range", "rank_steps", "count", "positive",
+                                      "served", "trained"])
+def test_fix4_model_sampling_and_receipts(tmp_path, mutation):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _add_model_round(run, ctx, 2)
+    root = run / "round_2/attempts/attempt_1/candidate/model_update"
+    path = root / "training_metrics.json"
+    value = json.loads(path.read_text())
+    if mutation == "out_of_range":
+        value["sampled_row_indices"] = [999] * 4
+        for rank in value["rank_records"]:
+            rank["sampled_indices"] = [999]
+    elif mutation == "rank_steps":
+        value["rank_records"][0]["optimizer_steps"] += 1
+    elif mutation == "count":
+        value["sampled_training_examples"] += 1
+    elif mutation == "positive":
+        path = root / "sft_positive.jsonl"
+        value = {"_parse_error": True}
+    elif mutation == "served":
+        path = root / "checkpoint_verified.json"
+        value = json.loads(path.read_text())
+        value["served_binding"] = {"checkpoint_path": "/WRONG", "weights": []}
+    else:
+        path = root / "checkpoint_trained.json"
+        value = json.loads(path.read_text())
+        value["checkpoint_path"] = "/WRONG"
+    path.write_text(json.dumps(value))
+    assert _summarize(run, ctx)["model_sft"]["status"] != "completed"
+
+
+def test_fix4_production_model_round_completes_entire_protocol(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _add_model_round(run, ctx, 2)
+    rows = [json.loads(line) for line in (run / "round_2/attempts/attempt_1/candidate/train_trajectories.jsonl").read_text().splitlines()]
+    assert all("checkpoint_manifest" not in row for row in rows)
+    result = _summarize(run, ctx)
+    assert result["protocol_complete"], result["protocol_complete_blockers"]
+    assert result["run_complete"], result["run_complete_blockers"]
+    assert _rounds(result)[2]["products_complete"]
+
+
+def test_fix4_task_hash_even_with_consistent_scope_fingerprint(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    root = run / "round_1/rollout_cache"
+    old = next(root.iterdir())
+    sample = json.loads(next((old / "train_rollouts").glob("*.json")).read_text())
+    scope = sample["binding"]["round_scope"]
+    scope["task_hash"] = "0" * 64
+    new_hash = _fingerprint_fixture(scope)
+    old.rename(root / new_hash)
+    for path in (root / new_hash).rglob("*.json"):
+        value = json.loads(path.read_text())
+        value["binding"].update(state_hash=new_hash, round_scope=scope)
+        if "row" in value:
+            value["row"]["state_hash"] = new_hash
+        path.write_text(json.dumps(value))
+    path = run / "round_1/parent/train_trajectories.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    for row in rows:
+        row["state_hash"] = new_hash
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    assert not _rounds(_summarize(run, ctx))[1]["products_complete"]
+
+
+def test_fix4_actual_artifact_snapshot_relocation(tmp_path):
+    from rsiflow.task_meta.storage import artifact_manifest
+    m = _load_summarizer()
+    run = tmp_path / "run"
+    run.mkdir()
+    directory = run / "artifacts"
+    directory.mkdir()
+    (directory / "answer.txt").write_text("actual task content")
+    state = _task_state(0, _harness_file(run, 0))
+    state["artifacts"] = {"directory": str(directory), "manifest": artifact_manifest(directory)}
+    snap = run / "snapshots/A0"
+    _fixture_snapshot(run, snap, None, None, state)
+    ok, saved = m._snapshot_valid(snap / "snapshot_receipt.json", snap)
+    assert ok
+    assert saved["selected"]["artifacts"]["directory"] != str(directory)
+    assert m._identity_equal(state, saved["selected"])
+    (Path(saved["selected"]["artifacts"]["directory"]) / "answer.txt").write_text("tamper")
+    assert not m._snapshot_valid(snap / "snapshot_receipt.json", snap)[0]
+
+
+def test_fix4_model_attempt_10_is_not_attempt_1(tmp_path):
+    import shutil
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _add_model_round(run, ctx, 2)
+    attempt = run / "round_2/attempts/attempt_1"
+    foreign = attempt.with_name("attempt_10") / "candidate"
+    shutil.copytree(attempt / "candidate", foreign)
+    path = run / "controller_transport/sft_2/result.json"
+    value = json.loads(path.read_text())
+    value.update(training_metrics_path=str(foreign / "model_update/training_metrics.json"),
+                 candidate_state_path=str(foreign / "candidate_state.json"))
+    path.write_text(json.dumps(value))
+    parent = json.loads((attempt / "before/parent_task.json").read_text())
+    assert not _load_summarizer()._model_round_evidence(run, 2, parent)[0]
+
+
+def test_fix4_production_compact_projection_keeps_call_evidence(tmp_path):
+    from rsiflow.task_meta.runtime_extensions import compact_rollout
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = run / "round_1/rollout_cache"
+    rows = []
+    for task_id in TASK_IDS:
+        receipt_path = next(p for p in cache.glob("*/train_rollouts/*.json")
+                            if json.loads(p.read_text())["row"]["task_id"] == task_id)
+        full = json.loads(receipt_path.read_text())["row"]
+        compact = compact_rollout(full, receipt_path)
+        for key in ("round_id", "source_role", "purpose", "collection_stage", "manifest_hash"):
+            compact[key] = full.get(key)
+        rows.append(compact)
+    path = run / "round_1/parent/train_trajectories.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["products_complete"]
+    assert _rounds(result)[1]["calls"]["parent"]["transport_calls"] > 0
+
+
+@pytest.mark.parametrize("field", ["model_ref", "harness_sha256", "artifact_input_manifest",
+                                   "parent_policy_hash", "success_verifier_version", "trajectory_id"])
+def test_fix4_consistently_wrong_task_row_rejected(tmp_path, field):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    trajectory = run / "round_1/parent/train_trajectories.jsonl"
+    rows = [json.loads(line) for line in trajectory.read_text().splitlines()]
+    rows[0][field] = "WRONG"
+    trajectory.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    path = next(p for p in (run / "round_1/rollout_cache").glob("*/train_rollouts/*.json")
+                if json.loads(p.read_text())["row"]["task_id"] == rows[0]["task_id"])
+    value = json.loads(path.read_text())
+    value["row"] = rows[0]
+    path.write_text(json.dumps(value))
+    assert not _rounds(_summarize(run, ctx))[1]["products_complete"]
+
+
+def test_fix4_request_call_envelope_rehashed_still_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _, path = _first_parent_call(run)
+    value = json.loads(path.read_text())
+    value["request"]["call_id"] = 999
+    value["request_sha256"] = _value_hash(value["request"])
+    path.write_text(json.dumps(value))
+    assert not _rounds(_summarize(run, ctx))[1]["products_complete"]
+
+
+def _fix4_padding_metrics():
+    # Accelerate shards batches across ranks; tail padding repeats the head of
+    # the same shuffled epoch, it cannot replace arbitrary training examples.
+    ranks = [{"rank": rank, "local_rank": rank, "sampled_indices": indices, "optimizer_steps": 1}
+             for rank, indices in enumerate(([0, 4], [1, 0], [2, 1], [3, 2]))]
+    return {"rank_records": ranks, "sampled_row_indices": [i for r in ranks for i in r["sampled_indices"]],
+            "sampled_training_examples": 8, "positive_trajectories": 5, "optimizer_steps": 1,
+            "world_size": 4, "num_train_epochs_completed": 1.0, "gradient_accumulation_steps": 8, "batch_size": 1}
+
+
+@pytest.mark.parametrize("mutation", ["padding", "epoch_bool", "steps_bool"])
+def test_fix4_padding_and_numeric_schema_fail_closed(mutation):
+    m = _load_summarizer()
+    metrics = _fix4_padding_metrics()
+    if mutation == "padding":
+        for rank, extra in zip(metrics["rank_records"][1:], (1, 2, 3)):
+            rank["sampled_indices"][-1] = extra
+        metrics["sampled_row_indices"] = [i for r in metrics["rank_records"] for i in r["sampled_indices"]]
+    elif mutation == "epoch_bool":
+        metrics["num_train_epochs_completed"] = True
+    else:
+        metrics["optimizer_steps"] = True
+    assert not m._sampling_valid(metrics, 5)
+
+
+def test_fix4_legal_sampler_padding_passes():
+    assert _load_summarizer()._sampling_valid(_fix4_padding_metrics(), 5)
+
+
+def test_fix4_real_task5_sampling_readonly():
+    path = ROOT.parent / "Rollout_logs/deepcoder_model_smoke_v2/runs/deepcoder_model_smoke/sft/model_update/training_metrics.json"
+    if not path.is_file():
+        pytest.skip("real Task5 training metrics unavailable")
+    metrics = json.loads(path.read_text())
+    assert _load_summarizer()._sampling_valid(metrics, metrics["positive_trajectories"])
+
+
+def test_fix4_final_artifact_directory_must_match_claimed_manifest(tmp_path):
+    from rsiflow.task_meta.storage import artifact_manifest
+    m = _load_summarizer()
+    directory = tmp_path / "active_artifacts"
+    directory.mkdir()
+    (directory / "answer.txt").write_text("valid content")
+    state = _task_state(1, _harness_file(tmp_path, 1))
+    state["artifacts"] = {"directory": str(directory), "manifest": artifact_manifest(directory)}
+    summary = {"round": 1, "parent_state": state, "candidate_state": state,
+               "snapshot_states": {"selected": state}, "selection": {"decision": "retain_parent"}}
+    assert not m._active_chain([summary], state, m._task_identity(state))
+    (directory / "answer.txt").write_text("unrelated content")
+    assert m._active_chain([summary], state, m._task_identity(state))
+
+
+def test_fix4_unaccounted_persisted_calls_block_completion(tmp_path):
+    import shutil
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    directory, call_path = _first_parent_call(run)
+    original = call_path.parent.with_suffix(".json")
+    foreign = json.loads(original.read_text())
+    foreign["binding"]["task"] = "UNLISTED_TASK"
+    (directory / "foreign.json").write_text(json.dumps(foreign))
+    shutil.copytree(call_path.parent, directory / "foreign.calls")
+    assert not _rounds(_summarize(run, ctx))[1]["products_complete"]

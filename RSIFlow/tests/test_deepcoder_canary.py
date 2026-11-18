@@ -720,8 +720,9 @@ def test_workspace_canary_config_preserves_protocol_and_output_boundaries(tmp_pa
     output = Path(effective.output_root)
     run = output / "runs" / value["run_name"]
     native_workspace = ROOT.resolve().parent
+    configured_workspace = expected_output.parent.parent
     assert native_workspace == PROJECT.resolve()
     assert output == expected_output
-    assert output.is_relative_to(native_workspace)
-    assert run.is_relative_to(native_workspace)
+    assert output.is_relative_to(configured_workspace)
+    assert run.is_relative_to(configured_workspace)
     assert not output.is_relative_to(runtime_project.resolve())

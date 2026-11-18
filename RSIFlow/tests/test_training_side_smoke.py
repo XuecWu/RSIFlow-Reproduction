@@ -1989,3 +1989,135 @@ def test_model_smoke_plan_rejects_output_root_inside_read_only_assets(
             model_source["source_run"], output_root, model_source["machine_config"])
     assert not output_root.exists()
     assert _source_tree_hashes(model_source["source_run"]) == source_before
+
+
+def _link_source_meta_to_central(model_source, tmp_path):
+    source_run = model_source["source_run"]
+    central = tmp_path / "Meta_logs" / source_run.name
+    central.mkdir(parents=True)
+    central_meta = central / "meta"
+    (source_run / "meta").rename(central_meta)
+    freeze(central / ".run-owner.json", {"schema_version": 1, "run_dir": str(source_run.resolve())})
+    (source_run / "meta").symlink_to(central_meta, target_is_directory=True)
+    return central, central_meta, source_run / "meta"
+
+
+def test_model_smoke_plan_accepts_production_central_meta_link(
+        model_smoke, model_source, tmp_path):
+    central, central_meta, link = _link_source_meta_to_central(model_source, tmp_path)
+    target_text = os.readlink(link)
+    target_identity = central_meta.stat()
+    skills_hash = file_hash(central_meta / "skills.jsonl")
+
+    receipt = _model_plan(model_smoke, model_source, tmp_path, "central-meta-link")
+
+    assert receipt["status"] == "planned"
+    assert not (model_source["source_run"] / "meta_session").is_symlink()
+    assert link.is_symlink() and os.readlink(link) == target_text
+    assert central_meta.stat().st_dev == target_identity.st_dev
+    assert central_meta.stat().st_ino == target_identity.st_ino
+    assert file_hash(central_meta / "skills.jsonl") == skills_hash
+    assert json.loads((central / ".run-owner.json").read_text())["run_dir"] == str(
+        model_source["source_run"].resolve())
+
+
+def test_model_smoke_plan_seals_central_meta_link_without_target_content_scan(
+        model_smoke, model_source, tmp_path):
+    central, central_meta, link = _link_source_meta_to_central(model_source, tmp_path)
+
+    receipt = _model_plan(model_smoke, model_source, tmp_path, "central-meta-seal")
+
+    seal = receipt["source"]["meta_link_seal"]
+    identity = central_meta.stat()
+    assert seal["target_text"] == os.readlink(link)
+    assert seal["resolved_path"] == str(central_meta.resolve())
+    assert seal["st_dev"] == identity.st_dev and seal["st_ino"] == identity.st_ino
+    assert seal["owner_path"] == str(central / ".run-owner.json")
+    assert seal["owner_sha256"] == file_hash(central / ".run-owner.json")
+    assert str(central_meta / "skills.jsonl") not in receipt["source"]["source_hashes_after"]
+
+
+@pytest.mark.parametrize("mode", ["unknown_top", "nested", "root"])
+def test_model_smoke_plan_only_allows_exact_top_level_central_meta_link(
+        model_smoke, model_source, tmp_path, mode):
+    _link_source_meta_to_central(model_source, tmp_path)
+    source_run = model_source["source_run"]
+    source_argument = source_run
+    if mode == "unknown_top":
+        (source_run / "unknown").symlink_to(tmp_path, target_is_directory=True)
+    elif mode == "nested":
+        (model_source["parent"] / "nested-link").symlink_to(model_source["harness"])
+    else:
+        source_argument = tmp_path / "logs/source-run-alias"
+        source_argument.symlink_to(source_run, target_is_directory=True)
+
+    with pytest.raises((ValueError, RuntimeError), match="symlink|link"):
+        model_smoke.plan_model_smoke(
+            source_argument, tmp_path / "logs" / f"reject-{mode}", model_source["machine_config"])
+
+
+def _alternate_central_meta(model_source, tmp_path):
+    central = tmp_path / "AlternateMeta_logs" / model_source["source_run"].name
+    target = central / "meta"
+    target.mkdir(parents=True)
+    freeze(central / ".run-owner.json", {
+        "schema_version": 1, "run_dir": str(model_source["source_run"].resolve()),
+    })
+    return target
+
+
+def test_model_smoke_execute_rejects_central_meta_link_retarget_before_services(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    _link_source_meta_to_central(model_source, tmp_path)
+    plan = _model_plan(model_smoke, model_source, tmp_path, "central-meta-retarget")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    alternate = _alternate_central_meta(model_source, tmp_path)
+    link = model_source["source_run"] / "meta"
+    link.unlink()
+    link.symlink_to(alternate, target_is_directory=True)
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert calls == [] and FakeAdapter.instances == []
+
+
+def test_model_smoke_execute_rejects_central_meta_target_identity_change(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    central, central_meta, link = _link_source_meta_to_central(model_source, tmp_path)
+    plan = _model_plan(model_smoke, model_source, tmp_path, "central-meta-inode")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    original_identity = central_meta.stat()
+    central_meta.rename(central / "meta-old")
+    central_meta.mkdir()
+    assert central_meta.stat().st_ino != original_identity.st_ino
+    assert os.readlink(link) == str(central_meta)
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert calls == [] and FakeAdapter.instances == []
+
+
+def test_model_smoke_central_meta_retarget_during_sft_requires_final_audit(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    _link_source_meta_to_central(model_source, tmp_path)
+    plan = _model_plan(model_smoke, model_source, tmp_path, "central-meta-during-sft")
+    root = Path(plan["output_root"])
+    _patch_model_runtime(model_smoke, monkeypatch)
+    alternate = _alternate_central_meta(model_source, tmp_path)
+
+    def retarget(metrics, gpu, state, out, child, arguments):
+        link = model_source["source_run"] / "meta"
+        link.unlink()
+        link.symlink_to(alternate, target_is_directory=True)
+
+    MOCK_CONTROL["sft_mutator"] = retarget
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    final = json.loads((root / "receipts/sft.json").read_text())
+    assert final["status"] == "requires_audit"
+    assert final["source_hashes_unchanged"] is False

@@ -18,6 +18,7 @@ for entry in (PROJECT, PROJECT / "runtime", ROOT / "reproduction/scripts"):
 import training_side_smoke as side
 from component_versions import write_json
 from evolution_protocol import file_hash, fingerprint, read
+from launch_meta import _read_storage_owner
 from rsiflow.task_meta.durable import load_task, task_hash
 from rsiflow.task_meta.evolution_protocol import stage_manifest, training_provenance
 from rsiflow.task_meta.gpu_phases import ensure_services, registry_path, stop_services, verify_services
@@ -98,12 +99,39 @@ def _terminate_owned_training(root):
     return result
 
 
+def _validate_central_meta_link(source_run):
+    source_run = Path(source_run).resolve()
+    link = source_run / "meta"
+    target_text = os.readlink(link)
+    target = Path(target_text)
+    if not target.is_absolute():
+        target = link.parent / target
+    if target.is_symlink() or target.parent.is_symlink():
+        raise SmokeBlocked("Central meta link must have one direct, non-symlink target")
+    resolved = link.resolve(strict=True)
+    if resolved.name != "meta" or resolved.parent.name != source_run.name or not resolved.is_dir():
+        raise SmokeBlocked("Source meta link is not the production central-storage shape")
+    owner = resolved.parent / ".run-owner.json"
+    expected = {"schema_version": 1, "run_dir": str(source_run)}
+    if _read_storage_owner(owner) != expected:
+        raise SmokeBlocked("Central meta link owner does not bind this source run")
+    identity = resolved.stat()
+    return {"schema_version": 1, "target_text": target_text, "resolved_path": str(resolved),
+            "st_dev": identity.st_dev, "st_ino": identity.st_ino,
+            "owner_path": str(owner), "owner_sha256": file_hash(owner)}
+
+
 def _source_hashes(source_run):
     source_run = Path(source_run)
     if source_run.is_symlink() or not source_run.is_dir():
         raise SmokeBlocked(f"Source run must be a real directory: {source_run}")
     hashes = {}
+    meta_link = source_run / "meta"
     for path in sorted(source_run.rglob("*")):
+        if path == meta_link and path.is_symlink():
+            seal = _validate_central_meta_link(source_run)
+            hashes[str(path)] = fingerprint(seal)
+            continue
         if path.is_symlink():
             raise SmokeBlocked(f"Source run contains a symlink: {path}")
         if path.is_file():
@@ -288,6 +316,8 @@ def _validate_source(source_run, release_dir):
         raise SmokeBlocked("No natural positive parent trajectory is eligible for MODEL SFT")
     return {
         "source_run": str(source_run),
+        "meta_link_seal": (_validate_central_meta_link(source_run)
+                           if (source_run / "meta").is_symlink() else None),
         "state_path": str(state_path),
         "state_sha256": sealed_state,
         "snapshot_receipt_path": str(snapshot_path),
@@ -394,7 +424,10 @@ def _assert_output_separate(root, assets):
 
 
 def plan_model_smoke(source_run, output_root, machine_config):
-    source_run = Path(source_run).resolve()
+    source_run = Path(source_run)
+    if source_run.is_symlink():
+        raise SmokeBlocked(f"Source run root must not be a symlink: {source_run}")
+    source_run = source_run.resolve()
     machine_config = Path(machine_config).resolve()
     validation = _validate_output_root(output_root)
     root = Path(validation["path"])

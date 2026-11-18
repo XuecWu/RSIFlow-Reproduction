@@ -105,6 +105,19 @@ def _derive(config_path, run_dir, supervision):
     return config, config_path, output_root, run_dir, attempt_dir
 
 
+def _acquire_global_lock(lock_file, timeout=2.0):
+    import fcntl
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError as exc:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("lifecycle lock held; operation refused") from exc
+            time.sleep(0.02)
+
+
 def _observe_owner(identity, run_dir):
     """Inspect an owner process group; never signal. A dead leader does NOT imply an
     empty group: live descendants in the same PGID (e.g. DDP ranks) keep it alive.
@@ -242,8 +255,8 @@ def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_se
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = open(lock_path, "a+")
     try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+        _acquire_global_lock(lock_file)
+    except RuntimeError:
         lock_file.close()
         raise RuntimeError("lifecycle lock held by another operator; cleanup refused")
     try:
@@ -740,43 +753,176 @@ def _process_record(pid):
 
 
 def _local_rank_values(pid):
-    """Read-only necessary LOCAL_RANK/RANK values for logical rank mapping (no other env)."""
-    try:
-        env = (Path("/proc") / str(pid) / "environ").read_bytes().split(b"\0")
-    except (FileNotFoundError, PermissionError, OSError):
-        return None
+    """Only extract/record LOCAL_RANK and RANK; never log the other environ fields."""
+    data = (Path("/proc") / str(pid) / "environ").read_bytes()
     values = {}
-    for item in env:
+    for item in data.split(b"\0"):
         if item.startswith((b"LOCAL_RANK=", b"RANK=")):
-            key, _, val = item.partition(b"=")
-            values[key.decode()] = val.decode()
-    return values or None
+            key, _, value = item.partition(b"=")
+            values[key.decode()] = value.decode()
+    return values
 
 
 def _runs_script(record, expected_script):
     return any((Path(arg).is_absolute() and str(Path(arg).resolve()) == expected_script)
-               or (arg == "train.py" and expected_script.endswith("/train.py")) for arg in record["argv"])
+               or (arg == "train.py" and expected_script == "/data/wuxuecheng/z-occupier-ready/train.py")
+               for arg in record["argv"])
+
+
+class RankObservationUnknown(RuntimeError):
+    def __init__(self, errors, ranks):
+        super().__init__("rank observation unknown: " + repr(errors))
+        self.errors, self.ranks = errors, ranks
 
 
 def _discover_ranks(leader_pid, expected_script):
-    """Real torchrun ranks are independent sessions/PGIDs with PPID==leader; discover by
-    PPID + argv, recording each rank's own PID/PGID/start_ticks/argv/PPID/local_rank."""
-    ranks = []
+    ranks, errors = [], []
     for entry in Path("/proc").iterdir():
-        if not entry.name.isdigit():
+        if not entry.name.isdigit() or int(entry.name) == leader_pid:
             continue
         pid = int(entry.name)
-        if pid == leader_pid:
-            continue
         try:
             record = _process_record(pid)
-        except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError, IndexError, OSError):
+        except (FileNotFoundError, ProcessLookupError):
             continue
-        if record["ppid"] != leader_pid or not _runs_script(record, expected_script):
+        except (PermissionError, ValueError, IndexError, OSError) as exc:
+            errors.append({"pid": pid, "error": type(exc).__name__})
             continue
-        record["local_rank"] = _local_rank_values(pid)
+        if record["ppid"] != leader_pid:
+            continue
+        if not _runs_script(record, expected_script):
+            errors.append({"pid": pid, "error": "unexpected_child_argv"})
+            continue
+        try:
+            record["local_rank"] = _local_rank_values(pid)
+        except (OSError, ValueError, UnicodeError) as exc:
+            errors.append({"pid": pid, "error": type(exc).__name__})
+            record["local_rank"] = {}
         ranks.append(record)
+    if errors:
+        raise RankObservationUnknown(errors, ranks)
     return ranks
+
+
+def _same_process(actual, saved):
+    return all(actual.get(k) == saved.get(k) for k in ("pid", "pgid", "start_ticks"))
+
+
+def _topology_hash(topology):
+    import hashlib
+    return hashlib.sha256(json.dumps(topology, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _seal_topology(leader, ranks, expected_script, *, previous=None, complete=False):
+    """Call only while the saved leader is live; record every observed child identity."""
+    validate_identity(leader)
+    current = _process_record(leader["pid"])
+    if not _same_process(current, leader) or not _runs_script(current, expected_script):
+        raise RuntimeError("leader identity/argv changed during topology capture")
+    members = {r["pid"]: r for r in (previous or {}).get("rank_members", [])}
+    for rank in ranks:
+        validate_identity(rank)
+        if rank.get("ppid") != leader["pid"] or not _runs_script(rank, expected_script):
+            raise RuntimeError("rank parent/argv ownership mismatch")
+        existing = members.get(rank["pid"])
+        if existing and not _same_process(existing, rank):
+            raise RuntimeError("rank identity reused during capture")
+        members[rank["pid"]] = rank
+    saved = sorted(members.values(), key=lambda r: r["pid"])
+    if complete:
+        local = [r.get("local_rank", {}).get("LOCAL_RANK") for r in saved]
+        global_rank = [r.get("local_rank", {}).get("RANK") for r in saved]
+        if (len(saved) != 4 or sorted(str(v) for v in local) != ["0", "1", "2", "3"]
+                or any(a != b for a, b in zip(local, global_rank))):
+            raise RuntimeError("four-rank LOCAL_RANK/RANK topology incomplete")
+    topology = {"leader": {k: leader[k] for k in ("pid", "pgid", "start_ticks")},
+                "ranks": saved, "expected_script": expected_script,
+                "host_identity": host_identity(), "complete": complete}
+    return {**leader, "rank_members": saved, "topology": topology,
+            "topology_sha256": _topology_hash(topology)}
+
+
+def _validate_topology(identity, *, complete=False):
+    validate_identity(identity)
+    topology = identity.get("topology")
+    if (not isinstance(topology, dict) or identity.get("topology_sha256") != _topology_hash(topology)
+            or topology.get("host_identity") != host_identity()
+            or topology.get("leader") != {k: identity[k] for k in ("pid", "pgid", "start_ticks")}
+            or topology.get("ranks") != identity.get("rank_members")):
+        raise RuntimeError("trusted topology seal missing or changed")
+    ranks = topology["ranks"]
+    if not isinstance(ranks, list) or len({r.get("pid") for r in ranks}) != len(ranks):
+        raise RuntimeError("rank topology duplicated")
+    for rank in ranks:
+        validate_identity(rank)
+        if (rank.get("ppid") != identity["pid"] or rank["pid"] == identity["pid"]
+                or not _runs_script(rank, topology["expected_script"])):
+            raise RuntimeError("sealed rank parent/argv mismatch")
+    if complete:
+        local = [r.get("local_rank", {}).get("LOCAL_RANK") for r in ranks]
+        if (not topology.get("complete") or len(ranks) != 4
+                or sorted(str(v) for v in local) != ["0", "1", "2", "3"]
+                or any(r.get("local_rank", {}).get("RANK") != v for r, v in zip(ranks, local))):
+            raise RuntimeError("four-rank sealed topology incomplete")
+    return ranks
+
+
+def snapshot_occupier(identity, expected_script="/data/wuxuecheng/z-occupier-ready/train.py"):
+    leader = _process_record(identity["pid"])
+    if not _same_process(leader, identity):
+        raise RuntimeError("occupier leader identity changed")
+    before = _discover_ranks(leader["pid"], expected_script)
+    sealed = _seal_topology(leader, before, expected_script, complete=True)
+    after = _discover_ranks(leader["pid"], expected_script)
+    if sorted(before, key=lambda r: r["pid"]) != sorted(after, key=lambda r: r["pid"]):
+        raise RuntimeError("rank topology changed during observation")
+    return {**identity, **sealed, "owner": "dev4-rsiflow-idle-occupier", "gpus": [0, 1, 2, 3]}
+
+
+def _pid_view(pid):
+    """Observe NSpid and the *target* PID namespace without assuming NVML's view."""
+    root = Path("/proc") / str(pid)
+    record = _process_record(pid)
+    status = (root / "status").read_text()
+    nspid = next((line.split()[1:] for line in status.splitlines() if line.startswith("NSpid:")), [])
+    return {"identity": record, "nspid": [int(v) for v in nspid],
+            "pid_namespace": os.readlink(root / "ns/pid"), "status_raw": "\n".join(
+                line for line in status.splitlines() if line.startswith(("NSpid:", "NSpgid:", "NSsid:")))}
+
+
+def _gpu_owner_mapping(identity, gpu):
+    """Unresolved is not namespace_differs. Every GPU PID needs independent /proc proof."""
+    ranks = _validate_topology(identity, complete=True)
+    evidence = {"status": "unresolved", "compute_apps": gpu.get("compute_apps", []),
+                "rank_identities": ranks, "observations": [], "errors": []}
+    inventory = {r["gpu"]: r["uuid"] for r in gpu.get("per_gpu", [])}
+    apps = evidence["compute_apps"]
+    if (len(apps) != 4 or len({a["pid"] for a in apps}) != 4
+            or len(inventory) != 4 or {a["uuid"] for a in apps} != set(inventory.values())):
+        evidence["errors"].append("GPU inventory not exactly four owned processes")
+        return evidence
+    matched = set()
+    for rank in ranks:
+        local = int(rank["local_rank"]["LOCAL_RANK"])
+        app = next((a for a in apps if a["uuid"] == inventory[local]), None)
+        try:
+            view = _pid_view(app["pid"])
+            own = _pid_view(rank["pid"])
+            evidence["observations"].append({"rank_pid": rank["pid"], "gpu_app": app,
+                                              "gpu_pid_view": view, "rank_pid_view": own})
+            if (not _same_process(own["identity"], rank)
+                    or view["pid_namespace"] != own["pid_namespace"]
+                    or view["identity"]["start_ticks"] != rank["start_ticks"]
+                    or not view["nspid"] or view["nspid"][0] != app["pid"]
+                    or not own["nspid"] or own["nspid"][0] != rank["pid"]
+                    or view["nspid"][-1] != own["nspid"][-1]):
+                raise RuntimeError("NVML PID has no proven rank namespace mapping")
+            matched.add(rank["pid"])
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+            evidence["errors"].append(type(exc).__name__ + ":" + str(exc))
+    if len(matched) == 4 and not evidence["errors"]:
+        evidence["status"] = "direct" if {a["pid"] for a in apps} == matched else "nspid_verified"
+    return evidence
 
 
 def _identity_alive(identity):
@@ -785,87 +931,84 @@ def _identity_alive(identity):
     except (FileNotFoundError, ProcessLookupError):
         return False
     except (PermissionError, ValueError, IndexError, OSError):
-        return None  # unknown
-    return all(current[k] == identity[k] for k in ("pid", "pgid", "start_ticks"))
+        return None
+    return True if _same_process(current, identity) else None
 
 
 def _signal_identity(identity, sig):
-    """Signal a single revalidated identity; never by name or unverified PID."""
     try:
         current = _process_record(identity["pid"])
     except (FileNotFoundError, ProcessLookupError):
         return False
-    if any(current[k] != identity[k] for k in ("pid", "pgid", "start_ticks")):
+    if not _same_process(current, identity):
         raise RuntimeError("owned identity changed; refusing to signal")
     os.kill(identity["pid"], sig)
     return True
 
 
+def _observe_topology(identity):
+    ranks = _validate_topology(identity)
+    observations = [{"identity": record, "alive": _identity_alive(record)} for record in [identity, *ranks]]
+    if any(o["alive"] is None for o in observations):
+        state = "unknown"
+    else:
+        state = "alive" if any(o["alive"] for o in observations) else "exited"
+    return {"state": state, "group_members": [o["identity"] for o in observations if o["alive"]],
+            "read_errors": ["identity unreadable/changed"] if state == "unknown" else [],
+            "identities": observations}
+
+
 def _terminate_owned_group(identity, grace=5.0):
-    """Reconcile an owned occupier by each saved identity. Real torchrun ranks live in
-    independent PGIDs (PPID==leader), so when rank_members are recorded we TERM the leader,
-    bounded-observe natural rank exit, then individually TERM/KILL only still-alive
-    identity-matching ranks. A vanished leader does NOT prove ranks exited. No broad kill."""
+    """All saved identities are checked before the first signal; never adopt a reused group."""
     validate_identity(identity)
-    ranks = identity.get("rank_members")
-    if ranks:
-        for rank in ranks:
-            validate_identity(rank)
+    if "rank_members" in identity or "topology" in identity:
+        ranks = _validate_topology(identity)
+        observations = _observe_topology(identity)
+        if observations["state"] == "unknown":
+            raise RuntimeError("rollback observation unknown")
+        if _identity_alive(identity):
+            for rank in ranks:
+                if _identity_alive(rank):
+                    current = _process_record(rank["pid"])
+                    if current["ppid"] != identity["pid"]:
+                        raise RuntimeError("rank parent ownership changed before signaling")
+        targets = [identity, *ranks]
+    else:
+        # No sealed child list: a live matching leader is mandatory before discovery.
         try:
-            _signal_identity(identity, signal.SIGTERM)
-        except RuntimeError:
-            raise
+            current = _process_record(identity["pid"])
+        except (FileNotFoundError, ProcessLookupError) as exc:
+            raise RuntimeError("leader absent without trusted topology seal") from exc
+        if not _same_process(current, identity):
+            raise RuntimeError("leader identity reused; refusing all signals")
+        members, errors = _group_members_with_errors(identity["pgid"])
+        if errors:
+            raise RuntimeError("rollback observation unknown")
+        targets = [current]
+        for member in members:
+            record = _process_record(member["pid"])
+            if record["pid"] != identity["pid"]:
+                if record.get("ppid") != identity["pid"] or not _same_process(record, {**member, "pgid": identity["pgid"]}):
+                    raise RuntimeError("unowned group member; refusing all signals")
+                targets.append(record)
+    # Give torchrun a chance to shut down ranks, then signal only the saved identities.
+    _signal_identity(identity, signal.SIGTERM)
+    for sig in (None, signal.SIGTERM, signal.SIGKILL):
+        if sig is not None:
+            for record in targets:
+                if _identity_alive(record) is None:
+                    raise RuntimeError("rollback observation unknown")
+                _signal_identity(record, sig)
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
-            states = [_identity_alive(identity)] + [_identity_alive(r) for r in ranks]
+            states = [_identity_alive(record) for record in targets]
             if None in states:
                 raise RuntimeError("rollback observation unknown")
             if not any(states):
-                return {"state": "exited", "group_members": [], "read_errors": []}
+                return {"state": "exited", "group_members": [], "read_errors": [],
+                        "identities": [{"identity": r, "alive": False} for r in targets]}
             time.sleep(0.05)
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            for rank in ranks:
-                if _identity_alive(rank):
-                    _signal_identity(rank, sig)
-            if _identity_alive(identity):
-                _signal_identity(identity, sig)
-            deadline = time.monotonic() + grace
-            while time.monotonic() < deadline:
-                states = [_identity_alive(identity)] + [_identity_alive(r) for r in ranks]
-                if None in states:
-                    raise RuntimeError("rollback observation unknown")
-                if not any(states):
-                    return {"state": "exited", "group_members": [], "read_errors": []}
-                time.sleep(0.05)
-        raise RuntimeError("rollback pending: owned ranks still alive")
-    # Fallback: single-PGID group (no recorded rank topology).
-    members, errors = _group_members_with_errors(identity["pgid"])
-    if errors:
-        raise RuntimeError("rollback owner observation unknown: " + repr(errors))
-    targets = []
-    for member in members:
-        record = _process_record(member["pid"])
-        if record["pgid"] != identity["pgid"] or record["start_ticks"] != member["start_ticks"]:
-            raise RuntimeError("rollback identity changed")
-        targets.append(record)
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        for record in targets:
-            try:
-                current = _process_record(record["pid"])
-                if any(current[k] != record[k] for k in ("pid", "pgid", "start_ticks")):
-                    raise RuntimeError("rollback member reused")
-                os.kill(record["pid"], sig)
-            except (FileNotFoundError, ProcessLookupError):
-                continue
-        deadline = time.monotonic() + grace
-        while time.monotonic() < deadline:
-            observed = _observe_owner(identity, None)
-            if observed["state"] == "exited":
-                return observed
-            if observed["state"] == "unknown":
-                raise RuntimeError("rollback observation unknown")
-            time.sleep(0.05)
-    raise RuntimeError("rollback pending: owned group still alive")
+    raise RuntimeError("rollback pending: owned identities still alive")
 
 
 def _start_occupier_process(occupier_command=None, *, shared_identity_path=None,
@@ -882,62 +1025,79 @@ def _start_occupier_process(occupier_command=None, *, shared_identity_path=None,
         proc = subprocess.Popen(command, start_new_session=True,
                                 env=dict(os.environ, CUDA_VISIBLE_DEVICES="0,1,2,3", NPROC="4"),
                                 stdin=subprocess.DEVNULL, stdout=log, stderr=log)
-    initial = None
+    initial, saved = None, None
+    mapping = {"status": "unresolved", "errors": ["no GPU ownership observation"]}
+    if occupier_command is None:
+        expected_script = "/data/wuxuecheng/z-occupier-ready/train.py"
+    elif Path(command[0]).suffix == ".sh":
+        expected_script = str(Path(command[0]).resolve().parent / "train.py")
+    elif len(command) > 1 and Path(command[1]).suffix == ".py":
+        expected_script = str(Path(command[1]).resolve())
+    else:
+        raise ValueError("custom occupier command must identify its training script")
     try:
         _atomic_write(pending_path, {"kind": "rsiflow_occupier_start_pending", "spawned_pid": proc.pid,
                                      "command": command, "host_identity": host_identity()})
         initial = _process_record(proc.pid)
         if initial["pgid"] != proc.pid:
             raise RuntimeError("occupier group not owned")
-        expected_script = "/data/wuxuecheng/z-occupier-ready/train.py" if occupier_command is None else str(Path(command[1]).resolve())
         deadline = time.monotonic() + exec_timeout
         while time.monotonic() < deadline:
             leader = _process_record(proc.pid)
-            if any(leader[k] != initial[k] for k in ("pid", "pgid", "start_ticks")):
+            if not _same_process(leader, initial):
                 raise RuntimeError("occupier identity changed")
-            # Real torchrun: ranks are independent sessions/PGIDs with PPID==leader.
-            ranks = _discover_ranks(proc.pid, expected_script)
-            argv_ok = _runs_script(leader, expected_script) and all(_runs_script(r, expected_script) for r in ranks)
-            local_ranks = sorted(int(r["local_rank"]["LOCAL_RANK"]) for r in ranks
-                                 if r.get("local_rank") and str(r["local_rank"].get("LOCAL_RANK", "")).isdigit())
-            if len(ranks) == 4 and argv_ok and local_ranks == [0, 1, 2, 3]:
-                gpu = (gpu_observer or _default_gpu_observer)()
-                from summarize_deepcoder_five_round import validate_gpu_measurement
-                expected_inventory = [{"gpu": g["gpu"], "uuid": g["uuid"]} for g in gpu.get("per_gpu", [])]
-                validate_gpu_measurement(gpu, expected_inventory, require_idle=False)
-                apps = gpu.get("compute_apps") or []
-                expected = set(gpu.get("expected_uuids") or [])
-                # Accept via four unique GPU UUID + real load + four-rank/leader topology.
-                # NVML compute PIDs may live in a different PID namespace than container
-                # ranks; never fake PID equality — record namespace_notes and the mapping.
-                uuid_ok = len(apps) == 4 and len(expected) == 4 and {a["uuid"] for a in apps} == expected
-                load_ok = all(g["memory_used"] > 0 and g["utilization"] > 0 for g in gpu["per_gpu"])
-                nvml_pids = {a["pid"] for a in apps}
-                rank_pids = {r["pid"] for r in ranks}
-                namespace_notes = []
-                if nvml_pids == rank_pids:
-                    pid_mapping = "direct"
-                else:
-                    pid_mapping = "namespace_differs"
-                    namespace_notes.append(
-                        "NVML compute PIDs differ from container rank PIDs (different PID namespace); "
-                        "accepted via four unique GPU UUID + real load + four-rank/leader topology, not PID equality")
-                if uuid_ok and load_ok:
-                    return {**leader, "gpus": [0, 1, 2, 3], "rank_members": ranks,
-                            "load_observation": gpu, "owner": "dev4-rsiflow-idle-occupier",
-                            "pending_path": str(pending_path), "pid_mapping": pid_mapping,
-                            "namespace_notes": namespace_notes}
-            time.sleep(0.1)
-        raise RuntimeError("occupier four-rank GPU identity/load not verified")
-    except BaseException:
-        if initial is not None:
+            # Wait for exec before discovering children; do not accept an arbitrary leader.
+            if not _runs_script(leader, expected_script):
+                time.sleep(0.05)
+                continue
             try:
                 ranks = _discover_ranks(proc.pid, expected_script)
-                _terminate_owned_group({**initial, "rank_members": ranks})
-            except Exception:
-                _terminate_owned_group(initial)
-            proc.wait(timeout=5)
-            pending_path.unlink(missing_ok=True)
+            except RankObservationUnknown as exc:
+                partial = {**(saved or initial), "spawned_pid": proc.pid,
+                           "rank_observations": exc.ranks, "read_errors": exc.errors,
+                           "status": "pending", "host_identity": host_identity()}
+                _atomic_write(pending_path, partial)
+                raise
+            saved = _seal_topology(leader, ranks, expected_script, previous=saved)
+            _atomic_write(pending_path, {**saved, "spawned_pid": proc.pid, "pid_mapping": mapping})
+            try:
+                complete = _seal_topology(leader, ranks, expected_script, previous=saved, complete=True)
+            except RuntimeError:
+                time.sleep(0.1)
+                continue
+            saved = complete
+            gpu = (gpu_observer or _default_gpu_observer)()
+            from summarize_deepcoder_five_round import validate_gpu_measurement
+            inventory = [{"gpu": g["gpu"], "uuid": g["uuid"]} for g in gpu.get("per_gpu", [])]
+            validate_gpu_measurement(gpu, inventory, require_idle=False)
+            mapping = _gpu_owner_mapping(saved, gpu)
+            saved.update(load_observation=gpu, pid_mapping=mapping,
+                         owner="dev4-rsiflow-idle-occupier", gpus=[0, 1, 2, 3], pending_path=str(pending_path))
+            _atomic_write(pending_path, {**saved, "spawned_pid": proc.pid})
+            if mapping["status"] == "unresolved":
+                raise RuntimeError("GPU ownership unresolved; restore pending")
+            if all(g["memory_used"] > 0 and g["utilization"] > 0 for g in gpu["per_gpu"]):
+                return saved
+            time.sleep(0.1)
+        raise RuntimeError("occupier four-rank GPU identity/load not verified")
+    except BaseException as exc:
+        # Never rediscover by PPID after leader death and never downgrade unknown ranks.
+        failure = _read_json(pending_path) or {}
+        failure.update(status="pending", error_type=type(exc).__name__, error=str(exc), spawned_pid=proc.pid)
+        if saved is not None:
+            failure.update(saved)
+        if saved is not None and not isinstance(exc, RankObservationUnknown):
+            try:
+                failure["rollback"] = _terminate_owned_group(saved)
+                proc.wait(timeout=5)
+            except Exception as rollback_exc:
+                failure["rollback"] = {"state": "unknown", "error": str(rollback_exc)}
+        elif isinstance(exc, RankObservationUnknown):
+            failure["rank_observations"] = exc.ranks
+            failure["read_errors"] = exc.errors
+        else:
+            failure["rollback"] = {"state": "unknown", "error": "no trustworthy captured topology"}
+        _atomic_write(pending_path, failure)
         raise
 
 
@@ -958,8 +1118,8 @@ def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=Non
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = open(lock_path, "a+")
     try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+        _acquire_global_lock(lock_file)
+    except RuntimeError:
         lock_file.close()
         raise RuntimeError("lifecycle lock held; occupier restore refused")
     try:

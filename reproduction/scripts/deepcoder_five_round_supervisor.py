@@ -221,7 +221,9 @@ _WRAPPER = r'''
 import json, os, signal, subprocess, sys, time
 from pathlib import Path
 attempt_dir = Path(sys.argv[1]); run_dir = Path(sys.argv[2])
-timeout = sys.argv[3]; kill_after = sys.argv[4]; ack_timeout = float(sys.argv[5]); command = sys.argv[6:]
+timeout = sys.argv[3]; kill_after = sys.argv[4]; ack_timeout = float(sys.argv[5])
+lifecycle_fd = int(sys.argv[6]) if sys.argv[6] != "-1" else None
+command = sys.argv[7:]
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
 pid = os.getpid()
 stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
@@ -251,7 +253,8 @@ if not ack:
     tmp.write_text(json.dumps({"status": "complete", "term_targets": [], "kill_targets": [], "remaining": []}) + "\n")
     os.replace(tmp, attempt_dir / "reconcile.json")
     raise SystemExit(1)
-rc = subprocess.run(["timeout", "--foreground", "--signal=TERM", f"--kill-after={kill_after}", timeout, *command]).returncode
+rc = subprocess.run(["timeout", "--foreground", "--signal=TERM", f"--kill-after={kill_after}", timeout, *command],
+                    pass_fds=() if lifecycle_fd is None else (lifecycle_fd,)).returncode
 if rc < 0:
     rc = 128 - rc  # bash-style 128+signal (e.g. SIGTERM -> 143)
 wrapper_pid = pid; helper_pid = os.getpid()
@@ -558,7 +561,8 @@ def validate_field_receipts(stages, receipts, config_path, run_dir):
     for stage in ("stage1", "stage2"):
         _validate_stage_measurements(stages[stage], require_idle=stage == "stage2")
     owner = evidence(stages["stage1"], "occupier_identity")
-    validate_identity(owner)
+    from reconcile_deepcoder_run import _validate_topology
+    _validate_topology(owner, complete=True)
     if owner.get("owner") != "dev4-rsiflow-idle-occupier" or owner.get("gpus") != [0, 1, 2, 3]:
         raise RuntimeError("occupier identity invalid")
     stop = evidence(stages["stage2"], "occupier_stop")
@@ -569,6 +573,12 @@ def validate_field_receipts(stages, receipts, config_path, run_dir):
             or stop.get("after", {}).get("group_members") != []
             or stop.get("after", {}).get("read_errors") != []):
         raise RuntimeError("occupier handoff evidence invalid")
+    expected = [owner, *owner["rank_members"]]
+    observed = stop["after"].get("identities") or []
+    if (len(observed) != len(expected) or any(o.get("alive") is not False for o in observed)
+            or [{k: o["identity"][k] for k in ("pid", "pgid", "start_ticks")} for o in observed]
+            != [{k: i[k] for k in ("pid", "pgid", "start_ticks")} for i in expected]):
+        raise RuntimeError("handoff missing per-identity terminal evidence")
     gpu = evidence(stages["stage2"], "gpu_observation")
     if gpu.get("compute_apps") != [] or gpu.get("free_verified") is not True:
         raise RuntimeError("handoff GPU still occupied")
@@ -599,8 +609,17 @@ def probe_provider(config_path, output):
 
 def observe_preflight(config_path, phase, provider_report, occupier_identity, output,
                       *, stage1=None, stop_receipt=None):
+    import fcntl
+    with GLOBAL_GPU_LIFECYCLE_LOCK.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return _observe_preflight_locked(config_path, phase, provider_report, occupier_identity, output,
+                                         stage1=stage1, stop_receipt=stop_receipt)
+
+
+def _observe_preflight_locked(config_path, phase, provider_report, occupier_identity, output,
+                              *, stage1=None, stop_receipt=None):
     """Executed by the operator on dev4, never by offline tests or the consumer."""
-    from reconcile_deepcoder_run import _default_gpu_observer, _default_ports_observer, _observe_owner
+    from reconcile_deepcoder_run import _default_gpu_observer, _default_ports_observer, snapshot_occupier
     config_path, output = Path(config_path).resolve(), Path(output).resolve()
     paths = derive_paths(config_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -613,8 +632,15 @@ def observe_preflight(config_path, phase, provider_report, occupier_identity, ou
     write_once(gpu_path, gpu); write_once(ports_path, ports)
     identity = _read_json(occupier_identity) or {}
     validate_identity(identity)
-    if phase == "stage1" and _observe_owner(identity, paths["run_dir"])["state"] != "alive":
-        raise RuntimeError("occupier not observed alive")
+    if phase == "stage1":
+        try:
+            identity = snapshot_occupier(identity)
+        except (OSError, ValueError, RuntimeError) as exc:
+            write_once(output.with_suffix(".pending.json"), {
+                "kind": "rsiflow_preflight_pending", "status": "pending", "error": str(exc),
+                "leader": identity, "rank_members": getattr(exc, "ranks", []),
+                "read_errors": getattr(exc, "errors", []), "host_identity": host_identity()})
+            raise
     identity_snapshot = output.with_suffix(".occupier.json")
     write_once(identity_snapshot, identity)
     value = {"stage": phase, "status": "success", "run_dir": str(paths["run_dir"]),
@@ -638,7 +664,7 @@ def observe_preflight(config_path, phase, provider_report, occupier_identity, ou
 
 def handoff_occupier(stage1_path, output):
     import fcntl
-    from reconcile_deepcoder_run import _observe_owner, _terminate_owned_group, _process_record
+    from reconcile_deepcoder_run import _observe_topology, _terminate_owned_group, _validate_topology
     with GLOBAL_GPU_LIFECYCLE_LOCK.open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         stage1 = _read_json(stage1_path) or {}
@@ -651,13 +677,20 @@ def handoff_occupier(stage1_path, output):
         if not ref.get("sha256") or _sha256(ref.get("path")) != ref["sha256"]:
             raise RuntimeError("handoff identity hash")
         identity = _read_json(ref["path"])
-        actual = _process_record(identity["pid"])
-        if (identity.get("owner") != "dev4-rsiflow-idle-occupier"
-                or any(actual[k] != identity[k] for k in ("pid", "pgid", "start_ticks"))
-                or not any("train.py" in arg for arg in actual["argv"])):
-            raise RuntimeError("handoff owner identity/argv")
-        before = _observe_owner(identity, stage1["run_dir"])
-        after = _terminate_owned_group(identity)
+        _validate_topology(identity, complete=True)
+        if identity.get("owner") != "dev4-rsiflow-idle-occupier":
+            raise RuntimeError("handoff owner identity")
+        before = _observe_topology(identity)
+        if before["state"] == "unknown":
+            raise RuntimeError("handoff rank identity observation unknown")
+        try:
+            after = _terminate_owned_group(identity)
+        except (OSError, RuntimeError, ValueError) as exc:
+            write_once(Path(output).with_suffix(".pending.json"), {
+                "kind": "rsiflow_occupier_handoff_pending", "identity": identity,
+                "before": before, "after": _observe_topology(identity), "error": str(exc),
+                "stage1_hash": _sha256(stage1_path), "host_identity": host_identity()})
+            raise
         value = {"kind": "rsiflow_occupier_handoff", "stage1_hash": _sha256(stage1_path),
                  "identity": identity, "before": before, "after": after, "host_identity": host_identity()}
         write_once(output, value)
@@ -895,7 +928,7 @@ def _launch_locked(config_path, supervision: str, *, command, timeout=DEFAULT_TI
     }
     _atomic_write(attempt_dir / "launch.json", seal)
     argv = [sys.executable, "-c", _WRAPPER, str(attempt_resolved), str(run_dir_resolved),
-            timeout, kill_after, str(handshake_timeout), *command]
+            timeout, kill_after, str(handshake_timeout), str(_lock_fd if _lock_fd is not None else -1), *command]
     proc = subprocess.Popen(argv, start_new_session=True,
                             pass_fds=() if _lock_fd is None else (_lock_fd,),
                             stdin=subprocess.DEVNULL,

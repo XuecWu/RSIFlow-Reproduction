@@ -85,8 +85,8 @@ PRELAUNCH_SEAL="$AUDIT_DIR/prelaunch-input.json"
 
 按 SOP §4.1 与共享 identity `/data/wuxuecheng/z-occupier-ready/runtime/dev4/identity.json`：
 
-1. 实时读取 occupier `pid/pgid/start_ticks/owner/gpus`（owner=dev4-rsiflow-idle-occupier，GPU 0–3），dev4 重读 `/proc/<pid>/stat`+`cmdline` 逐项核验完整 argv；任一不符/不可读/owner 不明 → 停止，不发信号。
-2. 快照 PGID 全部非 zombie members → 只向已核验 occupier PGID 发一次 TERM → 有界等待重读 `/proc`；剩余仅对“原快照 PID+同 PGID+同 start_ticks”逐个 KILL；新 PID/start_ticks 不符/读取不确定 → blocker。禁止 pkill/按端口/宽泛 kill。
+1. 实时读取 occupier `pid/pgid/start_ticks/owner/gpus`（owner=dev4-rsiflow-idle-occupier，GPU 0–3），核验 leader 精确 argv、PID=PGID 和 start identity；在 leader 仍活时按 PPID+torchrun/train.py argv发现四个独立 PGID ranks，逐个记录 PID/PGID/start_ticks/PPID/argv/LOCAL_RANK/RANK 并两次快照封存。发现不全/不可读 → pending，不停止 occupier、不发信号。
+2. handoff 使用 stage1 封存 topology；先核验所有保存的 leader/rank identity 与父子归属，再 TERM leader并有界观察全部五个 identity。仅对仍存活、PID/PGID/start_ticks 仍逐项匹配的原 rank 逐个 TERM/KILL；leader消失不代表rank退出。缺 topology、reparent 前未封存、身份变化/读取unknown → pending，禁止leader-only降级、宽泛kill、pgrep/pkill或按端口信号。
 3. `nvidia-smi --query-compute-apps` 确认无计算进程、GPU 0–3 显存释放、四端口可用。
 4. 再次确认无 compute apps、每卡近空闲（launcher 门 memory.used<=1024MiB/util<=5%，连续两次）、端口/socket 无冲突、重验 launch seal 未变 → 允许唯一 detached launch。
 
@@ -179,9 +179,9 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
 
 ### 8.1 真实 torchrun 拓扑与 NVML PID namespace（real-layout fix）
 
-真实 `run.sh` 是 `exec torchrun`，四个 `train.py` rank 是**独立 session/PGID**（各自 PID=PGID），**PPID 均为 leader**，并非同 PGID 五成员。helper 按 **PPID==leader + argv 匹配 train.py** 发现 rank，逐个记录各自 PID/PGID/start_ticks/argv/PPID，并只读必要 `LOCAL_RANK/RANK`（不读其他 env）做逻辑映射，要求 LOCAL_RANK 恰为 {0,1,2,3}。
+真实 `run.sh` 是 `exec torchrun`，四个 `train.py` rank 是**独立 session/PGID**（各自 PID=PGID），**PPID 均为 leader**，并非同 PGID 五成员。helper 按 **PPID==leader + argv 匹配 train.py** 发现 rank，逐个记录各自 PID/PGID/start_ticks/argv/PPID，并只提取并记录必要 `LOCAL_RANK/RANK`，不记录其他 environ 字段做逻辑映射，要求 LOCAL_RANK 恰为 {0,1,2,3}。
 
-NVML `--query-compute-apps` 的 compute PID 与容器内 rank PID **可能属不同 PID namespace**（现场曾见 NVML 3842480… vs 容器 24920…，process_name Not Found）。**不得伪造 PID 相等**：helper 以**四唯一 GPU UUID + 真实负载（used/util>0）+ 四 rank/leader 拓扑**共同验收，记录 `pid_mapping=direct|namespace_differs` 与 `namespace_notes`，保留限制。GPU compute apps 查询字段为 **`pid,gpu_uuid`**（`uuid` 非法字段会 exit 2）；主 `--query-gpu` 的 `uuid` 字段本来有效，不改。
+NVML `--query-compute-apps` 的 compute PID 与容器内 rank PID **可能属不同 PID namespace**（历史只读诊断曾见 NVML 3842480… vs 容器 24920…，process_name Not Found）。**不得伪造 PID 相等或由PID不等推断 namespace 不同**：只有 `/proc/<NVML PID>/status` 的 NSpid 与容器rank链、PID namespace inode、start_ticks共同验证时才可标 `nspid_verified`；否则 `unresolved/pending`，保留两边原始证据，不通过handoff/restore。四唯一 GPU UUID、真实负载及四rank/leader拓扑是必要条件，不替代PID归属证据。GPU compute apps 查询字段为 **`pid,gpu_uuid`**（`uuid` 非法字段会 exit 2）；主 `--query-gpu` 的 `uuid` 字段本来有效，不改。
 
 停止/失败调和按**每个保存 identity 分别核验**：leader TERM 后有界观察 rank 自然退出，仅对仍存活且身份匹配的 rank 逐个 TERM/KILL；**leader 消失不等于 rank 退出**，不宽泛 kill、不按名字/端口杀。离线测试用受控 leader+四独立 PGID rank（带 LOCAL_RANK）、不同 NVML PID 正例与错误拓扑（缺 LOCAL_RANK）反例、 bystander 不被误杀正例覆盖。
 

@@ -96,6 +96,34 @@ def test_launch_derives_paths_and_writes_identity(tmp_path, supervisor):
     reconcile = json.loads((attempt / "reconcile.json").read_text())
     assert reconcile["status"] == "complete"
     assert reconcile["remaining"] == []
+
+
+def test_launch_holds_global_lifecycle_lock_until_owned_command_exits(tmp_path, supervisor):
+    import fcntl
+    config = _config(tmp_path, tmp_path / "out", "run")
+    paths = supervisor.derive_paths(config)
+    lock = tmp_path / "global-gpu.lock"
+    supervisor.GLOBAL_GPU_LIFECYCLE_LOCK = lock
+    supervisor.launch(config, "0001", command=_sleep_command(1.0), timeout="10s",
+                      kill_after="2s", skip_asset_gates=True)
+    contender = lock.open("a+")
+    try:
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        attempt = supervisor.derive_paths(config)["run_dir"] / "meta_session/supervision/0001"
+        assert _wait(lambda: (attempt / "exit").is_file())
+        deadline = time.monotonic() + 65
+        while True:
+            try:
+                fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(contender, fcntl.LOCK_UN)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
+    finally:
+        contender.close()
     launch = json.loads((attempt / "launch.json").read_text())
     assert launch["kind"] == "rsiflow_launch"
     assert launch["binding"]["run_dir"] == str(paths["run_dir"].resolve())
@@ -945,32 +973,24 @@ def test_f8_restore_failure_rollback_no_four_ranks(tmp_path, supervisor, reconci
 # --- Real torchrun layout: independent PGID ranks, NVML PID namespace, gpu_uuid field ---
 
 def test_real_layout_independent_pgid_ranks_nvml_namespace_differs(tmp_path, supervisor, reconciler):
-    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    # A numeric offset is NOT evidence of a namespace mapping; retain unresolved facts.
+    config, run, paths, gpu_obs, _ = _seed_run(tmp_path, supervisor, reconciler)
     reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
                            stop_services_fn=lambda cfg: None, skip_asset_gates=True)
     shared_identity = tmp_path / "occupier-identity.json"
     command = _occupier_script(tmp_path, ranks=4)
-    try:
-        obs_path = reconciler.restore_occupier(
-            config, run, "0001", gpu_observer=_restore_gpu_observer(command, nvml_offset=1000000),
-            occupier_command=command, shared_identity_path=shared_identity, exec_timeout=15)
-        obs = json.loads(obs_path.read_text())
-        ident = obs["occupier_identity"]
-        ranks = ident["rank_members"]
-        assert len(ranks) == 4
-        # real torchrun: each rank has its OWN PGID (independent session), PPID==leader
-        assert len({r["pgid"] for r in ranks}) == 4
-        assert all(r["pgid"] != ident["pgid"] for r in ranks)
-        assert all(r["ppid"] == ident["pid"] for r in ranks)
-        assert sorted(int(r["local_rank"]["LOCAL_RANK"]) for r in ranks) == [0, 1, 2, 3]
-        # NVML PID namespace differs: not fake PID equality; accepted via UUID+load+topology
-        assert ident["pid_mapping"] == "namespace_differs"
-        assert ident["namespace_notes"]
-        assert {a["pid"] for a in ident["load_observation"]["compute_apps"]} != {r["pid"] for r in ranks}
-        assert {a["uuid"] for a in ident["load_observation"]["compute_apps"]} == {f"GPU-{g}" for g in range(4)}
-    finally:
-        if shared_identity.exists():
-            reconciler._terminate_owned_group(json.loads(shared_identity.read_text()))
+    with pytest.raises(RuntimeError, match="unresolved"):
+        reconciler.restore_occupier(config, run, "0001", gpu_observer=_restore_gpu_observer(command, nvml_offset=1000000),
+                                    occupier_command=command, shared_identity_path=shared_identity, exec_timeout=15)
+    pending = json.loads(shared_identity.with_suffix('.pending.json').read_text())
+    ranks = pending['rank_members']
+    assert len(ranks) == 4 and len({r['pgid'] for r in ranks}) == 4
+    assert all(r['ppid'] == pending['pid'] for r in ranks)
+    assert sorted(int(r['local_rank']['LOCAL_RANK']) for r in ranks) == [0, 1, 2, 3]
+    assert pending['pid_mapping']['status'] == 'unresolved'
+    assert pending['pid_mapping']['compute_apps']
+    assert not shared_identity.exists()
+    assert all(reconciler._identity_alive(r) is False for r in ranks)
 
 
 def test_real_layout_wrong_local_rank_topology_rejected(tmp_path, supervisor, reconciler):
@@ -1003,6 +1023,7 @@ def test_real_layout_gpu_compute_apps_uses_gpu_uuid_field(tmp_path, reconciler, 
             captured["apps_cmd"] = cmd
             return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
         if isinstance(cmd, list) and any("--query-gpu" in str(c) for c in cmd):
+            captured["gpu_cmd"] = cmd
             raw = "".join(f"{g}, GPU-{g}, A800, 81920, 78000, 100, 0\n" for g in range(4))
             return _sp.CompletedProcess(cmd, 0, stdout=raw, stderr="")
         return real_run(cmd, *a, **k)
@@ -1011,7 +1032,7 @@ def test_real_layout_gpu_compute_apps_uses_gpu_uuid_field(tmp_path, reconciler, 
     assert captured["apps_cmd"] == ["nvidia-smi", "--query-compute-apps=pid,gpu_uuid", "--format=csv,noheader,nounits"]
     # the main GPU query uuid field is unchanged (valid)
     assert "--query-gpu=index,uuid,name,memory.total,memory.free,memory.used,utilization.gpu" in " ".join(
-        captured.get("gpu_cmd", ["--query-gpu=index,uuid,name,memory.total,memory.free,memory.used,utilization.gpu"]))
+        captured["gpu_cmd"])
 
 
 def test_real_layout_per_identity_termination_no_broad_kill(tmp_path, supervisor, reconciler):
@@ -1463,3 +1484,200 @@ def test_fix4_initial_identity_failure_blocks_duplicate_restore(tmp_path, reconc
             if process.poll() is None:
                 reconciler._terminate_owned_group(real_record(process.pid))
                 process.wait(timeout=10)
+
+
+def test_layout_fix1_reused_leader_refuses_all_signals(reconciler, monkeypatch):
+    signals = []
+    monkeypatch.setattr(reconciler.os, 'kill', lambda *a: signals.append(a))
+    monkeypatch.setattr(reconciler, '_group_members_with_errors', lambda _: ([{'pid': 100, 'start_ticks': '2'}], []))
+    monkeypatch.setattr(reconciler, '_process_record', lambda _: {'pid': 100, 'pgid': 100, 'start_ticks': '2'})
+    monkeypatch.setattr(reconciler, '_observe_owner', lambda *a: {'state': 'exited'})
+    with pytest.raises(RuntimeError, match='identity|reused'):
+        reconciler._terminate_owned_group({'pid': 100, 'pgid': 100, 'start_ticks': '1'}, grace=.01)
+    assert signals == []
+
+
+def test_layout_fix1_foreign_rank_refuses_before_leader_signal(reconciler, monkeypatch):
+    signals = []
+    leader = {'pid': 100, 'pgid': 100, 'start_ticks': '1', 'ppid': 1, 'argv': ['python', '/owned/train.py']}
+    rank = {'pid': 200, 'pgid': 200, 'start_ticks': '2', 'ppid': 999, 'argv': ['python', '/owned/train.py']}
+    records = {100: leader, 200: rank}
+    monkeypatch.setattr(reconciler, '_process_record', lambda pid: records[pid])
+    monkeypatch.setattr(reconciler.os, 'kill', lambda *a: signals.append(a))
+    monkeypatch.setattr(reconciler, '_identity_alive', lambda _: False)
+    with pytest.raises(RuntimeError, match='topology|parent|seal'):
+        reconciler._terminate_owned_group({**leader, 'rank_members': [rank]}, grace=.01)
+    assert signals == []
+
+
+def test_layout_fix1_unknown_rank_discovery_is_not_empty(reconciler, monkeypatch):
+    class Proc:
+        def iterdir(self):
+            return [type('Entry', (), {'name': '200'})()]
+    real_path = reconciler.Path
+    monkeypatch.setattr(reconciler, 'Path', lambda p: Proc() if p == '/proc' else real_path(p))
+    monkeypatch.setattr(reconciler, '_process_record', lambda _: (_ for _ in ()).throw(PermissionError()))
+    with pytest.raises(RuntimeError, match='unknown|unreadable'):
+        reconciler._discover_ranks(100, '/owned/train.py')
+
+
+def test_layout_fix1_nvml_offset_without_evidence_stays_pending(tmp_path, reconciler):
+    command = _occupier_script(tmp_path)
+    identity_path = tmp_path / 'identity.json'
+    observe = _restore_gpu_observer(command, nvml_offset=1000000)
+    observe()  # helper-only test: load observation, without restore's idle check
+    try:
+        with pytest.raises(RuntimeError, match='unresolved'):
+            reconciler._start_occupier_process(command, shared_identity_path=identity_path,
+                                               gpu_observer=observe, exec_timeout=2)
+        pending = json.loads(identity_path.with_suffix('.pending.json').read_text())
+        assert pending['pid_mapping']['status'] == 'unresolved'
+        assert pending['pid_mapping']['compute_apps']
+        assert len(pending['rank_members']) == 4
+        assert not identity_path.exists()
+    finally:
+        if identity_path.with_suffix('.pending.json').exists():
+            p = json.loads(identity_path.with_suffix('.pending.json').read_text())
+            if p.get('topology'):
+                reconciler._terminate_owned_group(p)
+
+
+def test_layout_fix1_legacy_stage1_handoff_captures_independent_ranks(tmp_path, supervisor, reconciler, monkeypatch):
+    command = _occupier_script(tmp_path)
+    leader = subprocess.Popen(command, start_new_session=True)
+    saved = None
+    try:
+        assert _wait(lambda: len(reconciler._discover_ranks(leader.pid, str(command[1]))) == 4)
+        old = reconciler._process_record(leader.pid)
+        old.update(owner='dev4-rsiflow-idle-occupier', gpus=[0, 1, 2, 3])
+        saved = reconciler.snapshot_occupier(old, str(command[1]))
+        shared = tmp_path / 'legacy-identity.json'; shared.write_text(json.dumps(old))
+        config = _config(tmp_path, tmp_path / 'out', 'run')
+        # Field measurements are independent of this test's real process topology.
+        module = __import__('reconcile_deepcoder_run')
+        monkeypatch.setattr(module, '_default_gpu_observer', lambda: {'per_gpu': [{'gpu':i,'uuid':f'GPU-{i}'} for i in range(4)]})
+        monkeypatch.setattr(module, '_default_ports_observer', lambda: {'status':'closed'})
+        monkeypatch.setattr(supervisor, '_validate_stage_measurements', lambda *a, **k: None)
+        monkeypatch.setattr(module, 'snapshot_occupier', lambda identity: reconciler.snapshot_occupier(identity, str(command[1])))
+        stage = tmp_path / 'stage1.json'
+        supervisor.observe_preflight(config, 'stage1', tmp_path/'provider.json', shared, stage)
+        record = json.loads(stage.read_text())
+        snapshot = json.loads(Path(record['occupier_identity']['path']).read_text())
+        assert len(snapshot['rank_members']) == 4
+        assert snapshot['topology_sha256']
+        handoff = tmp_path/'handoff.json'
+        supervisor.handoff_occupier(stage, handoff)
+        stop = json.loads(handoff.read_text())
+        assert stop['after']['state'] == 'exited'
+        assert len(stop['after']['identities']) == 5
+        assert all(reconciler._identity_alive(rank) is False for rank in saved['rank_members'])
+        assert json.loads(shared.read_text()) == old  # no manual patching of legacy identity
+    finally:
+        if saved:
+            reconciler._terminate_owned_group(saved, grace=.2)
+        leader.wait(timeout=10)
+
+
+def _layout_fix1_topology(reconciler, monkeypatch):
+    leader = {'pid': 100, 'pgid': 100, 'start_ticks': '1', 'ppid': 1, 'argv': ['python', '/owned/train.py']}
+    ranks = [{'pid': 200+i, 'pgid': 200+i, 'start_ticks': str(10+i), 'ppid': 100,
+              'argv': ['python','/owned/train.py'], 'local_rank': {'LOCAL_RANK': str(i), 'RANK': str(i)}} for i in range(4)]
+    records = {r['pid']: r for r in [leader, *ranks]}
+    monkeypatch.setattr(reconciler, '_process_record', lambda pid: records[pid])
+    saved = reconciler._seal_topology(leader, ranks, '/owned/train.py', complete=True)
+    return saved, records
+
+
+@pytest.mark.parametrize('mode', ['direct', 'nspid', 'missing', 'partial', 'foreign', 'extra', 'wrong_gpu'])
+def test_layout_fix1_gpu_ownership_requires_independent_pid_evidence(reconciler, monkeypatch, mode):
+    saved, records = _layout_fix1_topology(reconciler, monkeypatch)
+    def view(pid):
+        if pid >= 900:
+            if mode == 'missing' or (mode == 'partial' and pid == 903):
+                raise FileNotFoundError('NVML PID not visible')
+            rank = records[pid - 700]
+            return {'identity': {**rank, 'pid': pid}, 'nspid': [pid, rank['pid']],
+                    'pid_namespace': 'pid:[wrong]' if mode == 'foreign' else 'pid:[target]',
+                    'status_raw': f"NSpid:\t{pid}\t{rank['pid']}"}
+        return {'identity': records[pid], 'nspid': [pid], 'pid_namespace': 'pid:[target]', 'status_raw': f'NSpid:\t{pid}'}
+    monkeypatch.setattr(reconciler, '_pid_view', view)
+    apps = [{'pid': (200 if mode == 'direct' else 900)+i, 'uuid': f'GPU-{i}'} for i in range(4)]
+    if mode == 'extra': apps.append({'pid': 999, 'uuid': 'GPU-0'})
+    if mode == 'wrong_gpu': apps[0]['uuid'], apps[1]['uuid'] = apps[1]['uuid'], apps[0]['uuid']
+    gpu = {'compute_apps': apps, 'per_gpu':[{'gpu':i,'uuid':f'GPU-{i}'} for i in range(4)]}
+    mapping = reconciler._gpu_owner_mapping(saved, gpu)
+    assert mapping['status'] == {'direct':'direct','nspid':'nspid_verified'}.get(mode, 'unresolved')
+    assert mapping['compute_apps'] == apps
+    if mode not in ('direct','nspid'):
+        assert mapping['errors']
+
+
+def test_layout_fix1_sealed_ranks_survive_leader_exit_and_reparent(tmp_path, reconciler):
+    command = _occupier_script(tmp_path)
+    leader = subprocess.Popen(command, start_new_session=True)
+    saved = None
+    try:
+        assert _wait(lambda: len(reconciler._discover_ranks(leader.pid, str(command[1]))) == 4)
+        saved = reconciler.snapshot_occupier(reconciler._process_record(leader.pid), str(command[1]))
+        leader.terminate(); leader.wait(timeout=10)
+        assert all(reconciler._identity_alive(r) for r in saved['rank_members'])
+        result = reconciler._terminate_owned_group(saved, grace=.2)
+        assert result['state'] == 'exited' and len(result['identities']) == 5
+        assert all(reconciler._identity_alive(r) is False for r in saved['rank_members'])
+    finally:
+        if saved: reconciler._terminate_owned_group(saved, grace=.2)
+        if leader.poll() is None: leader.terminate(); leader.wait(timeout=10)
+
+
+def test_layout_fix1_unreadable_rank_refuses_all_signals(reconciler, monkeypatch):
+    saved, records = _layout_fix1_topology(reconciler, monkeypatch)
+    def read(pid):
+        if pid == 202: raise PermissionError('rank unreadable')
+        return records[pid]
+    monkeypatch.setattr(reconciler, '_process_record', read)
+    signals = []
+    monkeypatch.setattr(reconciler.os, 'kill', lambda *a: signals.append(a))
+    with pytest.raises(RuntimeError, match='unknown'):
+        reconciler._terminate_owned_group(saved, grace=.01)
+    assert not signals
+
+
+def test_layout_fix1_rank_ignores_term_only_saved_identity_gets_kill(reconciler, monkeypatch):
+    saved, records = _layout_fix1_topology(reconciler, monkeypatch)
+    current = dict(records)
+    def read(pid):
+        if pid not in current: raise FileNotFoundError()
+        return current[pid]
+    signals = []
+    def kill(pid, sig):
+        signals.append((pid,sig))
+        if pid != 202 or sig == signal.SIGKILL: current.pop(pid,None)
+    monkeypatch.setattr(reconciler,'_process_record',read)
+    monkeypatch.setattr(reconciler.os,'kill',kill)
+    result = reconciler._terminate_owned_group(saved, grace=.01)
+    assert result['state'] == 'exited'
+    assert (202,signal.SIGKILL) in signals
+    assert {pid for pid,_ in signals} <= set(records)
+
+
+def test_layout_fix1_rollback_unknown_keeps_topology_and_pending(tmp_path, reconciler, monkeypatch):
+    command = _occupier_script(tmp_path)
+    shared = tmp_path / 'identity.json'
+    observer = _restore_gpu_observer(command, nvml_offset=1000000); observer()
+    real_terminate = reconciler._terminate_owned_group
+    attempts = []
+    def unknown(identity, *a, **k):
+        attempts.append(identity)
+        raise RuntimeError('rank observation unknown')
+    monkeypatch.setattr(reconciler,'_terminate_owned_group',unknown)
+    try:
+        with pytest.raises(RuntimeError,match='unresolved'):
+            reconciler._start_occupier_process(command,shared_identity_path=shared,gpu_observer=observer,exec_timeout=3)
+        pending = json.loads(shared.with_suffix('.pending.json').read_text())
+        assert len(attempts) == 1 and len(attempts[0]['rank_members']) == 4
+        assert pending['rollback']['state'] == 'unknown'
+        assert pending['topology_sha256']
+        with pytest.raises(FileExistsError):
+            reconciler._start_occupier_process(command,shared_identity_path=shared,gpu_observer=observer)
+    finally:
+        if attempts: real_terminate(attempts[0],grace=.2)

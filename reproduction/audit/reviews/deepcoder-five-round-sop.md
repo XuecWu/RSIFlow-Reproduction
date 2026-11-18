@@ -66,7 +66,7 @@ smoke/五轮结束或失败后的 owned jobs/services/training 清理和四卡�
 2. 有界等待 `run.sh` exec 为完整 torchrun argv，复核新 PID=PGID 和 `/proc` start_ticks 后，以临时文件 + 原子 rename 写新 `identity.json`（owner、pid、pgid、start_ticks、gpus 0–3）。不要在 exec/argv 尚未稳定时写 identity。
 3. 实测四卡均有 compute apps、显存和 util 负载，并检查 occupier log 的四个 ranks；仅进程存在不算恢复成功。若 owner/GPU 状态不明确或四卡未证实，不贸然重复启动，保留现场并报告 blocker。
 
-2026-11-18 Task 5 的实际 MODEL plan 在 GPU 交接前被 source `meta` symlink 阻断，所以没有停止 occupier；原 identity 和四卡负载已复核不变。后续真实重试仍须执行上述完整交接。
+2026-11-18 Task 5 的**首次（v1，历史）**MODEL plan 在 GPU 交接前被 source `meta` symlink 阻断，所以没有停止 occupier；原 identity 和四卡负载已复核不变。该 v1 失败保留为历史；**v2 工程 PASS**（efba18d）已按上述完整交接实测通过。任何后续真实重试仍须执行上述完整交接。
 
 ### 4.2 MODEL 顺序
 

@@ -9,6 +9,8 @@
 
 > 本 runbook 是操作合同，不是已执行记录。所有真实启动/停止/cleanup 必须由有运行授权的主 agent 在 dev4 实际测量后执行；离线测试只验证参数迁移与拒绝门，不冒充现场。旧单轮 canary 路径**绝不**作为五轮可执行目标。
 
+> **实现状态（fix round 1，M1 同步）**：已实现并经离线受控进程测试——supervisor 预 Popen 资产/规范化门 + ACK-before-execute 握手 + failed-start 收容（H2）、fresh/resume 模式与 complete-only-cleanup/未封口拒绝（H7）、启动后真实 launcher/app-server/thread 身份附件 `collect_post_launch_identity`（H1）；reconcile 成员 PermissionError/解析→unknown+read_errors、leader PGID 核验、双快照（H3）、训练真实 identity 来自 dispatch receipt（缺则 requires_audit，禁 ticks=1）、stop_services 传规范化 PipelineConfig 且全 gates 通过才信号（H5）、launch evidence 只读永不覆盖、真实起止时间/pid namespace/registry before-after/两次独立 GPU 观测/ports bind-close/动作异常记录（H6）、lifecycle flock + occupier restore 仅 completed 后启动（H8）。**仍待真实 dev4 测量/后续**：真实 GPU UUID/四卡负载现场采集、生产 SFT 中断恢复完整演练（成功 result/candidate 存在不重训 + 未封口 requires_audit 贯通 writer+consumer）、真实 occupier stop/start 关联回执。这些不以离线注入冒充现场事实。
+
 ## 0. 唯一五轮目标元组（从 config 自然派生，禁止任意 --run-dir 覆盖）
 
 ```bash
@@ -27,7 +29,7 @@ REGISTRY="$OUTPUT_ROOT/services/four_gpu_services.json"
 
 ## 1. dev4 固定入口与 shell 纪律
 
-- dev4 固定 TCP 入口：`.tcp.vip.cpolar.top:56`（通用 `/data/wuxuecheng/CPOLAR_TCP_SOP.md`）。SSH 数组 `DEV4_SSH` 按该 SOP 设置；入口变化以实测为准，不写死历史动态地址。
+- dev4 固定 TCP 入口：`1.tcp.vip.cpolar.top:11356` → `127.0.0.1:22`（通用 `/data/wuxuecheng/CPOLAR_TCP_SOP.md`）。SSH 数组 `DEV4_SSH` 按该 SOP 设置；入口变化以实测为准，不写死历史动态地址。
 - 远端命令一律用 **bash**（`bash -s` 或 `bash -c`），声明 `set -euo pipefail` 与必要 PATH/解释器。本工作根默认 shell=zsh，`${!name}` 等 Bash 间接展开不得复制到 zsh 半执行。
 - 显式 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1`；不回退 host/Landlock/danger-full-access。凭据仅从既有私有 env 安全注入，不读取/打印/写仓库。
 - 主审计根为主 checkout；worktree 账本不拼接。每条命令用 `audit_exec.py`/`record_operation.py` 记录脱敏证据。
@@ -130,8 +132,11 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
 
 只有本 attempt **真实资源 cleanup receipt completed** 且 GPU/owner 再检查通过后恢复 occupier；恢复另写 observation，关联 cleanup hash，记录新 PID/PGID/start_ticks/精确 argv，原子更新 identity，再验证四 rank/GPU 负载。资源 unknown/job pending → receipt 保持 pending，occupier 保持未恢复并明确交接持续看护 owner，绝不重复启动。occupier 恢复后 GPU 被授权占用不使历史空卡 cleanup 无效，但**绝不拿 occupier 恢复后的读数填“无 compute apps”**。
 
+已实现入口 `reconcile_deepcoder_run.py` 的 `restore_occupier`：解析本 attempt 最新 cleanup receipt，`status!=completed`/binding 不符/GPU 非空 → 抛错（CLI 非 0 退出，`set -e` 阻断），**绝不启动 occupier**；completed 且空卡再确认后经同一 lifecycle flock 调用 occupier start，原子写 `rsiflow_occupier_restore` observation 关联 cleanup hash。handoff/start/cleanup/restore 全程共用 `OUTPUT_ROOT/locks/lifecycle.lock`（`flock` 排他，锁冲突拒绝）。
+
 ```bash
-# 在 /data/wuxuecheng/z-occupier-ready，cleanup completed 且空卡再确认后：
+# cleanup completed 且空卡再确认后，restore_occupier 内部经 flock 调用以下 occupier start：
+# 在 /data/wuxuecheng/z-occupier-ready：
 nohup setsid env CUDA_VISIBLE_DEVICES=0,1,2,3 NPROC=4 ./run.sh --mem-mb 2500 --log-interval 20 \
   >> runtime/dev4/occupier.log 2>&1 < /dev/null &
 # 有界等待 exec 为完整 torchrun argv，复核 PID=PGID/start_ticks 后原子写新 identity.json，实测四卡负载。

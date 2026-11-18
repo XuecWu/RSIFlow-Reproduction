@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rsiflow.task_meta.file_lock import exclusive_lock
-from rsiflow.task_meta.gpu_phases import ROOT, start_services, stop_services
+from rsiflow.task_meta.gpu_phases import ROOT, start_services, stop_services, process_identity
 from rsiflow.task_meta.pipeline import load_config
 from rsiflow.task_meta.resources import training_gpu_lease
 from rsiflow.task_meta.storage import save_json
@@ -58,7 +58,12 @@ def main():
                 environment = {k: v for k, v in environment.items()
                                if not any(w in k.upper() for w in ('KEY', 'TOKEN', 'PASSWORD', 'SECRET', 'AUTH'))}
                 child = subprocess.Popen(command, cwd=directory, env=environment, start_new_session=True)
+                # Record real start identity metadata for external owner reconciliation
+                # (metadata only; no training parameter/optimizer/scorer change).
+                training_identity = process_identity(child.pid) or {'pid': child.pid, 'pgid': child.pid}
                 state.update(status='training_dispatched', training_pid=child.pid, command=command,
+                             training_identity=training_identity, training_argv=command,
+                             training_run_dir=str(runs_root), training_request_dir=str(directory),
                              training_started_at=time.time())
                 save_json(receipt, state)
                 try:

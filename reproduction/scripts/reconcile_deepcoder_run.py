@@ -51,7 +51,14 @@ def _proc_stat(pid):
 
 
 def _group_members(pgid):
+    members, _ = _group_members_with_errors(pgid)
+    return members
+
+
+def _group_members_with_errors(pgid):
+    """Scan a PGID; unreadable members are reported, never silently dropped."""
     members = []
+    read_errors = []
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -59,9 +66,13 @@ def _group_members(pgid):
             stat = (entry / "stat").read_text().rsplit(")", 1)[1].split()
             if int(stat[2]) == pgid and stat[0] != "Z":
                 members.append({"pid": int(entry.name), "start_ticks": stat[19]})
-        except (FileNotFoundError, PermissionError):
+        except FileNotFoundError:
             continue
-    return members
+        except PermissionError:
+            read_errors.append(f"/proc/{entry.name}/stat:permission")
+        except (ValueError, IndexError, OSError) as exc:
+            read_errors.append(f"/proc/{entry.name}/stat:{type(exc).__name__}")
+    return members, read_errors
 
 
 def _derive(config_path, run_dir, supervision):
@@ -82,21 +93,35 @@ def _derive(config_path, run_dir, supervision):
 
 def _observe_owner(identity, run_dir):
     """Inspect an owner process group; never signal. A dead leader does NOT imply an
-    empty group: live descendants in the same PGID (e.g. DDP ranks) keep it alive."""
+    empty group: live descendants in the same PGID (e.g. DDP ranks) keep it alive.
+    Unreadable members / parse errors => unknown + read_errors (never false-exited).
+    A live leader must match the declared PGID and start identity. Two snapshots
+    bracket the observation so a transient empty scan cannot certify exit."""
     pid = identity.get("pid")
     pgid = identity.get("pgid", pid)
     start_ticks = str(identity.get("start_ticks", ""))
+    if not start_ticks.isdigit():
+        return {"state": "unknown", "group_members": [], "read_errors": ["start_identity_missing"]}
     try:
         stat = _proc_stat(pid)
     except FileNotFoundError:
         stat = None
     except PermissionError:
         return {"state": "unknown", "group_members": [], "read_errors": [f"/proc/{pid}/stat:permission"]}
-    if stat is not None and stat[19] != start_ticks:
-        return {"state": "unknown", "group_members": [], "read_errors": [f"pid {pid} reused"]}
-    members = _group_members(pgid)
-    if members:
-        return {"state": "alive", "group_members": members, "read_errors": []}
+    except (ValueError, IndexError, OSError) as exc:
+        return {"state": "unknown", "group_members": [], "read_errors": [f"/proc/{pid}/stat:{type(exc).__name__}"]}
+    if stat is not None:
+        if stat[19] != start_ticks:
+            return {"state": "unknown", "group_members": [], "read_errors": [f"pid {pid} reused"]}
+        if int(stat[2]) != pgid:
+            return {"state": "unknown", "group_members": [], "read_errors": [f"pid {pid} pgid mismatch"]}
+    before, errors_before = _group_members_with_errors(pgid)
+    after, errors_after = _group_members_with_errors(pgid)
+    read_errors = errors_before + errors_after
+    if read_errors:
+        return {"state": "unknown", "group_members": after or before, "read_errors": read_errors}
+    if before or after:
+        return {"state": "alive", "group_members": after or before, "read_errors": []}
     return {"state": "exited", "group_members": [], "read_errors": []}
 
 
@@ -172,11 +197,39 @@ def inspect_run(config_path, run_dir, supervision, *, gpu_observer=None) -> dict
 
 
 def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_services_fn=None,
-                skip_asset_gates=False, lifecycle_lock=None) -> Path:
+                ports_observer=None, occupier=None, skip_asset_gates=False, lifecycle_lock=None) -> Path:
+    started_wall = datetime.now(timezone.utc)
+    started_mono = time.monotonic()
     config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
     attempts, history, all_accounted = _supervision_history(run_dir)
     if not attempts or attempts[-1] != supervision:
         raise ValueError("cleanup must target the current supervision attempt")
+    # H8: acquire the same target-host lifecycle lock serializing handoff/start/cleanup/
+    # restore. A conflicting lock refuses (never concurrent cleanup/restore).
+    import fcntl
+    lock_path = Path(lifecycle_lock) if lifecycle_lock else (output_root / "locks/lifecycle.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = open(lock_path, "a+")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_file.close()
+        raise RuntimeError("lifecycle lock held by another operator; cleanup refused")
+    try:
+        return _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supervision,
+                               attempts, history, all_accounted, started_wall, started_mono,
+                               gpu_observer=gpu_observer, stop_services_fn=stop_services_fn,
+                               ports_observer=ports_observer, occupier=occupier,
+                               skip_asset_gates=skip_asset_gates)
+    finally:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+
+
+def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supervision,
+                    attempts, history, all_accounted, started_wall, started_mono, *,
+                    gpu_observer=None, stop_services_fn=None, ports_observer=None,
+                    occupier=None, skip_asset_gates=False) -> Path:
     obs_id = "obs-" + uuid.uuid4().hex[:12]
     obs_dir = attempt_dir / "external-cleanup" / obs_id
     obs_dir.mkdir(parents=True)  # exclusive new observation; never overwrite history
@@ -212,29 +265,36 @@ def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_se
         blockers.append("launch_seal_missing")
         status = "pending"
 
-    # effective config: reuse the launch-sealed file and verify it matches the
-    # production normalization (no executor constructed).
+    # effective config: the launch-sealed file is READ-ONLY evidence. Verify it matches
+    # the production normalization; never overwrite history (a mismatch is a blocker).
     project_root = Path(__file__).resolve().parents[2]
     launch_binding = launch.get("binding", {})
     effective_path = Path(launch_binding.get("effective_config_path") or (attempt_dir / "effective.json"))
+    effective_obj = None
     try:
         import sys
         for entry in (project_root / "RSIFlow", project_root / "RSIFlow/runtime"):
             if str(entry) not in sys.path:
                 sys.path.insert(0, str(entry))
         from task_adapter import TaskAdapter
-        effective = TaskAdapter(project_root / "RSIFlow", run_dir / "controller_receipts")._config(
-            {"config_path": str(config_path)}).model_dump()
-        if _read_json(effective_path) != effective:
-            _atomic_write(effective_path, effective)
-        seal(effective_path)
+        effective_obj = TaskAdapter(project_root / "RSIFlow", run_dir / "controller_receipts")._config(
+            {"config_path": str(config_path)})
+        effective = effective_obj.model_dump()
+        sealed_effective = _read_json(effective_path)
+        if sealed_effective is None:
+            blockers.append("effective_config_seal_missing")
+            status = "pending"
+        elif sealed_effective != effective:
+            blockers.append("effective_config_seal_mismatch")
+            status = "pending"
+        if effective_path.is_file():
+            seal(effective_path)
     except Exception as exc:  # offline temp config may lack full assets
         if not skip_asset_gates:
             blockers.append(f"effective_config_invalid:{exc}")
             status = "pending"
-        if not effective_path.is_file():
-            _atomic_write(effective_path, {})
-        seal(effective_path)
+        if effective_path.is_file():
+            seal(effective_path)
 
     base = (project_root / "RSIFlow" / config.get("runtime_source", "runtime") / config["base_config"]).resolve()
     binding = {
@@ -289,38 +349,68 @@ def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_se
     owners["training_phases"] = []
     for i, phase in enumerate(phases):
         value = _read_json(phase) or {}
-        ident = {"pid": value.get("training_pid"), "pgid": value.get("training_pid"), "start_ticks": "1"}
+        # Real start identity must come from the dispatch receipt; never fabricate ticks.
+        ident = value.get("training_identity")
+        if not isinstance(ident, dict) or not str(ident.get("start_ticks", "")).isdigit():
+            blockers.append(f"training_{i}_requires_audit_no_identity")
+            ident = {"pid": value.get("training_pid"), "pgid": value.get("training_pid"), "start_ticks": ""}
         owners["training_phases"].append(make_owner(ident, phase, f"training_{i}"))
 
-    # owned registry; stop services only after non-service owners exited
+    # owned registry; stop services ONLY after every launch/config/host/owner/registry/
+    # weights gate passes. Save the before bytes/hash; pass the normalized PipelineConfig
+    # (not the raw dict) so production registry_path resolves to THIS run's registry.
     registry_path = output_root / "services/four_gpu_services.json"
     registry = _read_json(registry_path) or {}
     active = _read_json(run_dir / "active_task.json") or {}
-    registry_after_hash = _sha256(registry_path)
+    registry_before_hash = _sha256(registry_path)
+    registry_after_hash = registry_before_hash
     stop_action = "skipped"
+    stop_command_result = None
     non_service_exited = all(o["state"] == "exited" for o in
                              [owners["launcher"], owners["app_server"], *owners["jobs"], *owners["training_phases"]])
-    if registry.get("phase") != "services_stopped":
-        if not non_service_exited:
-            blockers.append("services_running_owners_active")
+    # registry must belong to this run/config (production registry_path of effective config)
+    registry_owned = True
+    if effective_obj is not None:
+        try:
+            from rsiflow.task_meta.gpu_phases import registry_path as production_registry_path
+            if Path(production_registry_path(effective_obj)).resolve() != registry_path.resolve():
+                registry_owned = False
+                blockers.append("registry_not_owned_by_effective_config")
+                status = "pending"
+        except Exception as exc:
+            registry_owned = False
+            blockers.append(f"registry_path_check_failed:{exc}")
             status = "pending"
+    weights_ok = registry.get("checkpoint") == active.get("checkpoint_path")
+    if registry.get("phase") != "services_stopped":
+        gates_pass = (status == "completed" and non_service_exited and registry_owned and weights_ok
+                      and launch.get("kind") == "rsiflow_launch")
+        if not gates_pass:
+            blockers.append("stop_services_gates_not_passed")
+            if status == "completed":
+                status = "pending"
         else:
             stop_action = "executed"
             try:
                 if stop_services_fn is None:
                     from rsiflow.task_meta.gpu_phases import stop_services
                     stop_services_fn = stop_services
-                stop_services_fn(config)
+                # production stop_services requires a PipelineConfig with .output_root
+                stop_services_fn(effective_obj if effective_obj is not None else config)
+                stop_command_result = 0
                 registry = _read_json(registry_path) or {}
                 registry_after_hash = _sha256(registry_path)
             except Exception as exc:
+                stop_command_result = 1
                 blockers.append(f"stop_services_failed:{exc}")
                 status = "failed"
+                registry = _read_json(registry_path) or {}
+                registry_after_hash = _sha256(registry_path)
     if registry.get("phase") != "services_stopped" or registry.get("stopped_at") is None:
         blockers.append("registry_not_stopped")
         if status == "completed":
             status = "pending"
-    if registry.get("checkpoint") != active.get("checkpoint_path"):
+    if not weights_ok:
         blockers.append("registry_checkpoint_mismatch")
         if status == "completed":
             status = "pending"
@@ -334,71 +424,136 @@ def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_se
     if registry_path.is_file():
         seal(registry_path)
 
-    # GPU measurement (injected offline; real nvidia-smi in production)
-    gpu = (gpu_observer or _default_gpu_observer)()
-    gpu_path, gpu_hash = write_sealed(obs_dir / "gpu_observation.json", gpu)
+    # GPU measurement: two independent observations (injected offline; real nvidia-smi
+    # in production). Each carries its own raw stdout hash; measurement failure still
+    # produces a failed/pending receipt rather than raising.
     expected = launch.get("expected_gpus", [])
-    if gpu.get("compute_apps"):
-        blockers.append("gpu_compute_apps_present")
-        if status == "completed":
-            status = "pending"
-    if not gpu.get("free_verified"):
-        blockers.append("gpu_not_free")
-        if status == "completed":
-            status = "pending"
-    if gpu.get("command_result") != 0:
-        blockers.append("gpu_command_failed")
-        status = "failed"
-    if {g.get("gpu") for g in expected} != {0, 1, 2, 3} or len({g.get("uuid") for g in expected}) != 4:
-        blockers.append("launch_gpu_inventory_invalid")
-        if status == "completed":
-            status = "pending"
-    if gpu.get("expected_uuids") != [g["uuid"] for g in expected]:
-        blockers.append("gpu_uuid_mismatch")
-        if status == "completed":
-            status = "pending"
-    readings = gpu.get("per_gpu", [])
-    if {g.get("gpu") for g in readings} != {0, 1, 2, 3}:
-        blockers.append("gpu_readings_incomplete")
-        if status == "completed":
-            status = "pending"
-    for reading in readings:
-        if type(reading.get("memory_free")) is not int or reading["memory_free"] < 40000 \
-                or reading["memory_free"] > reading.get("memory_total", 0):
-            blockers.append("gpu_reading_invalid")
+    gpu_observations = []
+    actions = [{"action": "stop_services", "result": stop_action, "command_result": stop_command_result}]
+    errors = []
+    observe = gpu_observer or _default_gpu_observer
+    for index in range(2):
+        try:
+            gpu = observe()
+        except Exception as exc:
+            errors.append(f"gpu_observation_{index}_failed:{exc}")
+            blockers.append(f"gpu_observation_{index}_failed")
+            status = "failed"
+            gpu = {"time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                   "command_result": 1, "per_gpu": [], "compute_apps": [], "free_verified": False,
+                   "expected_uuids": [], "stdout_hash": None}
+        gpu_path, gpu_hash = write_sealed(obs_dir / f"gpu_observation_{index}.json", gpu)
+        gpu_observations.append({**gpu, "evidence_path": gpu_path, "evidence_sha256": gpu_hash})
+        if gpu.get("compute_apps"):
+            blockers.append(f"gpu_compute_apps_present_{index}")
             if status == "completed":
                 status = "pending"
+        if not gpu.get("free_verified"):
+            blockers.append(f"gpu_not_free_{index}")
+            if status == "completed":
+                status = "pending"
+        if gpu.get("command_result") != 0:
+            blockers.append(f"gpu_command_failed_{index}")
+            status = "failed"
+        if {g.get("gpu") for g in expected} != {0, 1, 2, 3} or len({g.get("uuid") for g in expected}) != 4:
+            blockers.append("launch_gpu_inventory_invalid")
+            if status == "completed":
+                status = "pending"
+        if gpu.get("expected_uuids") != [g["uuid"] for g in expected]:
+            blockers.append(f"gpu_uuid_mismatch_{index}")
+            if status == "completed":
+                status = "pending"
+        readings = gpu.get("per_gpu", [])
+        if {g.get("gpu") for g in readings} != {0, 1, 2, 3}:
+            blockers.append(f"gpu_readings_incomplete_{index}")
+            if status == "completed":
+                status = "pending"
+        for reading in readings:
+            if type(reading.get("memory_free")) is not int or reading["memory_free"] < 40000 \
+                    or reading["memory_free"] > reading.get("memory_total", 0):
+                blockers.append(f"gpu_reading_invalid_{index}")
+                if status == "completed":
+                    status = "pending"
+    # near-idle requires both independent observations to agree (runbook two-check rule)
+    if len(gpu_observations) == 2 and gpu_observations[0].get("free_verified") \
+            and gpu_observations[1].get("free_verified"):
+        pass
+    elif status == "completed":
+        blockers.append("gpu_two_observations_not_both_free")
+        status = "pending"
+
+    # ports bind-close observation (injected offline; real bind-close in production)
+    try:
+        ports = (ports_observer or _default_ports_observer)()
+    except Exception as exc:
+        errors.append(f"ports_observation_failed:{exc}")
+        ports = {"status": "measurement_failed", "error": str(exc)}
+        if status == "completed":
+            blockers.append("ports_observation_failed")
+            status = "pending"
+    ports_path, ports_hash = write_sealed(obs_dir / "ports_observation.json", ports)
+    if ports.get("status") not in ("closed", "not_measured_offline"):
+        if status == "completed":
+            blockers.append("ports_not_closed")
+            status = "pending"
 
     if blockers and status == "completed":
         status = "pending"
-    obs_time = datetime.fromisoformat(gpu["time"].replace("Z", "+00:00"))
+    finished_wall = datetime.now(timezone.utc)
     receipt = {
         "schema_version": 1, "kind": "rsiflow_external_cleanup", "observation_id": obs_id,
         "status": status,
-        "started_at_utc": (obs_time - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "observed_at_utc": (obs_time + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "started_at_utc": started_wall.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "observed_at_utc": finished_wall.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "started_monotonic": started_mono, "finished_monotonic": time.monotonic(),
         "blockers": blockers,
         "writer": {"script_path": str(Path(__file__).resolve()), "hash": _sha256(Path(__file__).resolve()),
-                   "host": os.uname().nodename, "boot_id": _read_boot_id(), "pid_namespace": "host", "uid": os.getuid()},
+                   "host": os.uname().nodename, "boot_id": _read_boot_id(),
+                   "pid_namespace": _read_pid_namespace(), "uid": os.getuid()},
         "binding": binding,
         "supervision": {"all_previous_attempts_accounted_for": all_accounted, "attempts": history},
         "protocol": {"state_path": str(run_dir / "meta_session/state.json"),
                      "state_hash": _sha256(run_dir / "meta_session/state.json"),
-                     "observed_status": state.get("status"), "current_stage": None, "finish_allowed": None},
+                     "observed_status": state.get("status"),
+                     "current_stage": (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("current_stage"),
+                     "finish_allowed": (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("finish_allowed")},
         "owners": owners,
-        "registry": {"path": str(registry_path), "before_hash": registry_after_hash,
+        "registry": {"path": str(registry_path), "before_hash": registry_before_hash,
                      "after_hash": registry_after_hash, "phase": registry.get("phase"),
                      "checkpoint": registry.get("checkpoint"), "weights": active.get("checkpoint_manifest"),
-                     "stop_action_skipped_or_executed": stop_action, "command_result": 0},
-        "gpu_observations": [{**gpu, "evidence_path": gpu_path, "evidence_sha256": gpu_hash}],
-        "ports_observation": {"status": "not_measured_offline" if skip_asset_gates else "closed"},
-        "actions": [], "errors": [],
+                     "stop_action_skipped_or_executed": stop_action, "command_result": stop_command_result},
+        "gpu_observations": gpu_observations,
+        "ports_observation": {**ports, "evidence_path": ports_path, "evidence_sha256": ports_hash},
+        "actions": actions, "errors": errors,
         "evidence_files_sha256": evidence,
-        "occupier": {"prior_identity_hash": None, "stop_receipt_hash": None, "restore_pending": True},
+        "occupier": occupier if occupier is not None else {"prior_identity_hash": None, "stop_receipt_hash": None, "restore_pending": True},
     }
     receipt_path = obs_dir / "receipt.json"
     _atomic_write(receipt_path, receipt)
     return receipt_path
+
+
+def _read_pid_namespace():
+    try:
+        self_ns = os.readlink("/proc/self/ns/pid")
+        init_ns = os.readlink("/proc/1/ns/pid")
+        return "host" if self_ns == init_ns else f"nested:{self_ns}"
+    except OSError:
+        return "unknown"
+
+
+def _default_ports_observer():
+    import socket
+    closed = []
+    for port in (8271, 8272, 8273, 8274):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("127.0.0.1", port))
+                closed.append(port)
+            except OSError:
+                return {"status": "port_in_use", "port": port, "closed_ports": closed}
+    return {"status": "closed", "closed_ports": closed}
 
 
 def _read_boot_id():
@@ -406,6 +561,73 @@ def _read_boot_id():
         return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
     except OSError:
         return None
+
+
+def _latest_cleanup_receipt(attempt_dir):
+    root = attempt_dir / "external-cleanup"
+    if not root.is_dir():
+        return None, None
+    observations = sorted((d for d in root.iterdir() if d.is_dir()),
+                          key=lambda d: d.stat().st_mtime)
+    for obs in reversed(observations):
+        receipt_path = obs / "receipt.json"
+        receipt = _read_json(receipt_path)
+        if isinstance(receipt, dict):
+            return receipt, receipt_path
+    return None, None
+
+
+def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=None,
+                     gpu_observer=None, lifecycle_lock=None) -> Path:
+    """H8: restore the idle occupier ONLY after this attempt's external cleanup receipt
+    is completed with valid binding/hash. pending/failed/missing refuses (nonzero exit)
+    and NEVER starts the occupier. Re-checks owner/GPU, records a restore observation
+    linked to the cleanup hash, and atomically writes the new occupier identity."""
+    config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
+    receipt, receipt_path = _latest_cleanup_receipt(attempt_dir)
+    if receipt is None:
+        raise RuntimeError("no external cleanup receipt; occupier restore refused")
+    if receipt.get("status") != "completed":
+        raise RuntimeError(f"cleanup {receipt.get('status')}; occupier restore refused (pending cleanup)")
+    if receipt.get("binding", {}).get("run_dir") != str(run_dir) \
+            or receipt.get("binding", {}).get("supervision_attempt") != supervision:
+        raise RuntimeError("cleanup binding mismatch; occupier restore refused")
+    if _sha256(receipt_path) is None:
+        raise RuntimeError("cleanup receipt unreadable; occupier restore refused")
+    # re-check GPU is still free before restoring (injected offline; real nvidia-smi prod)
+    gpu = (gpu_observer or _default_gpu_observer)()
+    if gpu.get("compute_apps") or not gpu.get("free_verified"):
+        raise RuntimeError("GPU not free at restore time; occupier restore refused")
+    import fcntl
+    lock_path = Path(lifecycle_lock) if lifecycle_lock else (output_root / "locks/lifecycle.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = open(lock_path, "a+")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_file.close()
+        raise RuntimeError("lifecycle lock held; occupier restore refused")
+    try:
+        if occupier_start_fn is None:
+            raise RuntimeError("no occupier start function provided; restore not executed")
+        identity = occupier_start_fn()  # returns new occupier {pid,pgid,start_ticks,gpus,argv}
+        restore_dir = attempt_dir / "external-cleanup" / ("restore-" + uuid.uuid4().hex[:12])
+        restore_dir.mkdir(parents=True)
+        observation = {
+            "kind": "rsiflow_occupier_restore", "run_dir": str(run_dir),
+            "supervision_attempt": supervision,
+            "cleanup_receipt_path": str(receipt_path),
+            "cleanup_receipt_hash": _sha256(receipt_path),
+            "occupier_identity": identity,
+            "gpu_observation": gpu,
+            "restored_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        observation_path = restore_dir / "restore.json"
+        _atomic_write(observation_path, observation)
+        return observation_path
+    finally:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
 
 
 def main(argv=None) -> int:
@@ -417,10 +639,12 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.mode == "inspect":
         print(json.dumps(inspect_run(args.config, args.run_dir, args.supervision), indent=2))
-    else:
-        path = cleanup_run(args.config, args.run_dir, args.supervision)
-        print(json.dumps({"receipt_path": str(path), "status": _read_json(path).get("status")}, indent=2))
-    return 0
+        return 0
+    path = cleanup_run(args.config, args.run_dir, args.supervision)
+    status = _read_json(path).get("status")
+    print(json.dumps({"receipt_path": str(path), "status": status}, indent=2))
+    # pending/failed must exit nonzero so `set -e` blocks occupier restore downstream.
+    return 0 if status == "completed" else 1
 
 
 if __name__ == "__main__":

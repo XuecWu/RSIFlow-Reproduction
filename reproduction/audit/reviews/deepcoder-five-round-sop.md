@@ -1,11 +1,12 @@
 # DeepCoder 单域五轮工程演化 SOP
 
-- 版本：设计基线 v1，2026-11-18（UTC）
+- 版本：设计基线 v1，2026-11-18（UTC）；launch-hardening 收口 v2
 - 适用范围：`deepcoder_five_round_canary`，固定同一批 16 条 function，A0+B1–B5
-- 前置状态：Tasks 1–4 实现和 scoped re-review 已完成；Task 5 离线门与 dev4 只读门通过，但真实 MODEL plan 被 source-run 集中 `meta` symlink 阻断，execute 和五轮均未运行
+- 前置状态：Tasks 1–4 实现和 scoped re-review 已完成；Task 5 MODEL **v2 工程 PASS**（efba18d 实测四 rank/one epoch/merge/reload/两次生成与 retrained=false recovery；Spec PASS / quality DONE_WITH_CONCERNS / engineering PASS），**v1 历史失败保留**（首次 source-run 集中 `meta` symlink 阻断）。汇总器离线消费者 fix4（d951185）经 Qwen r4 scoped re-review PASS。launch-hardening 已实现参数化 supervisor（`reproduction/scripts/deepcoder_five_round_supervisor.py`）与唯一 external cleanup writer（`reproduction/scripts/reconcile_deepcoder_run.py`），离线生命周期测试 `RSIFlow/tests/test_five_round_lifecycle.py` 通过；可执行命令见 `deepcoder-five-round-runbook.md`。**正式五轮 execute、独立 benchmark、694/744 均未运行**；MODEL smoke 已训练不等于正式实验已跑。
 - 设计规格：`docs/superpowers/specs/2026-11-18-deepcoder-five-round-canary-design.md`
+- 操作 runbook：`deepcoder-five-round-runbook.md`（唯一五轮元组、final launch seal、两阶段 dev4 preflight、launch/monitor/stop/resume/cleanup/restore 完整命令）
 
-本 SOP 规定操作顺序和判定门。具体可执行命令必须绑定最终审阅 HEAD 和机器配置，在实施计划及预检审阅后发布；不得拿单轮 canary 配置直接改 `rounds=5` 启动。
+本 SOP 规定操作顺序和判定门。具体可执行命令绑定最终审阅 HEAD 和机器配置，见 `deepcoder-five-round-runbook.md`（参数化 supervisor/reconcile 脚本）；不得拿单轮 canary 配置直接改 `rounds=5` 启动，不得任意覆盖 `--run-dir`。
 
 ## 1. 角色与状态定义
 
@@ -97,11 +98,11 @@ smoke/五轮结束或失败后的 owned jobs/services/training 清理和四卡�
 
 ## 6. 阶段 D：detached 启动
 
-只允许最终审阅后的 detached supervisor 入口：
+只允许最终审阅后的参数化 detached supervisor 入口（`deepcoder_five_round_supervisor.py launch`，命令见 runbook §4）：
 
-1. 创建 supervision `0001` 及独立日志目录。
-2. 使用 `nohup setsid` 和前台 launcher 的受控 timeout，不向 launcher 传 `--detach`，不加 `--prepare-data`。
-3. 原子记录 PID=PGID、start_ticks、run dir 和 attempt dir。
+1. exclusive 创建 supervision `0001` 及独立日志目录（拒绝复用旧 exit/reconcile/identity/stop-requested）。
+2. 用 `Popen(start_new_session=True)` + 父子 handshake（child 先原子写 identity 再跑前台命令），避免 nohup/exec race；child 复用 `timeout --foreground --signal=TERM --kill-after=5m 4h` 算法。不向 launcher 传 `--detach`，不加 `--prepare-data`。
+3. 原子记录 PID=PGID、start_ticks、argv、run dir 和 attempt dir，并生成 `kind=rsiflow_launch` seal（config/base/effective hashes、owners、expected_gpus）。
 4. monitor 只读；Ctrl+C 只退出 monitor，不停止实验。
 5. launcher 到时只代表其监督边界触发，durable jobs/app-server/services 仍需独立调和。
 
@@ -168,7 +169,7 @@ smoke/五轮结束或失败后的 owned jobs/services/training 清理和四卡�
 
 任何一项缺失都只能报告实际完成轮次和 blocker。
 
-清理必须使用自包含门，重新验证 config/output/run/attempt 的绝对路径与身份。不得按端口或进程名宽泛 kill，不删除日志、receipts 或历史 attempts。
+清理必须使用唯一 external cleanup writer（`reconcile_deepcoder_run.py cleanup`，命令见 runbook §6.2），重新验证 config/output/run/attempt 的绝对路径与身份，实际测量 owner/GPU 后原子写新 observation（不覆盖历史）。不得按端口或进程名宽泛 kill，不删除日志、receipts 或历史 attempts。缺证据只能 pending/failed；protocol complete 与 run complete 分离，cleanup completed 不自动升级协议未完成为成功。
 
 ## 10. 阶段 H：报告与公开
 

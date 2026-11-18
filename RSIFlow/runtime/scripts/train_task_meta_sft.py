@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -28,6 +29,35 @@ from rsiflow.task_meta.sft import (
     pad_training_batch,
     validate_training_row,
 )
+
+
+def warmup_argument_contract(training_arguments_type, ratio):
+    parameters = inspect.signature(training_arguments_type).parameters
+    if "warmup_ratio" in parameters:
+        return {"warmup_ratio": ratio}, None
+    if "warmup_steps" in parameters:
+        return {"warmup_steps": 0}, ratio
+    raise TypeError("TrainingArguments supports neither warmup_ratio nor warmup_steps")
+
+
+def warmup_steps_for_ratio(ratio, num_training_steps):
+    return math.ceil(num_training_steps * ratio)
+
+
+def create_audited_trainer_class(trainer_type, sampled_indices, scheduler_warmup_ratio):
+    class AuditedTrainer(trainer_type):
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            indices = inputs.pop("sample_index")
+            sampled_indices.extend(int(index) for index in indices.detach().cpu().tolist())
+            return super().compute_loss(model, inputs, return_outputs=return_outputs,
+                                        num_items_in_batch=num_items_in_batch)
+
+        def create_scheduler(self, num_training_steps, optimizer=None):
+            if scheduler_warmup_ratio is not None:
+                self.args.warmup_steps = warmup_steps_for_ratio(scheduler_warmup_ratio, num_training_steps)
+            return super().create_scheduler(num_training_steps=num_training_steps, optimizer=optimizer)
+
+    return AuditedTrainer
 
 
 def save_json(path: Path, value: dict) -> None:
@@ -296,29 +326,23 @@ def train(args) -> dict:
         raise RuntimeError("Only the new LoRA may be trainable")
     if not trainable_before:
         raise RuntimeError("LoRA produced no trainable parameters")
+    warmup_kwargs, scheduler_warmup_ratio = warmup_argument_contract(TrainingArguments, options["warmup_ratio"])
     training_args = TrainingArguments(
         output_dir=str(request_dir / "trainer_state"), max_steps=options["max_steps"], num_train_epochs=options["num_train_epochs"] or 1,
         per_device_train_batch_size=options["batch_size"],
         gradient_accumulation_steps=rank_accumulation,
         ddp_find_unused_parameters=False if world > 1 else None,
         learning_rate=options["learning_rate"], lr_scheduler_type=options["lr_scheduler_type"],
-        warmup_ratio=options["warmup_ratio"],
         bf16=True, optim="adamw_torch", gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False}, max_grad_norm=1.0,
         save_strategy="steps" if options["save_steps"] else "no", save_steps=max(1, options["save_steps"]),
         save_total_limit=2, eval_strategy="no", logging_steps=1, logging_first_step=True,
         logging_nan_inf_filter=False,
         report_to="none", seed=options["seed"], data_seed=options["seed"], dataloader_num_workers=0,
-        remove_unused_columns=False,
+        remove_unused_columns=False, **warmup_kwargs,
     )
     sampled_indices = []
-
-    class AuditedTrainer(Trainer):
-        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-            indices = inputs.pop("sample_index")
-            sampled_indices.extend(int(index) for index in indices.detach().cpu().tolist())
-            return super().compute_loss(model, inputs, return_outputs=return_outputs,
-                                        num_items_in_batch=num_items_in_batch)
+    AuditedTrainer = create_audited_trainer_class(Trainer, sampled_indices, scheduler_warmup_ratio)
 
     def collate(features):
         return {key: torch.tensor(value, dtype=torch.long)
@@ -376,6 +400,7 @@ def train(args) -> dict:
         "loss_mask": options["supervision"] + "; system/user/tool observations and padding masked",
         "resolved_training_config": options, "selection": selection_report,
         "optimizer_steps": trainer.state.global_step, "learning_rate": options["learning_rate"],
+        "warmup_steps": trainer.args.warmup_steps,
         "batch_size": options["batch_size"], "gradient_accumulation_steps": options["gradient_accumulation_steps"],
         "max_length": options["max_length"], "optimizer": "adamw_torch",
         "learning_rate_schedule": options["lr_scheduler_type"], "lora_target_modules": options["lora_target_modules"],

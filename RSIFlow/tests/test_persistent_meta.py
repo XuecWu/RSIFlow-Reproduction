@@ -566,6 +566,27 @@ def test_normalize_illegal_input_fails_closed():
             _normalize_dynamic_request(bad)
 
 
+def test_normalize_rejects_mismatched_or_invalid_structured_values():
+    from persistent_meta import _normalize_dynamic_request
+    for operation in (
+        'bootstrap(config_path=[/x},state_path=/y)',
+        'bootstrap(config_path={"path": [1}},state_path=/y)',
+        'wait_job(job_id=j1,seconds=[1,])',
+        'f(note=unquoted arbitrary text)',
+    ):
+        with pytest.raises(ValueError):
+            _normalize_dynamic_request({'operation': operation})
+
+
+def test_normalize_handles_escaped_quotes_nested_commas_and_explicit_bare_strings():
+    from persistent_meta import _normalize_dynamic_request
+    normalized = _normalize_dynamic_request({
+        'operation': 'write_text(path=/tmp/notes.txt,content="quote: \\"x,y\\"; data=[1,{\\"n\\":2}]")'
+    })
+    assert normalized['path'] == '/tmp/notes.txt'
+    assert normalized['content'] == 'quote: "x,y"; data=[1,{"n":2}]'
+
+
 def test_forwarding_inline_bootstrap_reaches_executor_with_full_params(tmp_path):
     # End-to-end through NativeExperimentTools.__call__ with the native event shape
     # arguments.request.operation inline; the executor must receive every named argument.
@@ -607,6 +628,24 @@ def test_forwarding_illegal_inline_operation_returns_tool_error(tmp_path):
     receipt = json.loads((run / 'meta_session/turns/0000/receipt.json').read_text())
     assert receipt['status'] == 'tool_error'
     assert 'malformed' in receipt['error'] or 'ValueError' in receipt['error_type']
+
+
+def test_forwarding_mismatched_inline_structure_never_calls_executor(tmp_path):
+    seen = []
+
+    class Executor:
+        def execute(self, request):
+            seen.append(request)
+            return {'status': 'unexpected'}
+
+    run = tmp_path / 'run'
+    tools = NativeExperimentTools(project=tmp_path, run=run, executor=Executor(),
+                                  progress=ExperimentProgress(run / 'meta_session'))
+    tools('experiment', {'request': {
+        'operation': 'bootstrap(config_path=[/tmp/config.json},state_path=/tmp/state.json)'}})
+    receipt = json.loads((run / 'meta_session/turns/0000/receipt.json').read_text())
+    assert receipt['status'] == 'tool_error'
+    assert seen == []
 
 
 def test_forwarding_separate_named_fields_still_work(tmp_path):

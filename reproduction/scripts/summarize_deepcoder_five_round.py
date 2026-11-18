@@ -1418,6 +1418,14 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
         require(owners.get("jobs") == [] and owners.get("training_phases") == []
                 and owners.get("inference_services") == [], "not_created_owner_inventory")
         require(not (receipt.get("protocol") or {}).get("finish_allowed"), "not_created_run_completed")
+        # I2: the historical proof must show a trusted early stage (A0, bootstrap incomplete)
+        # and an ordered history with no compute/service creation; empty current inventory
+        # alone cannot distinguish "never created" from "creation evidence lost".
+        evidence = receipt.get("not_created_evidence") or {}
+        require(evidence.get("current_stage") == "A0", "not_created_stage_not_a0")
+        require(evidence.get("bootstrap_complete") is False, "not_created_bootstrap_complete")
+        require(not evidence.get("compute_service_creations"), "not_created_compute_history")
+        require(evidence.get("workflow_events_present") is True, "not_created_events_missing")
         services = []
     else:
         actual_registry = _read_json(sealed(registry_path, registry.get("after_hash"))) or {}

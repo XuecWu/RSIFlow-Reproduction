@@ -168,7 +168,21 @@ def test_stop_identity_term_exit_143(tmp_path, supervisor):
                       timeout="60s", kill_after="2s", skip_asset_gates=True)
     attempt = supervisor.derive_paths(config)["run_dir"] / "meta_session/supervision/0001"
     assert _wait(lambda: (attempt / "identity.json").is_file())
-    time.sleep(0.3)
+    identity = json.loads((attempt / "identity.json").read_text())
+    # Condition-wait for the wrapper to actually spawn its timeout child (PPID==wrapper),
+    # rather than a fixed sleep; stop also re-signals to cover any residual spawn race.
+    def _child_spawned():
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                stat = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+                if int(stat[1]) == identity["pid"]:
+                    return True
+            except (FileNotFoundError, PermissionError, ValueError, IndexError):
+                continue
+        return False
+    assert _wait(_child_spawned), "wrapper did not spawn its command child"
     result = supervisor.stop(config, "0001", grace=20)
     assert (attempt / "stop-requested").is_file()
     assert _wait(lambda: (attempt / "exit").is_file(), timeout=30)
@@ -218,7 +232,14 @@ def _seed_run(tmp_path, supervisor, reconciler, *, jobs_active=False, services_s
     supervisor.launch(config, "0001", command=_sleep_command(0.2),
                       timeout="10s", kill_after="2s", skip_asset_gates=True)
     attempt = run / "meta_session/supervision/0001"
-    assert _wait(lambda: (attempt / "exit").is_file())
+    # Wait for the supervision to fully settle: exit marker AND reconcile complete with no
+    # remaining members, so a later cleanup never observes a half-exited owner group.
+    def _settled():
+        if not (attempt / "exit").is_file():
+            return False
+        rec = json.loads((attempt / "reconcile.json").read_text()) if (attempt / "reconcile.json").is_file() else {}
+        return rec.get("status") == "complete" and rec.get("remaining") == []
+    assert _wait(_settled), "supervision did not settle (exit + reconcile complete/remaining=[])"
     # offline launch skips asset gates; seal the effective config the real launch would
     # have written pre-Popen, so the read-only cleanup verification can bind it.
     effective_obj = supervisor._normalize_effective(paths, run.resolve())
@@ -227,6 +248,15 @@ def _seed_run(tmp_path, supervisor, reconciler, *, jobs_active=False, services_s
     launch["binding"]["effective_config_hash"] = supervisor._sha256(attempt / "effective.json")
     supervisor._atomic_write(attempt / "launch.json", launch)
     launcher_pid = launch["supervisor"]["pid"]
+    # the launcher owner group must be measurably exited (gone or zombie, matching
+    # _observe_owner) before cleanup binds it; an unreaped zombie still has a /proc entry.
+    def _launcher_exited():
+        try:
+            stat = Path(f"/proc/{launcher_pid}/stat").read_text().rsplit(")", 1)[1].split()
+            return stat[0] == "Z"
+        except (FileNotFoundError, PermissionError, ValueError, IndexError):
+            return True
+    assert _wait(_launcher_exited), "launcher owner group still alive"
     app_pid = 9000001
     from test_deepcoder_five_round import _fixture_launch_chain
     identities = {"launcher": launch["supervisor"], "app_server": {"pid": app_pid, "pgid": app_pid, "start_ticks": "1"}}
@@ -319,7 +349,9 @@ def test_cleanup_completed_receipt_passes_consumer(tmp_path, supervisor, reconci
     summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
 
 
-def _seed_not_created_run(tmp_path, supervisor, reconciler, *, compute_apps=None, finish_allowed=False):
+def _seed_not_created_run(tmp_path, supervisor, reconciler, *, compute_apps=None,
+                          finish_allowed=False, later_workflow=False,
+                          omit_workflow_events=False):
     """A run that failed BEFORE any job/service was created: no jobs, no training phase,
     registry never created, launcher/app-server exited, GPU released, early-failure protocol."""
     config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler, compute_apps=compute_apps)
@@ -327,13 +359,50 @@ def _seed_not_created_run(tmp_path, supervisor, reconciler, *, compute_apps=None
     shutil.rmtree(run / "meta_session/jobs", ignore_errors=True)
     if paths["registry"].exists():
         paths["registry"].unlink()
+    shutil.rmtree(run / "meta_session/turns", ignore_errors=True)
+    shutil.rmtree(run / "controller_transport", ignore_errors=True)
+    turns = run / "meta_session/turns"
+    turns.mkdir(parents=True)
+    config_value = json.loads(config.read_text())
+    inline_bootstrap = f"bootstrap(config_path={config},state_path={run / 'active_task.json'})"
+    early_turns = [
+        ({"operation": inline_bootstrap},
+         {"operation": inline_bootstrap, "status": "unknown_operation"}),
+        ({"operation": "bootstrap"}, {"operation": "bootstrap", "status": "stage_error",
+                                        "error_type": "KeyError", "error": "'config_path'"}),
+        ({"operation": "job_status"}, {"operation": "job_status", "status": "read", "jobs": []}),
+    ]
+    for index, (request, receipt) in enumerate(early_turns):
+        turn = turns / f"{index:04d}"
+        turn.mkdir()
+        (turn / "command.json").write_text(json.dumps({"action": "tool", "request": request}))
+        (turn / "receipt.json").write_text(json.dumps(receipt))
+    if later_workflow:
+        turn = turns / "0003"
+        turn.mkdir()
+        request = {"operation": "run_parent", "round_number": 1}
+        (turn / "command.json").write_text(json.dumps({"action": "tool", "request": request}))
+        (turn / "receipt.json").write_text(json.dumps({"operation": "run_parent", "status": "completed"}))
+    session = run / "meta_session"
+    (session / "workflow_policy.json").write_text(json.dumps({
+        "rounds": 5, "experiment_scope": config_value["experiment_scope"],
+        "retry_rejected_from_round": config_value["retry_rejected_from_round"],
+        "evaluation_schedule": config_value["evaluation_schedule"],
+    }))
+    from experiment_progress import ExperimentProgress
+    workflow = ExperimentProgress(session, rounds=5).rebuild()
+    if finish_allowed:
+        workflow["current_stage"] = "COMPLETE"
+        workflow["finish_allowed"] = True
+        (session / "workflow_state.json").write_text(json.dumps(workflow))
+        status_path = session / "RUN_STATUS.md"
+        status_path.write_text(status_path.read_text().replace("Current stage: **A0**", "Current stage: **COMPLETE**")
+                               .replace("Finish allowed: **no**", "Finish allowed: **yes**"))
+    if omit_workflow_events:
+        (session / "workflow_events.jsonl").unlink()
     state = json.loads((run / "meta_session/state.json").read_text())
     state["status"] = "running"; state["last_turn_status"] = "failed"
     (run / "meta_session/state.json").write_text(json.dumps(state))
-    (run / "meta_session/workflow_state.json").write_text(json.dumps({
-        "current_stage": "A0", "finish_allowed": finish_allowed,
-        "stages": [{"id": "A0", "status": "in_progress", "remaining_milestones": ["bootstrap"]}],
-    }))
     return config, run, paths, gpu_obs, pids
 
 
@@ -405,6 +474,56 @@ def test_not_created_pending_cannot_restore_occupier(tmp_path, supervisor, recon
         reconciler.restore_occupier(config, run, "0001",
                                     occupier_start_fn=lambda: started.append(1) or {},
                                     shared_identity_path=tmp_path / "occupier-identity.json",
+                                    gpu_observer=_gpu_observer(gpu_obs))
+    assert started == []
+
+
+def test_not_created_late_workflow_with_lost_inventory_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(
+        tmp_path, supervisor, reconciler, later_workflow=True)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt
+    assert receipt["registry"]["phase"] != "not_created_verified"
+    started = []
+    with pytest.raises(RuntimeError):
+        reconciler.restore_occupier(config, run, "0001",
+                                    occupier_start_fn=lambda: started.append(1) or {},
+                                    shared_identity_path=tmp_path / "restore-identity.json",
+                                    gpu_observer=_gpu_observer(gpu_obs))
+    assert started == []
+
+
+def test_not_created_missing_ordered_workflow_evidence_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(
+        tmp_path, supervisor, reconciler, omit_workflow_events=True)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt
+    assert any("not_created" in blocker for blocker in receipt["blockers"])
+
+
+def test_not_created_consumer_and_restore_reject_non_a0_proof(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "completed", receipt["blockers"]
+    receipt["not_created_evidence"]["current_stage"] = "B1"
+    receipt_path.write_text(json.dumps(receipt))
+    summarizer = _load("summarize_deepcoder_five_round")
+    cfg = json.loads(config.read_text()); cfg["_config_path"] = str(config.resolve())
+    active = json.loads((run / "active_task.json").read_text())
+    sup = summarizer._supervision(run)
+    with pytest.raises(ValueError, match="not_created"):
+        summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
+    started = []
+    with pytest.raises(RuntimeError, match="cleanup evidence"):
+        reconciler.restore_occupier(config, run, "0001",
+                                    occupier_start_fn=lambda: started.append(1) or {},
+                                    shared_identity_path=tmp_path / "consumer-restore-identity.json",
                                     gpu_observer=_gpu_observer(gpu_obs))
     assert started == []
 

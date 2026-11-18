@@ -270,6 +270,41 @@ def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_se
         lock_file.close()
 
 
+# Operations whose invocation creates a compute job or GPU service. Their presence in the
+# ordered turn history proves the run entered a creation stage, so it is NOT a not_created
+# failure even if the job/phase/registry inventory was later lost.
+_COMPUTE_SERVICE_OPERATIONS = {
+    "run_parent", "run_candidate", "sft", "evaluate", "rollout",
+    "prepare_evaluation", "prepare_validation_snapshot", "deploy_candidate",
+}
+
+
+def _not_created_history_proof(run_dir, workflow):
+    """I2: prove the run NEVER entered a job/service creation stage, not merely that the
+    inventory is currently empty. Requires a trusted early protocol state (A0, bootstrap
+    incomplete), an ordered turn history with no compute/service creation call, and the
+    presence of the ordered workflow event log. Any missing history => not proven."""
+    current_stage = (workflow or {}).get("current_stage")
+    stages = (workflow or {}).get("stages") or []
+    a0 = next((s for s in stages if s.get("id") == "A0"), {})
+    bootstrap_complete = "bootstrap" not in (a0.get("remaining_milestones") or [])
+    turns = sorted((run_dir / "meta_session/turns").glob("*/command.json"))
+    creations = []
+    for cmd_path in turns:
+        cmd = _read_json(cmd_path) or {}
+        op = (cmd.get("request") or {}).get("operation")
+        if isinstance(op, str) and "(" in op:
+            op = op.split("(", 1)[0].strip()
+        if op in _COMPUTE_SERVICE_OPERATIONS:
+            creations.append({"turn": cmd_path.parent.name, "operation": op})
+    events_present = (run_dir / "meta_session/workflow_events.jsonl").is_file()
+    proof = {"current_stage": current_stage, "bootstrap_complete": bootstrap_complete,
+             "compute_service_creations": creations, "workflow_events_present": events_present,
+             "ordered_turns": len(turns)}
+    ok = (current_stage == "A0" and not bootstrap_complete and not creations and events_present)
+    return ok, proof
+
+
 def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supervision,
                     attempts, history, all_accounted, started_wall, started_mono, *,
                     gpu_observer=None, stop_services_fn=None, ports_observer=None,
@@ -489,17 +524,27 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     # not_created_verified (GPU must still be measured released below). A normal five-round
     # completion missing a registry, or any run with jobs/phases/services, stays blocked.
     registry_never_created = registry_before_bytes is None and not registry_path.exists()
-    workflow_finish_allowed = (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("finish_allowed")
+    workflow_state = _read_json(run_dir / "meta_session/workflow_state.json") or {}
+    workflow_finish_allowed = workflow_state.get("finish_allowed")
     # A normally completed run (finish_allowed) missing a registry must stay blocked; the
     # not_created path is only for failure before any job/service was ever created.
     not_created_candidate = (registry_never_created and not jobs and not phases and not services
                              and not workflow_finish_allowed)
+    not_created_evidence = None
     if not_created_candidate:
-        # An empty job inventory is expected here, not a binding failure.
-        blockers[:] = [b for b in blockers if b != "job_binding:<no job inventory>"]
-        stop_action = "not_created_verified"
-        registry["phase"] = "not_created_verified"
-        owners["inference_services"] = []
+        # I2: an empty current inventory is NOT proof of "never created". Require a trusted
+        # early protocol state and an ordered history with no compute/service creation.
+        history_ok, not_created_evidence = _not_created_history_proof(run_dir, workflow_state)
+        if history_ok:
+            # An empty job inventory is expected here, not a binding failure.
+            blockers[:] = [b for b in blockers if b != "job_binding:<no job inventory>"]
+            stop_action = "not_created_verified"
+            registry["phase"] = "not_created_verified"
+            owners["inference_services"] = []
+        else:
+            blockers.append("not_created_history_proof_incomplete")
+            if status == "completed":
+                status = "pending"
     else:
         inventory_ok = ({s.get("gpu") for s in services} == {0, 1, 2, 3} and len(services) == 4)
         weights_ok = (registry.get("checkpoint") == active.get("checkpoint_path")
@@ -654,7 +699,8 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     # created and everything is released: no job/phase/service owner, registry never
     # created, launcher/app-server exited, both GPU samples show no compute apps and free,
     # ports closed, trusted launch chain present. Any missing proof keeps it pending.
-    if not_created_candidate:
+    # Only applies when the historical proof already certified not_created_verified.
+    if not_created_candidate and registry.get("phase") == "not_created_verified":
         gpu_released = (len(gpu_observations) == 2
                         and all(not o.get("compute_apps") and o.get("free_verified") is True
                                 for o in gpu_observations))
@@ -695,6 +741,7 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                      "after_hash": registry_after_hash, "phase": registry.get("phase"),
                      "checkpoint": registry.get("checkpoint"), "weights": active.get("checkpoint_manifest"),
                      "stop_action_skipped_or_executed": stop_action, "command_result": stop_command_result},
+        "not_created_evidence": not_created_evidence,
         "gpu_observations": gpu_observations,
         "ports_observation": {**ports, "evidence_path": ports_path, "evidence_sha256": ports_hash},
         "actions": actions, "errors": errors,

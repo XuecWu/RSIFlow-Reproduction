@@ -1013,6 +1013,13 @@ def stop(config_path, supervision: str, *, grace=90.0) -> dict:
         if (attempt_dir / "exit").is_file() and reconcile and reconcile.get("status") == "complete" \
                 and not reconcile.get("remaining"):
             return {"exit": (attempt_dir / "exit").read_text().strip(), "reconcile": reconcile}
+        # The wrapper ignores TERM and may not have spawned the timeout child yet when the
+        # first TERM was sent (spawn race). Re-signal the owned PGID each poll so a late-born
+        # child still receives TERM; this is a conditional wait on exit/reconcile, not a sleep.
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         time.sleep(0.1)
     raise RuntimeError("launcher PGID/exit/reconcile not complete; cleanup/resume remain blocked")
 

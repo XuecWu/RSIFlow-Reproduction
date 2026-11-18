@@ -345,46 +345,77 @@ def dynamic_tools():
 
 
 def _parse_arg_value(value):
-    """Recover a native JSON literal type for an inline argument; paths/bare words stay
-    strings. Quoted values are unquoted. Original separate-field types are never coerced."""
+    """Recover a native type for an inline argument. Quoted strings are unquoted with
+    backslash escapes decoded; structured literals ([...], {...}) must parse as valid JSON
+    (a malformed structure fails closed, never degraded to a bare string); bare values are
+    JSON literals (number/bool/null) or whitespace-free path/identifier strings. Original
+    separate-field types are never coerced."""
     if not value:
         return ""
-    if len(value) >= 2 and value[0] in "'\"" and value[-1] == value[0]:
-        return value[1:-1]
+    if value[0] in "'\"":
+        if len(value) < 2 or value[-1] != value[0]:
+            raise ValueError("unterminated quoted tool argument: " + value)
+        inner = value[1:-1]
+        escapes = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", '"': '"', "'": "'"}
+        out, i = [], 0
+        while i < len(inner):
+            ch = inner[i]
+            if ch == "\\" and i + 1 < len(inner):
+                out.append(escapes.get(inner[i + 1], inner[i + 1]))
+                i += 2
+            else:
+                out.append(ch)
+                i += 1
+        return "".join(out)
+    if value[0] in "[{":
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("invalid structured tool argument: " + value) from exc
     try:
         return json.loads(value)
     except (ValueError, TypeError):
+        if any(c.isspace() for c in value):
+            raise ValueError("bare tool argument with whitespace not allowed: " + value)
         return value
 
 
 def _parse_call_args(argstr):
-    """Parse top-level comma-separated key=value pairs, respecting quotes and nested
-    brackets/braces/parens. Malformed input fails closed (never silently drops args)."""
+    """Parse top-level comma-separated key=value pairs with a paired bracket stack and
+    backslash-escape handling inside quotes. Mismatched brackets/unbalanced quotes/illegal
+    structure fail closed (never silently drops or coerces args)."""
     args = {}
     if not argstr.strip():
         return args
-    parts, current, depth, quote = [], [], 0, None
+    closing = {")": "(", "]": "[", "}": "{"}
+    parts, current, stack, quote, escaped = [], [], [], None, False
     for ch in argstr:
         if quote:
             current.append(ch)
-            if ch == quote:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
                 quote = None
             continue
         if ch in "'\"":
             quote = ch
             current.append(ch)
         elif ch in "([{":
-            depth += 1
+            stack.append(ch)
             current.append(ch)
         elif ch in ")]}":
-            depth -= 1
+            if not stack or stack[-1] != closing[ch]:
+                raise ValueError("mismatched bracket in tool arguments: " + argstr)
+            stack.pop()
             current.append(ch)
-        elif ch == "," and depth == 0:
+        elif ch == "," and not stack:
             parts.append("".join(current))
             current = []
         else:
             current.append(ch)
-    if quote is not None or depth != 0:
+    if quote is not None or stack:
         raise ValueError("malformed tool argument list (unbalanced quote/bracket)")
     parts.append("".join(current))
     for part in parts:

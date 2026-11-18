@@ -319,6 +319,96 @@ def test_cleanup_completed_receipt_passes_consumer(tmp_path, supervisor, reconci
     summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
 
 
+def _seed_not_created_run(tmp_path, supervisor, reconciler, *, compute_apps=None, finish_allowed=False):
+    """A run that failed BEFORE any job/service was created: no jobs, no training phase,
+    registry never created, launcher/app-server exited, GPU released, early-failure protocol."""
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler, compute_apps=compute_apps)
+    import shutil
+    shutil.rmtree(run / "meta_session/jobs", ignore_errors=True)
+    if paths["registry"].exists():
+        paths["registry"].unlink()
+    state = json.loads((run / "meta_session/state.json").read_text())
+    state["status"] = "running"; state["last_turn_status"] = "failed"
+    (run / "meta_session/state.json").write_text(json.dumps(state))
+    (run / "meta_session/workflow_state.json").write_text(json.dumps({
+        "current_stage": "A0", "finish_allowed": finish_allowed,
+        "stages": [{"id": "A0", "status": "in_progress", "remaining_milestones": ["bootstrap"]}],
+    }))
+    return config, run, paths, gpu_obs, pids
+
+
+def test_not_created_verified_completed_and_consumer_accepts(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          stop_services_fn=lambda cfg: pytest.fail("must not stop services"),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "completed", receipt["blockers"]
+    assert receipt["blockers"] == []
+    assert receipt["registry"]["phase"] == "not_created_verified"
+    assert receipt["registry"]["stop_action_skipped_or_executed"] == "not_created_verified"
+    assert receipt["registry"]["after_hash"] is None and receipt["registry"]["before_hash"] is None
+    assert receipt["owners"]["jobs"] == [] and receipt["owners"]["training_phases"] == []
+    assert receipt["owners"]["inference_services"] == []
+    # the accepted consumer contract verifies the not_created proof
+    summarizer = _load("summarize_deepcoder_five_round")
+    cfg = json.loads(config.read_text()); cfg["_config_path"] = str(config.resolve())
+    active = json.loads((run / "active_task.json").read_text())
+    sup = summarizer._supervision(run)
+    summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
+
+
+def test_not_created_gpu_not_released_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids = _seed_not_created_run(
+        tmp_path, supervisor, reconciler, compute_apps=[{"pid": 999999, "uuid": "GPU-0"}])
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed"  # GPU occupied => never certified completed
+    assert any("gpu" in b for b in receipt["blockers"])
+
+
+def test_normal_completion_missing_registry_still_blocked(tmp_path, supervisor, reconciler):
+    # finish_allowed True (normal completion) but registry never created => NOT not_created;
+    # the missing registry must stay blocked, never certified completed.
+    config, run, paths, gpu_obs, pids = _seed_not_created_run(
+        tmp_path, supervisor, reconciler, finish_allowed=True)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed"
+    assert receipt["registry"]["phase"] != "not_created_verified"
+    assert any("registry" in b or "service" in b for b in receipt["blockers"])
+
+
+def test_jobs_exist_missing_registry_still_blocked(tmp_path, supervisor, reconciler):
+    # A run with jobs but no registry is not a not_created failure; it stays blocked.
+    config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
+    paths["registry"].unlink()
+    (run / "meta_session/workflow_state.json").write_text(json.dumps({
+        "current_stage": "B1", "finish_allowed": False}))
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed"
+    assert receipt["registry"]["phase"] != "not_created_verified"
+
+
+def test_not_created_pending_cannot_restore_occupier(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, pids = _seed_not_created_run(
+        tmp_path, supervisor, reconciler, compute_apps=[{"pid": 999999, "uuid": "GPU-0"}])
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          stop_services_fn=lambda cfg: None, skip_asset_gates=True)
+    assert json.loads(receipt_path.read_text())["status"] != "completed"
+    started = []
+    with pytest.raises(RuntimeError):
+        reconciler.restore_occupier(config, run, "0001",
+                                    occupier_start_fn=lambda: started.append(1) or {},
+                                    shared_identity_path=tmp_path / "occupier-identity.json",
+                                    gpu_observer=_gpu_observer(gpu_obs))
+    assert started == []
+
+
 def test_cleanup_active_job_pending(tmp_path, supervisor, reconciler):
     config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
     # spawn a live process and bind it as the job owner so the group is still alive

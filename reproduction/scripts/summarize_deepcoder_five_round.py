@@ -1384,7 +1384,12 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
     require(receipt.get("host_identity") == chain["host_identity"], "cleanup_host_binding")
     runtime_owners, runtime_gpus = chain["owners"], chain["expected_gpus"]
     jobs_check = _jobs_validation(run)
-    require(not jobs_check["invalid"] and not jobs_check["missing_final_receipts"], "job_terminal_binding")
+    not_created_receipt = (receipt.get("registry") or {}).get("phase") == "not_created_verified"
+    if not_created_receipt:
+        # No job inventory is expected for a not_created failure; only invalid bindings fail.
+        require(not jobs_check["invalid"], "job_terminal_binding")
+    else:
+        require(not jobs_check["invalid"] and not jobs_check["missing_final_receipts"], "job_terminal_binding")
     sup = receipt.get("supervision") or {}
     require(sup.get("all_previous_attempts_accounted_for") is True
             and supervision.get("all_attempts_accounted_for") is True, "supervision_unaccounted")
@@ -1398,14 +1403,30 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
     registry_path = output / "services/four_gpu_services.json"
     registry = receipt.get("registry") or {}
     require(registry.get("path") == str(registry_path), "registry_binding")
-    actual_registry = _read_json(sealed(registry_path, registry.get("after_hash"))) or {}
-    require(actual_registry.get("phase") == registry.get("phase") == "services_stopped"
-            and actual_registry.get("stopped_at") is not None, "registry_not_stopped")
-    require(registry.get("checkpoint") == actual_registry.get("checkpoint") == active.get("checkpoint_path"), "registry_checkpoint")
-    require(registry.get("weights") == active.get("checkpoint_manifest") and bool(registry.get("weights")), "registry_weights")
-    services = actual_registry.get("services") or []
-    require(len(services) == 4 and {s.get("gpu") for s in services} == {0, 1, 2, 3}, "registry_gpus")
     owners = receipt.get("owners") or {}
+    jobs = sorted((run / "meta_session/jobs").glob("*/job.json"))
+    phases = sorted(run.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))
+    not_created = registry.get("phase") == "not_created_verified"
+    if not_created:
+        # Task B consumer contract: failed before any job/service was created. The registry
+        # must never have existed, there must be no job/phase/service owner, the run must not
+        # be a normal completion, and GPU/ports release is verified below like any cleanup.
+        require(not registry_path.exists(), "not_created_registry_exists")
+        require(registry.get("after_hash") is None and registry.get("before_hash") is None, "not_created_registry_hash")
+        require(registry.get("stop_action_skipped_or_executed") == "not_created_verified", "not_created_stop_action")
+        require(not jobs and not phases, "not_created_compute_owners_exist")
+        require(owners.get("jobs") == [] and owners.get("training_phases") == []
+                and owners.get("inference_services") == [], "not_created_owner_inventory")
+        require(not (receipt.get("protocol") or {}).get("finish_allowed"), "not_created_run_completed")
+        services = []
+    else:
+        actual_registry = _read_json(sealed(registry_path, registry.get("after_hash"))) or {}
+        require(actual_registry.get("phase") == registry.get("phase") == "services_stopped"
+                and actual_registry.get("stopped_at") is not None, "registry_not_stopped")
+        require(registry.get("checkpoint") == actual_registry.get("checkpoint") == active.get("checkpoint_path"), "registry_checkpoint")
+        require(registry.get("weights") == active.get("checkpoint_manifest") and bool(registry.get("weights")), "registry_weights")
+        services = actual_registry.get("services") or []
+        require(len(services) == 4 and {s.get("gpu") for s in services} == {0, 1, 2, 3}, "registry_gpus")
 
     def owner(owner, identity, source):
         require(isinstance(owner, dict) and owner.get("state") == "exited"
@@ -1422,31 +1443,30 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
         identity = runtime_owners.get(group) or {}
         require(identity.get("pid") == state.get(pid_key), "launcher_identity")
         owner(owners.get(group), identity, run / "meta_session/supervision" / attempts[-1] / "launch.json")
-    jobs = sorted((run / "meta_session/jobs").glob("*/job.json"))
-    inventory = owners.get("jobs")
-    require(isinstance(inventory, list) and len(inventory) == len(jobs) and bool(jobs), "jobs_inventory_missing")
-    by_source = {o.get("source_path"): o for o in inventory}
-    for jobpath in jobs:
-        job = _read_json(sealed(jobpath))
-        identity = {"pid": job["pid"], "pgid": job["pid"], "start_ticks": str(job["process_start"])}
-        owner(by_source.get(str(jobpath)), identity, jobpath)
-    inventory = owners.get("inference_services")
-    require(isinstance(inventory, list) and len(inventory) == 4, "inference_services_inventory_missing")
-    by_pid = {o.get("identity", {}).get("pid"): o for o in inventory}
-    for service in services:
-        require(service.get("verified_binding") == {"checkpoint_path": active["checkpoint_path"],
-                                                    "weights": active["checkpoint_manifest"]}, "service_weights")
-        owner(by_pid.get(service["pid"]), service["identity"], registry_path)
-    phases = sorted(run.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))
-    inventory = owners.get("training_phases")
-    require(isinstance(inventory, list) and len(inventory) == len(phases), "training_inventory")
-    by_source = {o.get("source_path"): o for o in inventory}
-    for phase in phases:
-        value = _read_json(sealed(phase)) or {}
-        item = by_source.get(str(phase)) or {}
-        identity = item.get("identity") or {}
-        require(identity == _validate_phase_owner(value, phase, run), "training_identity")
-        owner(item, identity, phase)
+    if not not_created:
+        inventory = owners.get("jobs")
+        require(isinstance(inventory, list) and len(inventory) == len(jobs) and bool(jobs), "jobs_inventory_missing")
+        by_source = {o.get("source_path"): o for o in inventory}
+        for jobpath in jobs:
+            job = _read_json(sealed(jobpath))
+            identity = {"pid": job["pid"], "pgid": job["pid"], "start_ticks": str(job["process_start"])}
+            owner(by_source.get(str(jobpath)), identity, jobpath)
+        inventory = owners.get("inference_services")
+        require(isinstance(inventory, list) and len(inventory) == 4, "inference_services_inventory_missing")
+        by_pid = {o.get("identity", {}).get("pid"): o for o in inventory}
+        for service in services:
+            require(service.get("verified_binding") == {"checkpoint_path": active["checkpoint_path"],
+                                                        "weights": active["checkpoint_manifest"]}, "service_weights")
+            owner(by_pid.get(service["pid"]), service["identity"], registry_path)
+        inventory = owners.get("training_phases")
+        require(isinstance(inventory, list) and len(inventory) == len(phases), "training_inventory")
+        by_source = {o.get("source_path"): o for o in inventory}
+        for phase in phases:
+            value = _read_json(sealed(phase)) or {}
+            item = by_source.get(str(phase)) or {}
+            identity = item.get("identity") or {}
+            require(identity == _validate_phase_owner(value, phase, run), "training_identity")
+            owner(item, identity, phase)
     observations = receipt.get("gpu_observations") or []
     require(bool(observations), "no_gpu_observation")
     # R6/F6: require two INDEPENDENT observations (distinct evidence path AND time, valid

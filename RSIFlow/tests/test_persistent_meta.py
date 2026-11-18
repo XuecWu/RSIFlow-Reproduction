@@ -510,3 +510,120 @@ def test_materialize_copies_full_current_parent(tmp_path):
     assert result['max_validation_attempts'] == 3
     assert Path(result['localization_report_path']).parent.is_dir()
     assert Path(result['improvement_direction_path']).parent.is_dir()
+
+
+# --- Task A: Codex 0.170 dynamic-tool argument forwarding (real event/schema shapes) ---
+
+def test_normalize_inline_bootstrap_preserves_all_named_args():
+    from persistent_meta import _normalize_dynamic_request
+    # The exact shape Codex 0.170 emitted in the real run (turn 0000): the model put the
+    # whole call syntax inside the operation string. No argument may be lost.
+    request = {'operation': 'bootstrap(config_path=/abs/train_4b_deepcoder_five_round_workspace.json,'
+                            'state_path=/abs/run/active_task.json)'}
+    normalized = _normalize_dynamic_request(request)
+    assert normalized['operation'] == 'bootstrap'
+    assert normalized['config_path'] == '/abs/train_4b_deepcoder_five_round_workspace.json'
+    assert normalized['state_path'] == '/abs/run/active_task.json'
+
+
+def test_normalize_separate_named_fields_keep_native_types():
+    from persistent_meta import _normalize_dynamic_request
+    request = {'operation': 'wait_job', 'job_id': 'j1', 'seconds': 60, 'flag': True, 'items': [1, 2]}
+    normalized = _normalize_dynamic_request(request)
+    assert normalized == request  # native types untouched
+    assert type(normalized['seconds']) is int and type(normalized['flag']) is bool
+
+
+def test_normalize_inline_typed_args_recovered_and_separate_fields_win():
+    from persistent_meta import _normalize_dynamic_request
+    normalized = _normalize_dynamic_request({'operation': 'wait_job(job_id=j1,seconds=60,flag=true,items=[1,2])'})
+    assert normalized['operation'] == 'wait_job'
+    assert normalized['seconds'] == 60 and type(normalized['seconds']) is int
+    assert normalized['flag'] is True and normalized['items'] == [1, 2]
+    # a separate native field takes precedence over an inline string arg
+    precedence = _normalize_dynamic_request({'operation': 'f(x=1)', 'x': 99})
+    assert precedence['x'] == 99 and precedence['operation'] == 'f'
+    # quoted inline value stays a string; bare path stays a string
+    quoted = _normalize_dynamic_request({'operation': "f(path='/a/b.json',name=hello)"})
+    assert quoted['path'] == '/a/b.json' and quoted['name'] == 'hello'
+
+
+def test_normalize_illegal_input_fails_closed():
+    from persistent_meta import _normalize_dynamic_request
+    bad_requests = [
+        {'operation': 'bootstrap(config_path=/x'},          # unclosed paren
+        {'operation': 'f(=1)'},                              # empty arg name
+        {'operation': 'f(a=1,a=2)'},                         # duplicate arg
+        {'operation': 'f(noequals)'},                        # missing '='
+        {'operation': 'f(a=1'},                              # unbalanced bracket
+        {'operation': ''},                                   # empty operation
+        {'operation': 123},                                  # non-string operation
+        {'operation': "f(a='unterminated)"},                 # unterminated quote
+        'not-an-object',                                     # non-dict request
+    ]
+    for bad in bad_requests:
+        with pytest.raises((ValueError, TypeError)):
+            _normalize_dynamic_request(bad)
+
+
+def test_forwarding_inline_bootstrap_reaches_executor_with_full_params(tmp_path):
+    # End-to-end through NativeExperimentTools.__call__ with the native event shape
+    # arguments.request.operation inline; the executor must receive every named argument.
+    seen = {}
+
+    class Executor:
+        def execute(self, request):
+            seen.update(request)
+            return {'status': 'bootstrapped', 'operation': request['operation']}
+
+    run = tmp_path / 'run'
+    tools = NativeExperimentTools(project=tmp_path, run=run, executor=Executor(),
+                                  progress=ExperimentProgress(run / 'meta_session'))
+    config = tmp_path / 'train.json'; config.write_text('{}')
+    state = run / 'active_task.json'
+    inline = f'bootstrap(config_path={config},state_path={state})'
+    tools('experiment', {'request': {'operation': inline}}, {'callId': 'call_inline'})
+    receipt = json.loads((run / 'meta_session/turns/0000/receipt.json').read_text())
+    assert receipt['status'] == 'bootstrapped'
+    assert seen['operation'] == 'bootstrap'
+    assert seen['config_path'] == str(config)
+    assert seen['state_path'] == str(state)
+    # the ledger command.json records the normalized request, not the inline string
+    command = json.loads((run / 'meta_session/turns/0000/command.json').read_text())
+    assert command['request']['operation'] == 'bootstrap'
+    assert command['request']['config_path'] == str(config)
+    assert command['native_call_id'] == 'call_inline'
+
+
+def test_forwarding_illegal_inline_operation_returns_tool_error(tmp_path):
+    class Executor:
+        def execute(self, request):
+            raise AssertionError('executor must not run for a malformed operation')
+
+    run = tmp_path / 'run'
+    tools = NativeExperimentTools(project=tmp_path, run=run, executor=Executor(),
+                                  progress=ExperimentProgress(run / 'meta_session'))
+    tools('experiment', {'request': {'operation': 'bootstrap(config_path=/x'}})
+    receipt = json.loads((run / 'meta_session/turns/0000/receipt.json').read_text())
+    assert receipt['status'] == 'tool_error'
+    assert 'malformed' in receipt['error'] or 'ValueError' in receipt['error_type']
+
+
+def test_forwarding_separate_named_fields_still_work(tmp_path):
+    # The already-correct shape (operation + separate named fields) must keep working.
+    seen = {}
+
+    class Executor:
+        def execute(self, request):
+            seen.update(request)
+            return {'status': 'ok'}
+
+    run = tmp_path / 'run'
+    tools = NativeExperimentTools(project=tmp_path, run=run, executor=Executor(),
+                                  progress=ExperimentProgress(run / 'meta_session'))
+    config = tmp_path / 'train.json'; config.write_text('{}')
+    tools('experiment', {'request': {'operation': 'bootstrap', 'config_path': str(config),
+                                     'state_path': str(run / 'active_task.json')}})
+    receipt = json.loads((run / 'meta_session/turns/0000/receipt.json').read_text())
+    assert receipt['status'] == 'ok'
+    assert seen['operation'] == 'bootstrap' and seen['config_path'] == str(config)

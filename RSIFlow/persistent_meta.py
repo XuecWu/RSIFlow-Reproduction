@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -343,6 +344,90 @@ def dynamic_tools():
             for name, description, properties, required in definitions]
 
 
+def _parse_arg_value(value):
+    """Recover a native JSON literal type for an inline argument; paths/bare words stay
+    strings. Quoted values are unquoted. Original separate-field types are never coerced."""
+    if not value:
+        return ""
+    if len(value) >= 2 and value[0] in "'\"" and value[-1] == value[0]:
+        return value[1:-1]
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        return value
+
+
+def _parse_call_args(argstr):
+    """Parse top-level comma-separated key=value pairs, respecting quotes and nested
+    brackets/braces/parens. Malformed input fails closed (never silently drops args)."""
+    args = {}
+    if not argstr.strip():
+        return args
+    parts, current, depth, quote = [], [], 0, None
+    for ch in argstr:
+        if quote:
+            current.append(ch)
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "'\"":
+            quote = ch
+            current.append(ch)
+        elif ch in "([{":
+            depth += 1
+            current.append(ch)
+        elif ch in ")]}":
+            depth -= 1
+            current.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    if quote is not None or depth != 0:
+        raise ValueError("malformed tool argument list (unbalanced quote/bracket)")
+    parts.append("".join(current))
+    for part in parts:
+        part = part.strip()
+        if not part:
+            raise ValueError("empty tool argument")
+        if "=" not in part:
+            raise ValueError("tool argument missing '=': " + part)
+        key, _, value = part.partition("=")
+        key = key.strip()
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+            raise ValueError("invalid tool argument name: " + key)
+        if key in args:
+            raise ValueError("duplicate tool argument: " + key)
+        args[key] = _parse_arg_value(value.strip())
+    return args
+
+
+def _normalize_dynamic_request(request):
+    """Codex 0.170 may emit the dynamic-tool operation as an inline call string
+    'name(k=v,...)' rather than separate named fields. Normalize it to operation=name plus
+    named arguments so no argument is lost. Separate named fields keep their native JSON
+    types and take precedence; inline args fill missing keys. Illegal input fails closed.
+    This only parses arguments; it does not change experiment rules or write gates."""
+    if not isinstance(request, dict):
+        raise ValueError("request must be an object")
+    request = dict(request)
+    operation = request.get("operation")
+    if not isinstance(operation, str) or not operation.strip():
+        raise ValueError("operation must be a non-empty string")
+    operation = operation.strip()
+    match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$", operation, re.DOTALL)
+    if match:
+        name, argstr = match.group(1), match.group(2)
+        parsed = _parse_call_args(argstr)
+        for key, value in parsed.items():
+            request.setdefault(key, value)
+        request["operation"] = name
+    elif "(" in operation or ")" in operation:
+        raise ValueError("malformed operation call string: " + operation)
+    return request
+
+
 class NativeExperimentTools:
     """Optional experiment helpers alongside native Codex coding tools."""
 
@@ -385,9 +470,19 @@ class NativeExperimentTools:
         self.number += 1
         turn_dir.mkdir(parents=True, exist_ok=True)
         request = arguments.get('request', {}) if tool == 'experiment' else {'operation': tool, **arguments}
+        # Task A: normalize Codex 0.170 inline 'operation=name(k=v,...)' into operation +
+        # named arguments so no argument is lost; illegal input fails closed below.
+        normalize_error = None
+        if tool == 'experiment':
+            try:
+                request = _normalize_dynamic_request(request)
+            except (ValueError, TypeError) as exc:
+                normalize_error = f'{type(exc).__name__}: {exc}'
         write_json(turn_dir / 'command.json', {'action': 'tool', 'request': request,
                    'native_call_id': (params or {}).get('callId'), 'transport': 'app_server'})
         try:
+            if normalize_error is not None:
+                raise ValueError(normalize_error)
             if tool == 'experiment':
                 receipt = self._request(request, turn_dir)
             elif tool == 'job_status':

@@ -484,53 +484,70 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
         blockers.append("trusted_launch_chain_missing")
     # full service inventory + weights verified BEFORE stop (R5).
     services = registry.get("services", [])
-    inventory_ok = ({s.get("gpu") for s in services} == {0, 1, 2, 3} and len(services) == 4)
-    weights_ok = (registry.get("checkpoint") == active.get("checkpoint_path")
-                  and all(s.get("verified_binding") == {"checkpoint_path": active.get("checkpoint_path"),
-                                                        "weights": active.get("checkpoint_manifest")}
-                          for s in services))
-    if not inventory_ok:
-        blockers.append("service_inventory_incomplete")
-    if not weights_ok:
-        blockers.append("registry_weights_gate_failed")
-    if registry.get("phase") != "services_stopped":
-        gates_pass = (not blockers and non_service_exited and registry_owned
-                      and launch_binding_ok and inventory_ok and weights_ok)
-        if not gates_pass:
-            blockers.append("stop_services_gates_not_passed")
+    # Task B: "failed before any job/service created" path. Only when the registry was
+    # NEVER created and there are no job/phase/service owners may cleanup complete as
+    # not_created_verified (GPU must still be measured released below). A normal five-round
+    # completion missing a registry, or any run with jobs/phases/services, stays blocked.
+    registry_never_created = registry_before_bytes is None and not registry_path.exists()
+    workflow_finish_allowed = (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("finish_allowed")
+    # A normally completed run (finish_allowed) missing a registry must stay blocked; the
+    # not_created path is only for failure before any job/service was ever created.
+    not_created_candidate = (registry_never_created and not jobs and not phases and not services
+                             and not workflow_finish_allowed)
+    if not_created_candidate:
+        # An empty job inventory is expected here, not a binding failure.
+        blockers[:] = [b for b in blockers if b != "job_binding:<no job inventory>"]
+        stop_action = "not_created_verified"
+        registry["phase"] = "not_created_verified"
+        owners["inference_services"] = []
+    else:
+        inventory_ok = ({s.get("gpu") for s in services} == {0, 1, 2, 3} and len(services) == 4)
+        weights_ok = (registry.get("checkpoint") == active.get("checkpoint_path")
+                      and all(s.get("verified_binding") == {"checkpoint_path": active.get("checkpoint_path"),
+                                                            "weights": active.get("checkpoint_manifest")}
+                              for s in services))
+        if not inventory_ok:
+            blockers.append("service_inventory_incomplete")
+        if not weights_ok:
+            blockers.append("registry_weights_gate_failed")
+        if registry.get("phase") != "services_stopped":
+            gates_pass = (not blockers and non_service_exited and registry_owned
+                          and launch_binding_ok and inventory_ok and weights_ok)
+            if not gates_pass:
+                blockers.append("stop_services_gates_not_passed")
+                if status == "completed":
+                    status = "pending"
+            else:
+                stop_action = "executed"
+                try:
+                    if stop_services_fn is None:
+                        from rsiflow.task_meta.gpu_phases import stop_services
+                        stop_services_fn = stop_services
+                    stop_services_fn(effective_obj if effective_obj is not None else config)
+                    stop_command_result = 0
+                    registry = _read_json(registry_path) or {}
+                    registry_after_hash = _sha256(registry_path)
+                except Exception as exc:
+                    stop_command_result = 1
+                    blockers.append(f"stop_services_failed:{exc}")
+                    status = "failed"
+                    registry = _read_json(registry_path) or {}
+                    registry_after_hash = _sha256(registry_path)
+        if registry.get("phase") != "services_stopped" or registry.get("stopped_at") is None:
+            blockers.append("registry_not_stopped")
             if status == "completed":
                 status = "pending"
-        else:
-            stop_action = "executed"
-            try:
-                if stop_services_fn is None:
-                    from rsiflow.task_meta.gpu_phases import stop_services
-                    stop_services_fn = stop_services
-                stop_services_fn(effective_obj if effective_obj is not None else config)
-                stop_command_result = 0
-                registry = _read_json(registry_path) or {}
-                registry_after_hash = _sha256(registry_path)
-            except Exception as exc:
-                stop_command_result = 1
-                blockers.append(f"stop_services_failed:{exc}")
-                status = "failed"
-                registry = _read_json(registry_path) or {}
-                registry_after_hash = _sha256(registry_path)
-    if registry.get("phase") != "services_stopped" or registry.get("stopped_at") is None:
-        blockers.append("registry_not_stopped")
-        if status == "completed":
-            status = "pending"
-    if not weights_ok:
-        blockers.append("registry_checkpoint_mismatch")
-        if status == "completed":
-            status = "pending"
-    services = registry.get("services", [])
-    owners["inference_services"] = []
-    for i, service in enumerate(services):
-        if service.get("verified_binding") != {"checkpoint_path": active.get("checkpoint_path"),
-                                               "weights": active.get("checkpoint_manifest")}:
-            blockers.append(f"service_{i}_weights_mismatch")
-        owners["inference_services"].append(make_owner(service.get("identity", {}), registry_path, f"service_{i}"))
+        if not weights_ok:
+            blockers.append("registry_checkpoint_mismatch")
+            if status == "completed":
+                status = "pending"
+        services = registry.get("services", [])
+        owners["inference_services"] = []
+        for i, service in enumerate(services):
+            if service.get("verified_binding") != {"checkpoint_path": active.get("checkpoint_path"),
+                                                   "weights": active.get("checkpoint_manifest")}:
+                blockers.append(f"service_{i}_weights_mismatch")
+            owners["inference_services"].append(make_owner(service.get("identity", {}), registry_path, f"service_{i}"))
     if registry_path.is_file():
         seal(registry_path)
 
@@ -632,6 +649,26 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
         if status == "completed":
             blockers.append("ports_not_closed")
             status = "pending"
+
+    # Task B: not_created_verified completes only with full proof that nothing was ever
+    # created and everything is released: no job/phase/service owner, registry never
+    # created, launcher/app-server exited, both GPU samples show no compute apps and free,
+    # ports closed, trusted launch chain present. Any missing proof keeps it pending.
+    if not_created_candidate:
+        gpu_released = (len(gpu_observations) == 2
+                        and all(not o.get("compute_apps") and o.get("free_verified") is True
+                                for o in gpu_observations))
+        proof_ok = (gpu_released and ports.get("status") == "closed" and non_service_exited
+                    and launch_binding_ok and chain is not None and registry_owned
+                    and not owners["jobs"] and not owners["training_phases"]
+                    and not owners["inference_services"] and registry_never_created)
+        if not proof_ok:
+            blockers.append("not_created_verified_proof_incomplete")
+            if status == "completed":
+                status = "pending"
+        else:
+            stop_action = "not_created_verified"
+            registry["phase"] = "not_created_verified"
 
     if blockers and status == "completed":
         status = "pending"

@@ -61,3 +61,10 @@ dev4 只读前置通过（audit `00001325`），occupier 运行期间的真实 p
 当前 reviewed HEAD 为 `023d640c8dcb95dceb1feed87ec6e7a87b362c12`。Task 4 round 5 scoped re-review 已关闭 parent execution identity blocker；实现者报告完整 `631 passed, 2 skipped`、scoped `191 passed`，本次未重跑。
 
 本次 public MODEL plan 在 occupier 运行中真实通过，receipt/source seals/provenance 复核为 3 unique positives、18 SFT samples、51 source calls。identity-checked 停卡和四卡释放后，显式 bwrap 的真实 execute 运行至生产 DDP，但 `transformers 5.22.2` 不接受 trainer 的 `warmup_ratio`，SFT final=`incomplete`、execute=`requires_audit`。没有 training metrics/merged child/reload/generation/recovery；source seals 和 owned cleanup 通过，occupier 已以新 identity 恢复四卡负载。未启动五轮，详见 model smoke 报告 Retry 4。
+
+
+## 7. Retry 5：真实 MODEL gate 完成
+
+当前 reviewed HEAD 为 `efba18da188195f1797bcc3748e8e15de05281e8`；Retry 5 brief 记录 Qwen4-Max scoped PASS、主 Kimi scheduler/生产接线复核，以及完整 `654 passed, 2 skipped`、scoped `174 passed`（本次未重跑）。
+
+旧 v1 incomplete/requires_audit 现场保留，新 v2 public plan 和显式 bwrap execute 均 completed。真实验收包括四 rank/one epoch、3 actual training steps、`warmup_steps=1=ceil(3×0.03)`、merged child/weights changed、四卡 child reload、两次精确短生成、recovery `retrained=false`、source seals 和 owned cleanup。Occupier 已以新 identity 恢复四卡负载；未启动五轮。该结果仅是 MODEL engineering gate，不是五轮启动、模型质量或独立 benchmark 结论。

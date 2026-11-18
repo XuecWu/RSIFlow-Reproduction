@@ -200,3 +200,65 @@ Execute stdout为 `status=requires_audit`（SHA256 `02bfaa0d0c48278af9fb26ef07f7
 关键结果：`00001348-task5_model_retry4_real_execute`。没有启动五轮。继续需要经审阅的 Transformers 兼容修复或固定兼容环境及真实回归，不能在此 incomplete root 上删除状态重训。
 
 Git runtime hygiene：真实 execute 将四个 tracked `RSIFlow/runtime/local_baseline/resource_leases/gpu_{0..3}.lock` 的 PID 改为本次已退出的 `23563`。已按明确 diff 恢复这四个文件的 pre-run bytes；output-root receipts/logs 保留，未提交任何 runtime 改动。
+
+
+---
+
+# Retry 5：v2 真实 MODEL smoke 完整通过
+
+- 日期：2026-11-18（UTC）
+- reviewed/execution HEAD：`efba18da188195f1797bcc3748e8e15de05281e8`
+- 结论：**DONE。旧 v1 `requires_audit/incomplete` 现场完整保留；新 v2 public plan、真实 SFT/merge/reload/短生成/recovery、cleanup/source seals 和 occupier 恢复全部通过。**
+- 边界：`engineering_only`；不是模型质量提升、benchmark 分数或五轮结果，未启动五轮。
+
+Retry 5 brief 指定 Qwen4-Max scoped re-review PASS、主 Kimi 已复核 scheduler/生产接线；该 HEAD 报告完整 `654 passed, 2 skipped`、scoped `174 passed`，本次未重跑。
+
+## v1 保留与 v2 plan
+
+- `00001353` 的首次只读 precheck 因操作员 Python 引号错误 NameError，未修改任何文件/进程；`00001354` 修正后确认 HEAD/clean diff、v1 SFT final 仍 `incomplete`、无 active training/service owner、source/input seals 仍 true、v2 root 不存在、occupier `24009` 四卡运行。
+- 旧 `Rollout_logs/deepcoder_model_smoke_v1` 未 execute、未删除、未改写；后验 `00001360` 再次确认 v1 incomplete/seals 不变。
+- `00001355`：occupier 运行中，新 `Rollout_logs/deepcoder_model_smoke_v2` public plan exit 0。Plan SHA256 `2466c2285cbf85a4f2596446a46b12c5921577e4949508516f2bb21df62daed7`，plan identity `8398911273705e2cbb1b812e01f27588f1daf8f9509dfa27b1ce59c768567865`。
+- `00001356`：runner 自身 `_load_execute_plan()` 重算通过；16 tasks、51 source transport calls、3 unique positives、18 SFT samples（每个正例 6 个）、source hashes 相同、checkpoint seals 42、Harness seals 2、registry 隔离、无 stage started/final，v1 仍 incomplete。
+
+## Occupier 交接与 execute
+
+`00001357` 核验 occupier PID=PGID `24009`、start `2826576096` 和完整 argv 后仅向该 PGID TERM，无 KILL/pkill。最终无可见 members/compute apps，四卡各 1 MiB，四端口可用。
+
+`00001358` 显式 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1` 的 v2 生产 execute exit 0、`status=completed`，stdout SHA256 `65736c887ab82ecdcf4a57c685d4ba11fbdb315e14c4b32ff724324be920f471`。`00001359` 一个独立只读诊断 SSH banner timeout 不影响既有执行；未重连 execute 或改变状态。
+
+## 真实训练、warmup 与 merged child
+
+直接读取 `training_metrics.json`、四个 rank records 和 `trainer_state/checkpoint-3/trainer_state.json`：
+
+| 指标 | 实测 |
+|---|---|
+| world size / ranks | 4 / 0,1,2,3；每 rank optimizer_steps=3 |
+| epoch / optimizer steps | 1.0 / 3 |
+| actual_num_training_steps | `trainer_state.max_steps=3` |
+| warmup | ratio=0.03，metrics warmup_steps=1；**`ceil(actual_num_training_steps×0.03)=ceil(3×0.03)=1`** |
+| scheduler LR history | step 1–3：`[0.0, 2e-6, 1e-6]`，与 1 warmup step 一致 |
+| positive data | selection 18 input/18 unique；sampled 20、unique 18，覆盖全部 0–17，2 个 padding repeats |
+| training loss | `0.06273423631985982` |
+| supervised tokens | available 1870；sampled 2126；unique sampled 1870 |
+| trainable params / changed LoRA tensors | 16,515,072 / 504 |
+| LoRA delta L2 | `0.006178486870983025` |
+| merged probe | `model.layers.0.self_attn.q_proj.weight`，14,744 changed elements，max abs delta `9.5367431640625e-07` |
+| training wall | 63.00952958315611 s |
+
+Base checkpoint unchanged=true、child weights changed=true；child 为 v2 root 内 `runs/deepcoder_model_smoke/sft/model_update/checkpoint`，candidate generation=1，5 个 merged weight hashes 与 base 不同。metrics 的 trainer source SHA256 与当前已审阅生产 trainer 文件精确一致。
+
+证据 SHA256：SFT receipt `155186954a6cb0ff1294e9b78d6564c116028864b5c86364284a65566c5ac78f`；metrics `1b52c34aabb7c45fd063a6c3641b3cc83dc55aa40aa3c507e1d6f90fdda7b3a1`；GPU phase `d95db8d0e0de2cf4bfa650628d09bf8eb8261fb4e71611b6f17e2172eff15d88`；candidate state `bf20d7968e65c4dc1ca39ac8c50a1d2b51e7ce23adb6d39eeecf3f6ff8c591aa`；trainer state `d44183bbeef74ff1a6ce15b6b1e333868b4a1bbc2eb48bc5ddb193dce082dbfc`。
+
+## Reload、短生成、recovery 与 seals/cleanup
+
+- SFT 后四卡 child reload/verify 通过，短生成精确为 `RSIFLOW_SMOKE_OK`，usage prompt/completion/total=22/8/30，model_calls=1。
+- Recovery final `completed`、`retrained=false`、`training_receipts_unchanged=true`；同一 child 四卡 reload，第二次短生成同样精确 `RSIFLOW_SMOKE_OK`、22/8/30、model_calls=1。Recovery receipt SHA256 `641f53a522499746607bcda717e1284b5653bc374f7242b0440d194b98d05883`。
+- `00001360` 独立重算 source tree 和外部 input seals，并核验 SFT/recovery final flags：全部 unchanged=true。
+- 两阶段 training cleanup 均 confirmed exited group `24433`、无残留组/error；owned registry `services_stopped`、four-GPU release=true、error=null，最终 registry checkpoint 指向 child。
+- 恢复 occupier 前实测无 compute apps、四卡各 1 MiB；无 started locks。
+
+## Occupier 恢复与 Git hygiene
+
+`00001361` 原子写入新 identity：PID=PGID `24825`、start_ticks `2827137154`。完整 argv、新日志 ranks 0–3、4 compute apps 通过；GPU 0–3 各 3085 MiB，util 40/45/40/35%。
+
+Execute 产生的四个 tracked local-baseline lease PID 改动（本次 PID `24427`）已按明确 diff 恢复 pre-run bytes；v1/v2 runtime receipts/logs 保留，runtime 未入库。关键结果：`00001363-task5_model_retry5_complete`。

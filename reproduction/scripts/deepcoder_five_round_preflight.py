@@ -220,6 +220,8 @@ def run_preflight(config, release, output):
     config = Path(config).resolve()
     release = Path(release).resolve()
     output = Path(output).resolve()
+    if output == release or output.is_relative_to(release) or release.is_relative_to(output):
+        raise SmokeBlocked("Preflight output must be outside the frozen release")
     hashes_before = _release_hashes(release)
     launcher, manifests, manifest_hashes = _validate_release(config, release)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -295,6 +297,8 @@ def run_preflight(config, release, output):
     if output.exists() and read(output) != receipt:
         raise SmokeBlocked(f"Existing preflight output differs: {output}")
     write_json(output, receipt)
+    if _release_hashes(release) != hashes_before:
+        raise SmokeBlocked("Frozen release changed while writing preflight output")
     return receipt
 
 

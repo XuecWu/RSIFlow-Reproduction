@@ -626,3 +626,15 @@ def test_five_round_preflight_rejects_tampered_release_without_formal_output(
         five_round_preflight.run_preflight(
             config, release, tmp_path / "logs/preflight/tampered.json")
     assert not (tmp_path / "logs/formal-output").exists()
+
+
+def test_five_round_preflight_rejects_output_inside_frozen_release(
+        release_world, tmp_path, five_round, five_round_preflight):
+    config, release, _ = _preflight_world(release_world, tmp_path, five_round)
+    before = five_round_preflight._release_hashes(release)
+    output = release / "preflight-receipt.json"
+
+    with pytest.raises((ValueError, RuntimeError), match="release|read-only|output"):
+        five_round_preflight.run_preflight(config, release, output)
+    assert not output.exists()
+    assert five_round_preflight._release_hashes(release) == before

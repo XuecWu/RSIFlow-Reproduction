@@ -32,7 +32,7 @@ from training_side_smoke import (
     _short_generation,
     _signal_guard,
     _stage_lock,
-    _terminate_owned_training,
+    _terminate_owned_training as _terminate_owned_training_base,
     _validate_output_root,
     _validate_sft_evidence,
     _validate_transport_calls,
@@ -48,6 +48,54 @@ SMOKE_FLAGS = {
     "feedback_to_training_or_meta": False,
     "is_benchmark_score": False,
 }
+
+
+def _confirmed_exited_training(receipt, root):
+    pid = receipt.get("training_pid")
+    if type(pid) is not int or pid <= 0:
+        return False
+    command = [str(item) for item in (receipt.get("command") or [])]
+    request_dir = None
+    for index, item in enumerate(command):
+        if item == "--request-dir" and index + 1 < len(command):
+            request_dir = command[index + 1]
+    if request_dir is None or not Path(request_dir).resolve().is_relative_to(Path(root).resolve()):
+        return False
+    if not side._cmdline_matches_root(command, Path(root).resolve(), request_dir):
+        return False
+    return side.process_identity(pid) is None and not side._group_alive(pid)
+
+
+def _terminate_owned_training(root):
+    result = _terminate_owned_training_base(root)
+    receipts = []
+    for path in sorted(Path(root).glob("runs/**/gpu_phase_receipt.json")):
+        try:
+            receipt = read(path)
+        except (OSError, ValueError):
+            continue
+        if receipt.get("training_pid") is not None:
+            receipts.append(receipt)
+    terminated = {group["pgid"] for group in result["groups"] if group.get("terminated")}
+    exited = []
+    unresolved = False
+    for receipt in receipts:
+        pid = receipt["training_pid"]
+        if pid in terminated:
+            continue
+        if _confirmed_exited_training(receipt, root):
+            exited.append(pid)
+        else:
+            unresolved = True
+    if side._discover_owned_training_groups(root):
+        unresolved = True
+    if not unresolved:
+        result["error"] = None
+        result["training_terminated"] = True
+        if exited:
+            result["training_owned"] = True
+    result["confirmed_exited_groups"] = sorted(set(exited))
+    return result
 
 
 def _source_hashes(source_run):
@@ -81,6 +129,46 @@ def _matching_receipt(source_run, row):
     if not matches:
         raise SmokeBlocked(f"Missing exact persisted parent receipt: {row.get('task_id')}")
     return matches[0]
+
+
+def _file_tree_seals(path):
+    path = Path(path).resolve()
+    if path.is_symlink() or not path.exists():
+        raise SmokeBlocked(f"Sealed A0 input is unavailable or a symlink: {path}")
+    if path.is_file():
+        return {str(path): file_hash(path)}
+    seals = {}
+    for item in sorted(path.rglob("*")):
+        if item.is_symlink():
+            raise SmokeBlocked(f"Sealed A0 input tree contains a symlink: {item}")
+        if item.is_file():
+            seals[str(item)] = file_hash(item)
+    return seals
+
+
+def _a0_input_seals(state):
+    checkpoint = _file_tree_seals(Path(state.checkpoint_path))
+    harness = _file_tree_seals(Path(state.harness_path))
+    artifacts = (_file_tree_seals(Path(state.artifacts.directory))
+                 if state.artifacts.directory else {})
+    provenance = {}
+    if state.artifacts.directory:
+        path = Path(state.artifacts.directory).resolve().parent / "artifact_provenance.json"
+        if path.is_file():
+            provenance = _file_tree_seals(path)
+    if not checkpoint or not harness:
+        raise SmokeBlocked("A0 checkpoint and Harness seals must not be empty")
+    return {"checkpoint": checkpoint, "harness": harness, "artifacts": artifacts,
+            "artifact_provenance": provenance}
+
+
+def _verify_input_seals(source):
+    state = load_task(read(Path(source["state_path"])))
+    current = _a0_input_seals(state)
+    if current != source["input_seals"]:
+        changed = sorted(key for key in current if current[key] != source["input_seals"].get(key))
+        raise SmokeBlocked(f"External A0 input seals changed: {changed}")
+    return True
 
 
 def _validate_source(source_run, release_dir):
@@ -216,6 +304,7 @@ def _validate_source(source_run, release_dir):
         "a0_task_hash": a0_task_hash,
         "checkpoint_path": str(checkpoint),
         "harness_path": str(harness),
+        "input_seals": _a0_input_seals(state),
         "receipt_paths": receipt_paths,
         "accepted_candidate_used": False,
         "skills_used": False,
@@ -285,14 +374,23 @@ def _bindings(plan):
         "smoke_config_sha256": file_hash(root / "plan/smoke_launcher_config.json"),
         "effective_config_sha256": file_hash(root / "plan/effective_config.json"),
         "base_checkpoint_manifest_sha256": file_hash(root / "plan/base_checkpoint_manifest.json"),
+        "base_config_sha256": file_hash(side._base_config_path(plan)),
+        "training_side_helper_sha256": file_hash(Path(side.__file__)),
         "production_implementation_sha256": side._production_hashes(),
     }
 
 
 def _identity(bindings, source):
-    identity_source = {key: value for key, value in source.items()
-                       if key not in {"source_hashes_before", "source_hashes_after"}}
-    return fingerprint({"bindings": bindings, "source": identity_source})
+    return fingerprint({"bindings": bindings, "source": source})
+
+
+def _assert_output_separate(root, assets):
+    for label, value in assets:
+        if value is None:
+            continue
+        asset = Path(value).resolve()
+        if root == asset or root.is_relative_to(asset) or asset.is_relative_to(root):
+            raise SmokeBlocked(f"MODEL output root overlaps read-only asset: {label}")
 
 
 def plan_model_smoke(source_run, output_root, machine_config):
@@ -306,10 +404,30 @@ def plan_model_smoke(source_run, output_root, machine_config):
     launcher = read(machine_config)
     release_dir = Path(launcher["frozen_data_dir"]).resolve()
     source = _validate_source(source_run, release_dir)
+    project_root = _project_root(machine_config)
+    base_config = Path(launcher["base_config"])
+    if not base_config.is_absolute():
+        base_config = project_root / launcher.get("runtime_source", "runtime") / base_config
+    assets = [("frozen release", release_dir), ("machine config", machine_config),
+              ("base config", base_config), ("A0 checkpoint", source["checkpoint_path"]),
+              ("A0 Harness", source["harness_path"])]
+    state = load_task(read(source["state_path"]))
+    assets.append(("A0 artifacts", state.artifacts.directory))
+    if state.artifacts.directory:
+        assets.append(("artifact provenance",
+                       Path(state.artifacts.directory).resolve().parent / "artifact_provenance.json"))
+    retrieval = launcher.get("retrieval_index")
+    if retrieval:
+        assets.extend([("retrieval index", retrieval),
+                       ("retrieval manifest", Path(retrieval).with_suffix(".sqlite.manifest.json"))])
+    for task in read(release_dir / "B1/manifest.json")["tasks"]:
+        assets.append((f"record for {task['task_id']}", task["record_file"]))
+    _assert_output_separate(root, assets)
     root.mkdir(parents=True)
     paths = _derive_model_config(machine_config, root, release_dir, source)
     if _source_hashes(source_run) != source_hashes_before:
         raise SmokeBlocked("Source run changed while planning MODEL smoke")
+    _verify_input_seals(source)
 
     source["source_hashes_before"] = source_hashes_before
     source["source_hashes_after"] = source_hashes_before
@@ -332,6 +450,9 @@ def plan_model_smoke(source_run, output_root, machine_config):
         raise SmokeBlocked("Derived service registry is not isolated under the MODEL output root")
     receipt["owned_registry_path"] = str(registry)
     write_json(root / "receipts/plan.json", receipt)
+    _verify_input_seals(source)
+    if _source_hashes(source_run) != source_hashes_before:
+        raise SmokeBlocked("Source run changed while writing MODEL plan")
     return receipt
 
 
@@ -360,6 +481,16 @@ def _load_execute_plan(root):
     source_hashes = _source_hashes(Path(plan["source"]["source_run"]))
     if source_hashes != plan["source"]["source_hashes_after"]:
         raise SmokeBlocked("Source run hashes changed since plan; audit before any training")
+    expected_source = {key: value for key, value in plan["source"].items()
+                       if key not in {"source_hashes_before", "source_hashes_after"}}
+    release_dir = Path(plan["source"]["manifest_path"]).resolve().parent.parent
+    current_source = _validate_source(Path(plan["source"]["source_run"]), release_dir)
+    if current_source != expected_source:
+        changed = sorted(key for key in current_source
+                         if current_source[key] != expected_source.get(key))
+        raise SmokeBlocked(f"Full source/provenance revalidation changed since plan: {changed}")
+    if plan.get("positive_parent_count") != current_source["positive_parent_count"]:
+        raise SmokeBlocked("Natural-positive count changed since plan")
     return plan
 
 
@@ -377,10 +508,16 @@ def _finish_stage(root, stage, receipt, started, training_cleanup, service_clean
     receipt["cleanup"] = service_cleanup
     source_unchanged = _source_hashes(Path(plan["source"]["source_run"])) == (
         plan["source"]["source_hashes_after"])
+    try:
+        _verify_input_seals(plan["source"])
+        input_seals_unchanged = True
+    except (OSError, ValueError, SmokeBlocked):
+        input_seals_unchanged = False
     receipt["source_hashes_unchanged"] = source_unchanged
-    if not source_unchanged:
+    receipt["input_seals_unchanged"] = input_seals_unchanged
+    if not source_unchanged or not input_seals_unchanged:
         receipt["status"] = "requires_audit"
-        receipt["error"] = "Source run changed during execute; audit before any further action"
+        receipt["error"] = "Source run or external A0 inputs changed during execute; audit required"
     elif (not service_cleanup.get("services_stopped") or service_cleanup.get("error")
           or training_cleanup.get("error")):
         receipt["status"] = "incomplete"
@@ -518,6 +655,8 @@ def execute_model_smoke(output_root):
                 return _audit("recovery", "Previous recovery final receipt is not completed; audit is required")
             if sft_state == "final" and recovery_state == "final":
                 return _completed_summary(plan, sft, recovery, "already_completed")
+            if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != "linux_bwrap_seccomp_v1":
+                return _audit("execute", "Pending execute stages require explicit linux_bwrap_seccomp_v1")
             if sft_state == "pending":
                 sft = _execute_sft(root, plan)
                 if sft["status"] != "completed":

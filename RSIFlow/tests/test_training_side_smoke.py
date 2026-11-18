@@ -1567,13 +1567,21 @@ def model_source(world, tmp_path):
     a0_dir = source_run / "snapshots/A0"
     task_dir = a0_dir / "task"
     task_dir.mkdir(parents=True)
-    harness = task_dir / "harness.json"
+    harness = tmp_path / "external-harness/harness.json"
+    harness.parent.mkdir()
     harness.write_bytes(world["harness"].read_bytes())
+    artifacts = tmp_path / "external-artifacts"
+    artifacts.mkdir()
+    (artifacts / "workflow.json").write_text('{"step":"external-fixture"}')
+    from rsiflow.task_meta.storage import artifact_manifest
+    artifacts_manifest = artifact_manifest(artifacts)
+    (world["checkpoint"] / "config.json").write_text('{"model_type":"fixture"}')
+    (world["checkpoint"] / "tokenizer_config.json").write_text('{"tokenizer":"fixture"}')
     checkpoint_manifest = smoke.checkpoint_manifest(world["checkpoint"])
     state = {"generation": 0, "model_ref": "Qwen3-4B", "harness_path": str(harness),
              "checkpoint_path": str(world["checkpoint"]),
              "checkpoint_manifest": checkpoint_manifest,
-             "artifacts": {"directory": None, "manifest": {}}}
+             "artifacts": {"directory": str(artifacts), "manifest": artifacts_manifest}}
     state_path = task_dir / "task_state_snapshot.json"
     freeze(state_path, state)
     a0_hash = task_hash(load_task(state))
@@ -1601,7 +1609,7 @@ def model_source(world, tmp_path):
                  "manifest_hash": parent_manifest["manifest_hash"],
                  "collection_stage": "parent_pre_update", "task_hash": a0_hash,
                  "harness_sha256": harness_hash, "checkpoint_manifest": checkpoint_manifest,
-                 "artifacts": {}, "protocol_hash": "official-fixture-protocol"}
+                 "artifacts": artifacts_manifest, "protocol_hash": "official-fixture-protocol"}
         message = {"role": "assistant", "content": "def solution():\n    return 1"}
         binding = {"checkpoint_path": str(world["checkpoint"].resolve()),
                    "weights": checkpoint_manifest}
@@ -1618,7 +1626,7 @@ def model_source(world, tmp_path):
                "rollout_id": 0, "model_call_count": 1, "transport_calls": calls,
                "state_hash": a0_hash, "model_ref": "Qwen3-4B",
                "harness_sha256": harness_hash, "harness_hash": harness_hash,
-               "artifact_input_manifest": {}, "parent_policy_hash": policy_hash,
+               "artifact_input_manifest": artifacts_manifest, "parent_policy_hash": policy_hash,
                "task_source_hash": task["content_hash"], "terminal_reward": 1.0,
                "trajectory_id": fingerprint(["source-trajectory", task_id]),
                "success_verifier_version": "official-deepcoder-fixture",
@@ -1657,7 +1665,8 @@ def model_source(world, tmp_path):
     return {"source_run": source_run, "release": release, "manifest": parent_manifest,
             "manifest_path": manifest_path, "machine_config": machine_config,
             "state_path": state_path, "snapshot_receipt": a0_dir / "snapshot_receipt.json",
-            "parent": parent, "rows": trajectory_rows, "checkpoint": world["checkpoint"]}
+            "parent": parent, "rows": trajectory_rows, "checkpoint": world["checkpoint"],
+            "harness": harness, "artifacts": artifacts}
 
 
 def _model_plan(model_smoke, model_source, tmp_path, name="model-smoke"):
@@ -1821,3 +1830,162 @@ def test_model_smoke_execute_binding_or_source_change_requires_audit_before_trai
     changed_source = model_smoke.execute_model_smoke(Path(other["output_root"]))
     assert changed_source["status"] == "requires_audit"
     assert FakeAdapter.instances == []
+
+
+def test_model_smoke_exited_training_pgid_is_cleaned_for_sft_and_recovery(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    plan = _model_plan(model_smoke, model_source, tmp_path, "exited-training")
+    root = Path(plan["output_root"])
+    _patch_model_runtime(model_smoke, monkeypatch)
+    process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    process.wait(timeout=10)
+    assert smoke.process_identity(process.pid) is None
+    assert not smoke._group_alive(process.pid)
+    MOCK_CONTROL["sft_training_pid"] = process.pid
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "completed", result
+    assert result["sft"]["training_cleanup"]["error"] is None
+    assert result["recovery"]["training_cleanup"]["error"] is None
+    assert result["sft"]["status"] == result["recovery"]["status"] == "completed"
+    gpu = json.loads(Path(result["sft"]["gpu_phase_receipt_path"]).read_text())
+    assert gpu["training_pid"] == process.pid
+    assert "train_task_meta_sft.py" in gpu["command"]
+    assert "--request-dir" in gpu["command"]
+
+
+def test_model_smoke_source_and_seal_tampering_requires_audit_before_side_effects(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    plan = _model_plan(model_smoke, model_source, tmp_path, "source-seal-attack")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    trajectory_path = model_source["parent"] / "train_trajectories.jsonl"
+    rows = [json.loads(line) for line in trajectory_path.read_text().splitlines() if line]
+    rows[0]["messages"][1]["content"] = "unreviewed supervision"
+    trajectory_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    plan_path = root / "receipts/plan.json"
+    sealed_plan = json.loads(plan_path.read_text())
+    identity = sealed_plan["plan_identity"]
+    changed_hash = file_hash(trajectory_path)
+    for key in ("source_hashes_before", "source_hashes_after"):
+        sealed_plan["source"][key][str(trajectory_path)] = changed_hash
+    plan_path.write_text(json.dumps(sealed_plan))
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert sealed_plan["plan_identity"] == identity
+    assert FakeAdapter.instances == []
+    assert calls == []
+
+
+@pytest.mark.parametrize("mode", ["base_config", "helper"])
+def test_model_smoke_execute_rejects_base_config_or_helper_change_before_side_effects(
+        model_smoke, model_source, tmp_path, monkeypatch, mode):
+    if mode == "helper":
+        changed_path = tmp_path / "helper/training_side_smoke.py"
+        changed_path.parent.mkdir()
+        changed_path.write_bytes(Path(smoke.__file__).read_bytes())
+        monkeypatch.setattr(model_smoke.side, "__file__", str(changed_path))
+    else:
+        changed_path = model_source["machine_config"].parent / "runtime/configs/base.json"
+    plan = _model_plan(model_smoke, model_source, tmp_path, f"binding-{mode}")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    if mode == "helper":
+        changed_path.write_text("# changed helper implementation\n")
+    else:
+        value = json.loads(changed_path.read_text())
+        value["unreviewed_base_change"] = True
+        changed_path.write_text(json.dumps(value))
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert FakeAdapter.instances == []
+    assert calls == []
+
+
+@pytest.mark.parametrize("mode", ["harness", "artifact", "weights", "non_weights"])
+def test_model_smoke_external_a0_inputs_are_sealed_and_rechecked_before_services(
+        model_smoke, model_source, tmp_path, monkeypatch, mode):
+    plan = _model_plan(model_smoke, model_source, tmp_path, f"external-{mode}")
+    root = Path(plan["output_root"])
+    seals = plan["source"]["input_seals"]
+    paths = {
+        "harness": model_source["harness"],
+        "artifact": model_source["artifacts"] / "workflow.json",
+        "weights": model_source["checkpoint"] / "model.safetensors",
+        "non_weights": model_source["checkpoint"] / "config.json",
+    }
+    changed_path = paths[mode]
+    group = "harness" if mode == "harness" else "artifacts" if mode == "artifact" else "checkpoint"
+    assert seals[group][str(changed_path.resolve())] == file_hash(changed_path)
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    changed_path.write_bytes(changed_path.read_bytes() + b"unreviewed-change")
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert FakeAdapter.instances == []
+    assert calls == []
+
+
+def test_model_smoke_external_input_change_during_sft_requires_final_audit(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    plan = _model_plan(model_smoke, model_source, tmp_path, "external-during-sft")
+    root = Path(plan["output_root"])
+    _patch_model_runtime(model_smoke, monkeypatch)
+
+    def change_non_weights(metrics, gpu, state, out, child, arguments):
+        config = model_source["checkpoint"] / "config.json"
+        config.write_bytes(config.read_bytes() + b"changed-during-sft")
+
+    MOCK_CONTROL["sft_mutator"] = change_non_weights
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    final = json.loads((root / "receipts/sft.json").read_text())
+    assert final["status"] == "requires_audit"
+    assert final["input_seals_unchanged"] is False
+
+
+@pytest.mark.parametrize("backend", [None, "legacy_host"])
+def test_model_smoke_recovery_only_requires_explicit_bwrap_before_side_effects(
+        model_smoke, model_source, tmp_path, monkeypatch, backend):
+    plan = _model_plan(model_smoke, model_source, tmp_path, f"recovery-backend-{backend}")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    completed = model_smoke.execute_model_smoke(root)
+    assert completed["status"] == "completed"
+    (root / "receipts/recovery.json").unlink()
+    calls.clear()
+    SERVICE_CHECKPOINTS.clear()
+    FakeAdapter.instances.clear()
+    if backend is None:
+        monkeypatch.delenv("RSIFLOW_SANDBOX_BACKEND")
+    else:
+        monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", backend)
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert calls == []
+    assert SERVICE_CHECKPOINTS == []
+    assert FakeAdapter.instances == []
+    assert not (root / "receipts/recovery.json").exists()
+    assert not (root / "locks/recovery.started.json").exists()
+
+
+@pytest.mark.parametrize("asset", ["release", "checkpoint", "artifacts"])
+def test_model_smoke_plan_rejects_output_root_inside_read_only_assets(
+        model_smoke, model_source, tmp_path, asset):
+    output_root = model_source[asset] / "logs/model-smoke-output"
+    source_before = _source_tree_hashes(model_source["source_run"])
+
+    with pytest.raises((ValueError, RuntimeError), match="read-only|release|output|overlap"):
+        model_smoke.plan_model_smoke(
+            model_source["source_run"], output_root, model_source["machine_config"])
+    assert not output_root.exists()
+    assert _source_tree_hashes(model_source["source_run"]) == source_before

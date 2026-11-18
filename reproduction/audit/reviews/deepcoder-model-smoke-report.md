@@ -64,3 +64,43 @@ operation `00001300`（stdout SHA256 `c3757dafd06a138f9744a03721c22e5d36ab96de70
 2. 明确定义 canonical source seal：哪些集中 Meta 链接可解引用并独立封印，哪些训练/provenance 文件必须仍位于无 symlink 的 source tree；不得简单忽略所有 symlink。
 3. plan/execute 前后都重验该 seal，保持 source+seal identity、外部 A0 inputs 和输出隔离合同。
 4. scoped 与完整离线套件通过后重新独立复核，再在同一个仍不存在的 output root 上运行 plan；随后才允许真实 execute 和完整 GPU/cleanup 验收。
+
+
+---
+
+# Retry 1：reviewed `e849324` 真实 plan 重试
+
+- 日期：2026-11-18（UTC）
+- reviewed/execution HEAD：`e849324c348ca357abd065fc5e8e80b4c9b44238`
+- 结论：**BLOCKED；原 central `meta` symlink blocker 已越过，但 source parent 的全行 transport-call 资格门拒绝，execute 仍未运行。**
+
+Task 4 最后两轮 scoped re-review 已读：round 2 精确接受并封印生产 central `meta` link，但发现 central target/owner 输出隔离 Important；round 3 在 `e849324` 关闭该 Important，新增 Critical/Important 均为 0，允许经既有 GO 重试。实现者在该 HEAD 报告完整 `608 passed, 2 skipped`、scoped `168 passed`；本次 retry 没有重跑或冒领这些测试。
+
+## Retry 只读前置与 plan
+
+operation `00001318`（stdout SHA256 `8dd3b3c41f45df6f4fccae96fdcb27624b73239490d68b01fc8b47d826dd22e1`）确认 dev4 HEAD/worktree clean、原 MODEL output 与五轮 output 不存在、source root 非 symlink、central `meta` target/owner 精确保持生产形状，且 occupier 继续以原 identity/完整 argv 运行，四卡约 3085 MiB、50–53% util。未提前停止 occupier。
+
+随后在相同 output root、显式 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1` 下执行一次真实 `plan`。operation `00001319`，exit 1，stdout SHA256 `496b5da8a2ec45146fb615fc8e597ac55f33a9c42413161c915a536decf521a6`：
+
+```text
+Parent trajectory has no real transport call: deepcoder_taco:deepcoder-taco-2865
+```
+
+plan 仍在 `root.mkdir()` 前失败；没有第二个 output root、没有 execute 或重试删除状态。
+
+## Source 事实与判定
+
+operation `00001320`（stdout SHA256 `7992ab350f75d2e3ea5fa48244bd6d50be1dd91eb6f1dbabaef23e91253ccbb6`）只读复核 `round_1/parent/train_trajectories.jsonl`：
+
+- 精确 16 rows、总 `model_call_count=51`；自然正例为 `deepcoder-taco-5475`、`deepcoder-taco-879`、`deepcoder-taco-2510` 三条。
+- 九条 negative rows 的 `model_call_count=0` 且 `transport_calls=[]`，包括首个触发拒绝的 `deepcoder-taco-2865`。
+- 九条均为 `verification.status=completed`、`success=false`、`full_verifier=false`、`infrastructure_error=false`、`execution_error_type=candidate_error`。
+- 公开 `deepcoder-canary-real-results.md` 独立记录同一事实：parent 51 calls、7 个有效 submission、9 个零调用过程失败，其中 6×EAGAIN/BlockingIOError、3×ENOENT/FileNotFoundError；协议保留其在 16 条分母中，没有事后改分。
+
+因此自然正例确实存在，但当前 `_validate_source()` 在逐行 provenance 检查中要求**所有 16 条 parent rows** 至少一次真实 transport call，而不仅是将进入 SFT 的 positive rows。该 source 不满足当前 importer 合同。不得换 source、删除九条负例、改历史 receipt，或为训练绕过这一门。继续需要 controller/Task 4 明确决定：提供符合现有合同的授权 source，或以 TDD/scoped review 定义并验证只约束实际训练正例的 provenance 合同；本次 Task 5 不自行放宽。
+
+## Retry 无副作用与 occupier
+
+同一 operation `00001320` 确认原 MODEL output root 仍不存在，因而没有 plan/started/final receipt； occupier PID=PGID `22389`、start_ticks `2825714174` 和完整 argv 不变，四卡约 3085 MiB、48–50% util。没有 GPU/服务/训练副作用，没有执行 occupier TERM/KILL，也无需恢复。五轮未启动。
+
+关键结果：`00001321-task5_model_retry_zero_call_blocker`。

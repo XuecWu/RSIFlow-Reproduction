@@ -40,3 +40,10 @@ operation `00001297`（stdout SHA256 `7f21decf5d50220723f32a57dc0e0bda9878ea275e
 - 本报告只证明离线和只读 preflight；没有证明真实 SFT、merge、reload、短生成或 recovery。
 - 没有启动五轮、独立 validation、694/744 或任何正式 rollout。
 - Task 4 的 M1/M2 仍为 deferred；新发现的真实 source `meta` symlink blocker 必须另行修复和复审。
+
+
+## 4. Retry 1 新 HEAD 事实（2026-11-18）
+
+当前 reviewed HEAD 为 `e849324c348ca357abd065fc5e8e80b4c9b44238`。Task 4 最后两轮 scoped re-review 已关闭 central `meta` link 及其 output-isolation 阻断；实现者报告该 HEAD 完整 `608 passed, 2 skipped`、scoped `168 passed`，Task 5 retry 未重跑这些测试。
+
+dev4 只读复核（主审计 operation `00001318`）确认 HEAD/clean diff、生产 central meta owner、MODEL/五轮 output absent 和 occupier 原状态。真实 plan 重试随后被 parent 零调用 negative rows 的 source 资格门阻断；详见 `deepcoder-model-smoke-report.md` 的 Retry 1。没有启动 execute 或五轮，上述初始离线/API 证据不被表述为新 HEAD 的真实 MODEL pass。

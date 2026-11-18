@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiment_progress import (ExperimentProgress, compact_status_block,
@@ -403,3 +405,123 @@ def test_five_round_progress_advances_after_accept_and_terminal_retain(tmp_path)
                          for number in range(1, 6)]
     assert selections == [f"/run/round_{number}/attempts/attempt_1/selection.json"
                           for number in range(1, 6)]
+
+
+def _five_round_progress_session(tmp_path):
+    session = tmp_path / "meta_session"
+    session.mkdir()
+    (session / "workflow_policy.json").write_text(json.dumps(FIVE_ROUND_POLICY))
+    return session
+
+
+def _complete_five_rounds_through_b4(session):
+    next_turn = _complete_five_round_a0(session)
+    for number in range(1, 5):
+        next_turn = _record_five_round(session, number, next_turn)
+    return next_turn
+
+
+@pytest.mark.parametrize("content", [
+    "{}",
+    "{",
+    json.dumps({"accept_or_retain": "unknown"}),
+    json.dumps([]),
+])
+def test_five_round_invalid_selection_cannot_open_finish_gate(tmp_path, content):
+    session = _five_round_progress_session(tmp_path)
+    next_turn = _complete_five_rounds_through_b4(session)
+    next_turn = _record_five_round(session, 5, next_turn, steps=6)
+    selection_turn = next_turn
+    _five_round_turn(
+        session, next_turn, "write_text", 5,
+        path="/run/round_5/attempts/attempt_1/selection.json", content=content)
+    next_turn += 1
+    _record_five_round(session, 5, next_turn, skip=7)
+
+    state = ExperimentProgress(session, rounds=5).rebuild()
+    assert state["current_stage"] == "B5"
+    assert state["next_milestone"] == "selection_recorded"
+    assert state["finish_allowed"] is False
+    events = list(map(json.loads, (session / "workflow_events.jsonl").read_text().splitlines()))
+    assert events[selection_turn]["outcome"] == "invalid"
+    assert "selection" in events[selection_turn]["diagnostic"]
+
+
+def test_five_round_retain_cannot_be_overwritten_by_attempt_2(tmp_path):
+    session = _five_round_progress_session(tmp_path)
+    next_turn = _complete_five_round_a0(session)
+    next_turn = _record_five_round(session, 1, next_turn)
+    next_turn = _record_five_round(session, 2, next_turn, "retain_parent", steps=7)
+    _five_round_turn(
+        session, next_turn, "write_text", 2,
+        path="/run/round_2/attempts/attempt_2/decision.json")
+    next_turn += 1
+    _five_round_turn(
+        session, next_turn, "write_text", 2,
+        path="/run/round_2/attempts/attempt_2/selection.json",
+        content=json.dumps({"accept_or_retain": "accept_candidate"}))
+
+    state = ExperimentProgress(session, rounds=5).rebuild()
+    stage = state["stages"][2]
+    assert state["current_stage"] == "B2"
+    assert state["next_milestone"] == "skills_appended"
+    assert stage["last_selection"] == "retain_parent"
+    assert stage["terminal_retain"] is True
+    assert state["finish_allowed"] is False
+
+
+def test_five_round_cannot_stitch_attempt_2_candidate_into_attempt_1(tmp_path):
+    session = _five_round_progress_session(tmp_path)
+    next_turn = _complete_five_rounds_through_b4(session)
+    next_turn = _record_five_round(session, 5, next_turn, steps=2)
+    _five_round_turn(
+        session, next_turn, "write_text", 5,
+        path="/run/round_5/attempts/attempt_1/decision.json")
+    next_turn += 1
+    _five_round_turn(
+        session, next_turn, "sft", 5,
+        output_dir="/run/round_5/attempts/attempt_2/candidate")
+    next_turn += 1
+    _record_five_round(session, 5, next_turn, skip=4)
+
+    state = ExperimentProgress(session, rounds=5).rebuild()
+    assert state["current_stage"] == "B5"
+    assert state["next_milestone"] == "candidate_built"
+    assert "candidate_built" not in state["stages"][5]["completed_milestones"]
+    assert state["finish_allowed"] is False
+
+
+def test_five_round_future_round_receipts_do_not_complete_locked_stage(tmp_path):
+    session = _five_round_progress_session(tmp_path)
+    next_turn = _complete_five_round_a0(session)
+    next_turn = _record_five_round(session, 2, next_turn)
+    next_turn = _record_five_round(session, 1, next_turn)
+    for number in range(3, 6):
+        next_turn = _record_five_round(session, number, next_turn)
+
+    state = ExperimentProgress(session, rounds=5).rebuild()
+    assert state["current_stage"] == "B2"
+    assert state["next_milestone"] == "parent_rollout"
+    assert state["stages"][2]["completed_milestones"] == []
+    assert state["finish_allowed"] is False
+    first_b2_event = json.loads((session / "workflow_events.jsonl").read_text().splitlines()[2])
+    assert first_b2_event["outcome"] == "ignored"
+    assert "locked" in first_b2_event["diagnostic"]
+
+
+def test_five_round_conflicting_duplicate_selection_does_not_replace_first(tmp_path):
+    session = _five_round_progress_session(tmp_path)
+    next_turn = _complete_five_round_a0(session)
+    next_turn = _record_five_round(session, 1, next_turn)
+    next_turn = _record_five_round(session, 2, next_turn, "retain_parent", steps=7)
+    _five_round_turn(
+        session, next_turn, "write_text", 2,
+        path="/run/round_2/attempts/attempt_1/selection.json",
+        content=json.dumps({"accept_or_retain": "accept_candidate"}))
+
+    state = ExperimentProgress(session, rounds=5).rebuild()
+    stage = state["stages"][2]
+    assert state["next_milestone"] == "skills_appended"
+    assert stage["last_selection"] == "retain_parent"
+    assert stage["terminal_retain"] is True
+    assert state["finish_allowed"] is False

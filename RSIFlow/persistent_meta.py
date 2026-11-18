@@ -556,6 +556,9 @@ def persistent_instructions(policy: dict | None = None) -> str:
 def mainline_reminder(policy: dict | None = None) -> str:
     if _five_round_canary(policy):
         text = MAINLINE_REMINDER.replace(
+            "Read statistics, 48 representative trajectories, retrieve relevant skills/contradictions, and previous-round context.",
+            "Read statistics, representative trajectories from the repeated 16-task batch, relevant skills/contradictions, and previous-round context.")
+        text = text.replace(
             "If rejected, keep the\n   parent and return to step 3 on this SAME round/batch; do not go to validation or the next round.",
             "If rejected, keep the\n   parent: retain completes the current round and advances after skills, context, and snapshot; "
             "do not activate, reselect, or create attempt_2.")

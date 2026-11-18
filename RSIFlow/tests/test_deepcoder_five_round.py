@@ -338,6 +338,8 @@ def _assert_five_round_instructions(text):
         "rejection retains the parent and returns",
         "return to step 3 on this same round/batch",
         "meta chooses again after rejection",
+        "48 representative",
+        "round-disjoint",
     ):
         assert forbidden not in lowered
 
@@ -530,3 +532,21 @@ def test_real_five_round_resume_and_retain_receipts_keep_instruction_semantics(
     operations = [command["request"]["operation"] for command in commands]
     assert operations.count("bootstrap") == 1
     assert operations.count("run_parent") == 2
+
+
+def test_five_round_b5_compact_requests_final_handoff_on_repeated_batch(tmp_path):
+    loop = _five_round_persistent_meta(tmp_path)
+    _complete_five_round_tools_a0(loop)
+    for number in range(1, 5):
+        _record_five_round_tools(loop, number)
+    _record_five_round_tools(loop, 5, steps=8)
+
+    compact = loop.progress.compact_status_block()
+    assert "Current stage: B5" in compact
+    assert "Next required milestone: context_updated" in compact
+    assert "final handoff" in compact
+    assert "handoff for the next round" not in compact
+    assert "repeated 16-task batch" in compact
+    assert "no independent validation" in compact
+    assert "round-disjoint" not in compact
+    assert "48 representative" not in compact

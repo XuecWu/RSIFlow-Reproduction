@@ -181,6 +181,65 @@ def _explicit_round(request: dict[str, Any], receipt: dict[str, Any] | None) -> 
     return None
 
 
+_ATTEMPT_RE = re.compile(r"(?:^|[/_-])attempt[_-]?([0-9]+)(?:$|[/_.-])", re.IGNORECASE)
+_SELECTION_CHOICES = {
+    "retain_parent", "reject", "rejected",
+    "accept", "accepted", "accept_candidate",
+}
+
+
+def _selection_choice(request: dict[str, Any]) -> str | None:
+    if "content" in request:
+        try:
+            selection = json.loads(request.get("content", ""))
+        except (TypeError, ValueError):
+            return None
+    elif request.get("path"):
+        selection = _read_object(Path(request["path"]))
+    else:
+        return None
+    if not isinstance(selection, dict):
+        return None
+    choice = selection.get("accept_or_retain")
+    return choice if choice in _SELECTION_CHOICES else None
+
+
+def _five_round_rejection(*, stage: dict[str, Any], current: dict[str, Any] | None,
+                          milestone: str, request: dict[str, Any],
+                          receipt: dict[str, Any]) -> tuple[str, str] | None:
+    if current is None or stage is not current:
+        if current is not None and stage["round"] > current["round"]:
+            return "ignored", f"round_locked: {current['id']} must complete before {stage['id']}"
+        current_id = current["id"] if current else "COMPLETE"
+        return "ignored", f"stage_closed: current stage is {current_id}, not {stage['id']}"
+
+    if stage["round"] > 0:
+        attempts = {
+            int(match.group(1))
+            for ref in _path_refs(request) + _path_refs(receipt)
+            for match in _ATTEMPT_RE.finditer(ref)
+        }
+        if milestone in {"decision_recorded", "selection_recorded"} and attempts != {1}:
+            return "ignored", f"invalid_attempt: {milestone} requires explicit attempt_1"
+        if attempts and attempts != {1}:
+            return "ignored", f"invalid_attempt: only attempt_1 evidence is accepted, got {sorted(attempts)}"
+
+    expected = stage["remaining_milestones"][0]
+    context_proof = (
+        milestone == "task_meta_snapshot" and request.get("context_path")
+        and (request["context_path"] in (receipt.get("sources") or {}).values()
+             or (request["context_path"] == (receipt.get("context_reference") or {}).get("source")
+                 and (receipt.get("context_reference") or {}).get("sha256")))
+    )
+    if milestone != expected and not (expected == "context_updated" and context_proof):
+        if milestone == "selection_recorded" and "selection_recorded" in stage["completed_milestones"]:
+            return "ignored", "duplicate_selection: the first valid selection is terminal for this attempt"
+        return "ignored", f"out_of_order: expected {expected}, got {milestone}"
+    if milestone == "selection_recorded" and _selection_choice(request) is None:
+        return "invalid", "invalid_selection: expected explicit accept_or_retain with a known choice"
+    return None
+
+
 def _milestone(operation: str | None, request: dict[str, Any]) -> str | None:
     if operation == "bootstrap":
         return "bootstrap"
@@ -376,6 +435,14 @@ class ExperimentProgress:
                 continue
             if milestone not in stage["required_milestones"]:
                 continue
+            if five_round:
+                current = next((item for item in stages if item["status"] != "complete"), None)
+                rejection = _five_round_rejection(
+                    stage=stage, current=current, milestone=milestone,
+                    request=request, receipt=receipt)
+                if rejection:
+                    event["outcome"], event["diagnostic"] = rejection
+                    continue
             if stage["round"] >= retry_from and milestone == "decision_recorded":
                 decision_path = str(request.get("path", ""))
                 previous_path = stage.get("decision_path")
@@ -459,8 +526,15 @@ class ExperimentProgress:
             "current_stage_purpose": current["purpose"] if current else "All required stages are complete.",
             "next_milestone": current["remaining_milestones"][0] if current else None,
             "next_milestone_purpose": (
-                "Preserve the concise evidence-linked final handoff."
-                if no_validation and not five_round and current
+                "Collect the active parent's outcomes on the repeated 16-task batch."
+                if five_round and current
+                and current["remaining_milestones"][0] == "parent_rollout"
+                else "Preserve the concise evidence-linked final handoff."
+                if current and current["remaining_milestones"][0] == "context_updated"
+                and ((five_round and current["round"] == self.rounds)
+                     or (no_validation and not five_round))
+                else "Preserve the concise evidence-linked handoff for the next round on the repeated batch."
+                if five_round and current
                 and current["remaining_milestones"][0] == "context_updated"
                 else MILESTONE_PURPOSES[current["remaining_milestones"][0]] if current else None
             ),

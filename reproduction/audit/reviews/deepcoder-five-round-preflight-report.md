@@ -47,3 +47,10 @@ operation `00001297`（stdout SHA256 `7f21decf5d50220723f32a57dc0e0bda9878ea275e
 当前 reviewed HEAD 为 `e849324c348ca357abd065fc5e8e80b4c9b44238`。Task 4 最后两轮 scoped re-review 已关闭 central `meta` link 及其 output-isolation 阻断；实现者报告该 HEAD 完整 `608 passed, 2 skipped`、scoped `168 passed`，Task 5 retry 未重跑这些测试。
 
 dev4 只读复核（主审计 operation `00001318`）确认 HEAD/clean diff、生产 central meta owner、MODEL/五轮 output absent 和 occupier 原状态。真实 plan 重试随后被 parent 零调用 negative rows 的 source 资格门阻断；详见 `deepcoder-model-smoke-report.md` 的 Retry 1。没有启动 execute 或五轮，上述初始离线/API 证据不被表述为新 HEAD 的真实 MODEL pass。
+
+
+## 5. Retry 3 新 HEAD 事实（2026-11-18）
+
+当前 reviewed HEAD 为 `8026c8b7798b75b9603429d9442db11623a7fe0e`。Task 4 round 4 scoped re-review 已关闭 zero-call negative blocker，新增 Critical/Important 为 0；实现者报告完整 `617 passed, 2 skipped`、scoped `177 passed`，本次未重跑。
+
+dev4 只读前置通过（audit `00001325`），occupier 运行期间的真实 plan 越过前两项修复门，但被全 16 rows 的历史 `state_hash` 与 canonical A0 snapshot 不一致阻断（`00001327`/`00001328`）。没有 output receipt、execute、GPU 或五轮；详见 model smoke 报告 Retry 3。

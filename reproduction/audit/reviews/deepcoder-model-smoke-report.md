@@ -104,3 +104,42 @@ operation `00001320`（stdout SHA256 `7992ab350f75d2e3ea5fa48244bd6d50be1dd91eb6
 同一 operation `00001320` 确认原 MODEL output root 仍不存在，因而没有 plan/started/final receipt； occupier PID=PGID `22389`、start_ticks `2825714174` 和完整 argv 不变，四卡约 3085 MiB、48–50% util。没有 GPU/服务/训练副作用，没有执行 occupier TERM/KILL，也无需恢复。五轮未启动。
 
 关键结果：`00001321-task5_model_retry_zero_call_blocker`。
+
+
+---
+
+# Retry 3：reviewed `8026c8b` 的 A0 Task identity 阻断
+
+- 日期：2026-11-18（UTC）
+- reviewed/execution HEAD：`8026c8b7798b75b9603429d9442db11623a7fe0e`
+- 结论：**BLOCKED at plan；execute/SFT/recovery 未运行。此前 central-meta 和 zero-call-negative 两个 plan 门均已越过。**
+
+Task 4 最新 round 4 scoped re-review 已读：零调用豁免仅限完整绑定的 negative，positive transport/full-verifier、16-row 分母、receipt/manifest/A0 binding 和生产 positive selector 均保留，新增 Critical/Important 为 0。实现者报告完整 `617 passed, 2 skipped`、scoped `177 passed`；本次未重跑。
+
+## 前置、操作员错误与真实 plan
+
+operation `00001325`（stdout SHA256 `68c266f17a513d32d4cbacd3e095d7adddb7c2ed9fe4bce15676cf2b9fea93c9`）确认 dev4 HEAD/clean diff、MODEL/五轮 output absent、生产 source central-meta owner、occupier 原 identity/argv 与四卡负载。
+
+第一次 plan 命令在本机误写重复 `-i`，SSH exit 255，未建立远端执行（operation `00001326`，stderr SHA256 `64672654f94fc26fca22bce5141f28b4d1db4cb57768c2403f864006b6862a5a`）；没有创建 output 或影响 occupier。修正后仅执行一次真实远端 plan，显式 bwrap backend，同一 output root。operation `00001327` exit 1，stdout SHA256 `259401b68a474db01b3f1f8163e7413a7d251a19958c19078b378a139de84071`：
+
+```text
+Parent trajectory is not bound to the A0 Task: deepcoder_taco:deepcoder-taco-2865
+```
+
+失败仍位于 `root.mkdir()` 前，无 plan receipt/started/final 状态，未执行 execute。
+
+## 已确认 mismatch 与未确认根因
+
+operation `00001328`（stdout SHA256 `4aa354b03f940c3d89361766e6c1a15a2fa28e045b0bb1dfa402a4a5de1c7925`）逐行比较生产 `task_hash()`、model ref、Harness bytes 和 artifacts：
+
+- **16/16 rows** 的 `state_hash` 都为 `a2eaba763baf1827e86520a6180f6c476a64534bca2e075870372dfde8ef93e6`；canonical `snapshots/A0/task/task_state_snapshot.json` 当前重算为 `3a395baf3e79e15ce7b2a9ff65906bc791a36e1ff4ab07fbe6dc5be283f72e40`。
+- 唯一逐行 mismatch 是 `state_hash`；`model_ref`、`harness_sha256=e41b5c…`、`artifact_input_manifest=[]` 均与 A0 一致。
+- 因而这不是单个 zero-call negative 的豁免漏洞，三条 positive 也同样不匹配。
+
+后续只读诊断确认：`artifacts.directory=null`，当前与存储 manifest 都是 `[]`，不是 artifacts 漂移（`00001329`，SHA256 `7ce287babce9ddea9d61e19c0794aa3998673da45b472f5c8f2a52bfcb48f1bd`）。把 Harness path 单独替换为原 seed path 会得到第三个 hash `daa77c…`，并不解释 row hash（`00001330`）。使用 source 所属 preflight runtime 重算 canonical snapshot 仍为 `3a395…`（`00001331`），所以也不是 five-round 与 preflight 当前 `task_hash` 实现差异。历史 rollout state 与 snapshot 的精确序列化/path 差异仍待 Task 4 回源，不在本报告中猜定。
+
+不得把 row hash 改成 snapshot hash、选择其他 A0 或跳过 identity 校验。继续需要 production-shape TDD 和 scoped re-review，明确并恢复可证明的 A0/parent Task identity。
+
+## 无副作用与 occupier
+
+operation `00001328` 同时确认原 MODEL output root 仍不存在；occupier PID=PGID `22389`、start_ticks `2825714174` 和完整 argv 不变，四卡约 3085 MiB、49–51% util。未发 occupier 信号，无 services/training/GPU 副作用，无需恢复；五轮未启动。关键结果：`00001332-task5_model_retry3_a0_state_hash_blocker`。

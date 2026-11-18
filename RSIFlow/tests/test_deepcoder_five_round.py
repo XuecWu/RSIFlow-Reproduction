@@ -11,6 +11,11 @@ from test_deepcoder_canary import (
     ROOT, _canary_launcher_value, canary_config, release_world,
 )
 from evolution_protocol import file_hash, freeze, make_manifest
+from experiment_progress import validate_workflow_policy
+from launch_meta import experiment_prompt
+from persistent_meta import (
+    PersistentMeta, mainline_reminder, persistent_instructions,
+)
 from rsiflow.task_meta.pipeline import PipelineConfig, active_domains
 from rsiflow.task_meta.round_evolution import RoundStore
 from task_adapter import TaskAdapter
@@ -293,3 +298,235 @@ def test_five_round_machine_config_preserves_single_round_assets(tmp_path):
     for path in (output, run, frozen):
         assert path.is_relative_to(project.resolve())
         assert not path.is_relative_to((project.parent / "preflight").resolve())
+
+
+def _five_round_workflow_policy():
+    return {
+        "rounds": 5,
+        "experiment_scope": "deepcoder_five_round_canary",
+        "evaluation_schedule": "none",
+        "retry_rejected_from_round": 6,
+    }
+
+
+def _write_five_round_policy(run):
+    session = run / "meta_session"
+    session.mkdir(parents=True, exist_ok=True)
+    (session / "workflow_policy.json").write_text(
+        json.dumps(_five_round_workflow_policy()), encoding="utf-8")
+    return session
+
+
+def _assert_five_round_instructions(text):
+    lowered = text.lower()
+    for required in (
+        "one attempt per round",
+        "retain completes the current round and advances",
+        "b1-b5",
+        "no independent validation",
+    ):
+        assert required in lowered
+    for forbidden in (
+        "sole attempt",
+        "no next round",
+        "fresh round-disjoint",
+        "fresh, round-disjoint",
+        "fresh next-round",
+        "next round's fresh",
+        "no fixed retry",
+        "rejection returns to component selection",
+        "rejection retains the parent and returns",
+        "return to step 3 on this same round/batch",
+        "meta chooses again after rejection",
+    ):
+        assert forbidden not in lowered
+
+
+def test_five_round_initial_prompt_and_persistent_instruction_layers_agree(tmp_path):
+    config = _five_round_launcher_value(tmp_path)
+    run = tmp_path / "run"
+    _write_five_round_policy(run)
+
+    prompt = experiment_prompt(tmp_path / "launcher.json", config, run)
+    texts = {
+        "initial prompt": prompt,
+        "persistent instructions": persistent_instructions(_five_round_workflow_policy()),
+        "mainline reminder": mainline_reminder(_five_round_workflow_policy()),
+    }
+    for text in texts.values():
+        _assert_five_round_instructions(text)
+    assert "repeated 16-task batch" in prompt
+    assert "finish_experiment only after B5" in prompt
+    payload = prompt.split("Experiment facts and required sequence:\n", 1)[1]
+    protocol = json.loads(payload.split("\nMainline stages:\n", 1)[0])
+    assert protocol["workflow_policy"] == _five_round_workflow_policy()
+    assert protocol["training_schedule"] == "round_repeated"
+
+
+@pytest.mark.parametrize("override", [
+    {"rounds": 1},
+    {"rounds": 4},
+    {"retry_rejected_from_round": 2},
+    {"retry_rejected_from_round": 7},
+    {"experiment_scope": "deepcoder_canary"},
+    {"experiment_scope": "multidomain"},
+])
+def test_five_round_none_policy_rejects_wrong_scope_or_shape(override):
+    policy = {**_five_round_workflow_policy(), **override}
+    with pytest.raises(ValueError, match="evaluation_schedule=none"):
+        validate_workflow_policy(policy)
+
+
+class _FiveRoundOfflineExecutor:
+    def execute(self, request):
+        operation = request["operation"]
+        receipt = {"operation": operation, "status": {
+            "compare_scores": "compared",
+            "snapshot_task_meta": "snapshotted",
+            "write_text": "written",
+        }.get(operation, "completed")}
+        if operation == "sft":
+            receipt["candidate_state_path"] = "candidate.json"
+        if operation == "append_skills":
+            receipt["appended_count"] = 1
+        return receipt
+
+
+def _five_round_persistent_meta(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    run = tmp_path / "run"
+    _write_five_round_policy(run)
+    loop = PersistentMeta(
+        project=project, run=run, codex_home=run / "meta_session/codex_home",
+        executor=_FiveRoundOfflineExecutor(),
+        meta_config={"model": "offline-model", "provider": "offline-provider"}, rounds=5,
+    )
+
+    def complete_job(request, turn_dir):
+        return {"status": "completed", "result": loop.tools.executor.execute(request)}
+
+    loop.tools.jobs.start = complete_job
+    return loop
+
+
+def _call_five_round_tool(loop, operation, round_number, **extra):
+    return loop.tools("experiment", {"request": {
+        "operation": operation, "round_number": round_number, **extra,
+    }})
+
+
+def _complete_five_round_tools_a0(loop):
+    _call_five_round_tool(loop, "bootstrap", 0)
+    _call_five_round_tool(loop, "snapshot_task_meta", 0)
+
+
+def _record_five_round_tools(loop, number, choice="accept_candidate", *, skip=0, steps=10):
+    operations = [
+        ("run_parent", {}),
+        ("prepare_meta_evidence", {}),
+        ("write_text", {
+            "path": str(loop.run / f"round_{number}/attempts/attempt_1/decision.json"),
+        }),
+        ("sft", {}),
+        ("run_candidate", {}),
+        ("compare_scores", {}),
+        ("write_text", {
+            "path": str(loop.run / f"round_{number}/attempts/attempt_1/selection.json"),
+            "content": json.dumps({"accept_or_retain": choice}),
+        }),
+        ("append_skills", {"path": str(loop.run / "meta/skills.jsonl")}),
+        ("write_text", {"path": str(loop.run / "meta/context.json")}),
+        ("snapshot_task_meta", {}),
+    ]
+    responses = []
+    for operation, extra in operations[skip:skip + steps]:
+        responses.append(_call_five_round_tool(loop, operation, number, **extra))
+    return responses
+
+
+def test_five_round_finish_tool_rejects_b4_and_incomplete_b5_then_accepts_b5(tmp_path):
+    loop = _five_round_persistent_meta(tmp_path)
+    _complete_five_round_tools_a0(loop)
+    for number in range(1, 5):
+        _record_five_round_tools(loop, number)
+
+    premature = loop.tools("finish_experiment", {"summary": "before B5"})
+    assert '"status":"incomplete"' in premature
+    assert loop.tools.finished is False
+    assert loop.tools.summary is None
+
+    _record_five_round_tools(loop, 5, steps=6)
+    missing_selection = loop.tools("finish_experiment", {"summary": "no B5 selection"})
+    assert '"status":"incomplete"' in missing_selection
+    assert loop.progress.rebuild()["next_milestone"] == "selection_recorded"
+    assert loop.tools.finished is False
+
+    _record_five_round_tools(loop, 5, skip=6)
+    complete = loop.tools("finish_experiment", {"summary": "five rounds complete"})
+    assert '"status":"complete"' in complete
+    assert loop.tools.finished is True
+    assert loop.tools.summary == "five rounds complete"
+
+
+def test_real_five_round_resume_and_retain_receipts_keep_instruction_semantics(
+        tmp_path, monkeypatch):
+    import persistent_meta
+
+    loop = _five_round_persistent_meta(tmp_path)
+    _complete_five_round_tools_a0(loop)
+    _record_five_round_tools(loop, 1)
+    retain_responses = _record_five_round_tools(loop, 2, "retain_parent")
+    assert loop.progress.rebuild()["current_stage"] == "B3"
+    _assert_five_round_instructions(retain_responses[6])
+    _assert_five_round_instructions(retain_responses[-1])
+    turn_count = len(list((loop.run / "meta_session/turns").iterdir()))
+    (loop.run / "meta_session/state.json").write_text(json.dumps({
+        "transport": "app_server", "status": "disconnected",
+        "thread_id": "thread-five-round", "sandbox_backend": "legacy_host",
+        "capability_revision": "native_coding_v1",
+    }), encoding="utf-8")
+    config = _five_round_launcher_value(tmp_path)
+    initial = experiment_prompt(tmp_path / "launcher.json", config, loop.run)
+    captured = {"requests": [], "turns": []}
+
+    class Server:
+        def __init__(self, **kwargs):
+            self.process = type("Process", (), {"pid": 12345})()
+
+        def start(self):
+            return self
+
+        def request(self, method, params):
+            captured["requests"].append((method, params))
+            return {"thread": {"id": params["threadId"]}}
+
+        def turn(self, thread_id, prompt, environments):
+            captured["turns"].append(prompt)
+            if len(captured["turns"]) == 2:
+                loop.tools.finished = True
+                loop.tools.summary = "offline complete"
+            return {"id": f"turn-{len(captured['turns'])}",
+                    "status": "failed" if len(captured["turns"]) == 1 else "completed"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(persistent_meta, "CodexAppServer", Server)
+    monkeypatch.setattr(persistent_meta.time, "sleep", lambda seconds: None)
+    result = loop.run_experiment(initial)
+
+    assert result["status"] == "complete"
+    assert captured["requests"][0][0] == "thread/resume"
+    assert captured["requests"][0][1]["threadId"] == "thread-five-round"
+    developer = captured["requests"][0][1]["developerInstructions"]
+    assert len(captured["turns"]) == 2
+    for text in (developer, *captured["turns"]):
+        _assert_five_round_instructions(text)
+    assert all("Current stage: B3" in text for text in captured["turns"])
+    assert len(list((loop.run / "meta_session/turns").iterdir())) == turn_count
+    commands = [json.loads(path.read_text())
+                for path in (loop.run / "meta_session/turns").glob("*/command.json")]
+    operations = [command["request"]["operation"] for command in commands]
+    assert operations.count("bootstrap") == 1
+    assert operations.count("run_parent") == 2

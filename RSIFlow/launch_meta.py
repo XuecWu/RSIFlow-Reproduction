@@ -497,6 +497,68 @@ def experiment_prompt(config_path: Path, config: dict[str, Any], run_dir: Path) 
         prompt = prompt.replace("Only after acceptance request prepare_validation_snapshot with",
                                 "Only after FINAL-round acceptance and snapshot request prepare_validation_snapshot with")
     if (config.get("evaluation_schedule") == "none"
+            and config.get("experiment_scope") == "deepcoder_five_round_canary"):
+        prompt = prompt.replace(
+            "A0: freeze the initial Task/Meta state and complete independent baseline validation.",
+            "A0: freeze the initial Task/Meta state; do not run baseline validation.")
+        prompt = prompt.replace(
+            "record accept-or-retain and append experience. Rejection returns to component selection "
+            "on the same batch; acceptance leads to skills/context/snapshots, then report-only "
+            "independent validation.",
+            "use the repeated 16-task batch with one attempt per round. Acceptance activates the candidate; "
+            "retain completes the current round and advances after comparison, selection, skills, context, "
+            "and snapshot without activation or reselection. There is no independent validation.")
+        prompt = prompt.replace(
+            "Begin with A0 independent evaluation if configured (A0 round=0).",
+            "Begin with the A0 snapshot only; do not run A0 evaluation.")
+        prompt = prompt.replace(
+            "configured fresh, round-disjoint training tasks",
+            "configured repeated 16-task batch")
+        prompt = prompt.replace(
+            "all outcome statistics plus 48 representative trajectory excerpts: "
+            "16 per domain, 8 successes and 8 failures where available, with "
+            "failure error-type round-robin and stable-hash success ordering.",
+            "all outcome statistics plus representative trajectory excerpts from the repeated 16-task batch, "
+            "balanced across successes and failures where available.")
+        prompt = prompt.replace(
+            "using next_offset_chars as the next offset_chars until all 48 selected "
+            "excerpts are inspected.",
+            "using next_offset_chars as the next offset_chars until all selected excerpts are inspected.")
+        prompt = prompt.replace(
+            "Use a new run_dir/round_N/attempts/attempt_K/ directory per attempt.",
+            "Use run_dir/round_N/attempts/attempt_1/; there is one attempt per round.")
+        prompt = prompt.replace(
+            "After rejection keep the parent, read the failure evidence and choose again; reuse the unchanged parent "
+            "rollout and the same round_number, without running independent validation.",
+            "For retain_parent keep the current parent, append the attempt experience, update context and snapshot. "
+            "Retain completes the current round and advances; do not choose again or create attempt_2.")
+        prompt = prompt.replace(
+            "After acceptance run the configured independent validation for reporting only, then continue with the next round's fresh tasks.",
+            "After acceptance save the selected complete Task and continue to the next round on the repeated batch; after B5 finish without evaluation.")
+        prompt = prompt.replace(
+            "Then prepare_validation_snapshot with task_state_path from its restorable_task_state_path, source_round_path=its receipt_path FILE, destination under snapshots_root and round=0, then evaluate.",
+            "After the A0 snapshot start round 1; do not prepare or run A0 validation.")
+        prompt = prompt.replace(
+            "Only after acceptance request prepare_validation_snapshot with "
+            "task_state_path=restorable_task_state_path from snapshot_task_meta, "
+            "source_round_path=the accepted attempt's selection.json FILE (not a directory), "
+            "destination, round and optional "
+            "meta_state_path; use its snapshot_path in evaluate. The evaluator "
+            "takes config_path and snapshot_path, with optional validation config "
+            "and manifest overrides; prepare_evaluation can inspect the budget.",
+            "Never request prepare_validation_snapshot or evaluate for A0 or B1-B5.")
+        prompt = prompt.replace(
+            "structured handoff for the next round, preserving evidence paths.",
+            "structured handoff for the next round, or final handoff after B5, preserving evidence paths.")
+        prompt = prompt.replace(
+            "workflow_policy.retry_rejected_from_round marks when retry-on-rejection begins; ",
+            "workflow_policy.retry_rejected_from_round=6 keeps B1-B5 outside retry-on-rejection; "
+            "retain terminates only the current round and never requests attempt_2; ")
+        prompt = prompt.replace(
+            "Call finish_experiment only after all configured rounds and available independent validations are complete.",
+            "Call finish_experiment only after B5 has recorded comparison, selection, skills, context and snapshot; "
+            "B1-B4 and incomplete B5 are rejected by the finish gate.")
+    elif (config.get("evaluation_schedule") == "none"
             and config.get("experiment_scope") == CANARY_SCOPE):
         prompt = prompt.replace(
             "A0: freeze the initial Task/Meta state and complete independent baseline validation.",

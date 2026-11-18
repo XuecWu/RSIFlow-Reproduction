@@ -16,9 +16,12 @@ from typing import Any
 
 
 CANARY_SCOPE = "deepcoder_canary"
+FIVE_ROUND_CANARY_SCOPE = "deepcoder_five_round_canary"
 NONE_SCHEDULE_ERROR = (
-    "evaluation_schedule=none requires experiment_scope=deepcoder_canary, "
-    "rounds=1, and retry_rejected_from_round>1"
+    "evaluation_schedule=none requires either experiment_scope=deepcoder_canary, "
+    "rounds=1, and retry_rejected_from_round>1; or "
+    "experiment_scope=deepcoder_five_round_canary, rounds=5, and "
+    "retry_rejected_from_round=6"
 )
 
 
@@ -30,7 +33,10 @@ def validate_workflow_policy(policy: dict[str, Any]) -> None:
         retry_from = int(policy.get("retry_rejected_from_round", 1))
     except (TypeError, ValueError):
         raise ValueError(NONE_SCHEDULE_ERROR) from None
-    if policy.get("experiment_scope") != CANARY_SCOPE or rounds != 1 or retry_from <= 1:
+    scope = policy.get("experiment_scope")
+    single_round = scope == CANARY_SCOPE and rounds == 1 and retry_from > 1
+    five_round = scope == FIVE_ROUND_CANARY_SCOPE and rounds == 5 and retry_from == 6
+    if not (single_round or five_round):
         raise ValueError(NONE_SCHEDULE_ERROR)
 
 
@@ -288,8 +294,12 @@ class ExperimentProgress:
         stages = _stage_template(self.rounds)
         evaluation_schedule = policy.get('evaluation_schedule')
         final_only = evaluation_schedule == 'final_only'
+        five_round = (evaluation_schedule == 'none'
+                      and policy.get('experiment_scope') == FIVE_ROUND_CANARY_SCOPE)
         no_validation = (evaluation_schedule == 'none'
-                         and policy.get('experiment_scope') == CANARY_SCOPE)
+                         and policy.get('experiment_scope') in {
+                             CANARY_SCOPE, FIVE_ROUND_CANARY_SCOPE,
+                         })
         if final_only:
             for stage in stages:
                 if stage['round'] != self.rounds:
@@ -304,9 +314,18 @@ class ExperimentProgress:
             for stage in stages:
                 stage['required_milestones'] = [m for m in stage['required_milestones']
                     if m not in {'validation_snapshot', 'independent_validation'}]
-                stage['purpose'] = ('Save initial Task/Meta state; no A0 evaluation.' if stage['round'] == 0
-                    else f"Evolution round {stage['round']}: run one attempt; retain_parent is terminal as "
-                    "completed_retained after comparison, skills, context, and snapshot, without activation or reselection.")
+                if stage['round'] == 0:
+                    stage['purpose'] = 'Save initial Task/Meta state; no A0 evaluation.'
+                elif five_round:
+                    stage['attempt'] = 1
+                    stage['purpose'] = (
+                        f"Evolution round {stage['round']}: one attempt per round on the repeated 16-task batch; "
+                        "retain completes the current round and advances after comparison, selection, skills, "
+                        "context, and snapshot, without activation, reselection, or independent validation.")
+                else:
+                    stage['purpose'] = (
+                        f"Evolution round {stage['round']}: run one attempt; retain_parent is terminal as "
+                        "completed_retained after comparison, skills, context, and snapshot, without activation or reselection.")
                 _refresh_stage(stage)
         retry_from = int(policy.get("retry_rejected_from_round", 1))
         by_round = {stage["round"]: stage for stage in stages}
@@ -370,7 +389,8 @@ class ExperimentProgress:
                 stage.setdefault("attempt", 1)
                 stage["decision_path"] = decision_path
                 stage["retry_pending"] = False
-            if stage["round"] >= retry_from and milestone == "selection_recorded":
+            if (milestone == "selection_recorded"
+                    and (stage["round"] >= retry_from or five_round)):
                 selection = None
                 try:
                     selection = json.loads(request.get("content", ""))
@@ -380,14 +400,20 @@ class ExperimentProgress:
                 if isinstance(selection, dict):
                     choice = selection.get("accept_or_retain")
                     if choice in {"retain_parent", "reject", "rejected"}:
-                        stage["retry_pending"] = True
                         stage["last_selection"] = choice
-                        # These belong to the previous accepted round, not this rejected attempt.
-                        late = {"task_meta_snapshot", "validation_snapshot", "independent_validation"}
-                        stage["completed_milestones"] = [m for m in stage["completed_milestones"] if m not in late]
+                        if five_round:
+                            stage["terminal_retain"] = True
+                            stage["retry_pending"] = False
+                        else:
+                            stage["retry_pending"] = True
+                            # These belong to the previous accepted round, not this rejected attempt.
+                            late = {"task_meta_snapshot", "validation_snapshot", "independent_validation"}
+                            stage["completed_milestones"] = [m for m in stage["completed_milestones"] if m not in late]
                     elif choice in {"accept", "accepted", "accept_candidate"}:
                         stage["retry_pending"] = False
                         stage["last_selection"] = choice
+                        if five_round:
+                            stage["terminal_retain"] = False
             if milestone not in stage["completed_milestones"]:
                 stage["completed_milestones"].append(milestone)
             if (milestone == "task_meta_snapshot" and stage["round"] > 0
@@ -420,6 +446,10 @@ class ExperimentProgress:
             "rounds": self.rounds,
             "retry_rejected_from_round": retry_from,
             "mainline_goal": (
+                "Complete A0 and B1-B5 with one attempt per round on the repeated 16-task batch; "
+                "retain completes the current round and advances after comparison, selection, skills, "
+                "context, and snapshot. There is no independent validation; call finish_experiment only after B5."
+                if five_round else
                 "Complete the single-domain engineering canary with one attempt; a rejected attempt finishes as "
                 "completed_retained after comparison, skills, context, and snapshot, without independent validation."
                 if no_validation else
@@ -430,7 +460,8 @@ class ExperimentProgress:
             "next_milestone": current["remaining_milestones"][0] if current else None,
             "next_milestone_purpose": (
                 "Preserve the concise evidence-linked final handoff."
-                if no_validation and current and current["remaining_milestones"][0] == "context_updated"
+                if no_validation and not five_round and current
+                and current["remaining_milestones"][0] == "context_updated"
                 else MILESTONE_PURPOSES[current["remaining_milestones"][0]] if current else None
             ),
             "next_stage": self._next_stage_id(stages, current),
@@ -462,12 +493,15 @@ class ExperimentProgress:
             for evidence in current["evidence"]:
                 acquired.extend(evidence["paths"])
         acquired_text = ", ".join(list(dict.fromkeys(acquired))[-4:]) or "none yet"
+        retain_terminal = bool(current and current.get("terminal_retain"))
         return (
             "<MAINLINE_PROGRESS>\n"
             f"Goal: {state['mainline_goal']}\n"
             f"Current stage: {state['current_stage']} — {state['current_stage_purpose']}\n"
             f"Attempt: {current.get('attempt', 1) if current else 'none'}; rejected attempt awaiting reselection: {bool(current and current.get('retry_pending'))}\n"
-            f"Completed here: {completed}\n"
+            + ("Retain is terminal for this round: finish skills/context/snapshot, then advance; "
+               "do not reselect or create attempt_2.\n" if retain_terminal else "")
+            + f"Completed here: {completed}\n"
             f"Acquired evidence: {acquired_text}\n"
             f"Next required milestone: {state['next_milestone'] or 'none'}"
             + (f" — {state['next_milestone_purpose']}" if state["next_milestone_purpose"] else "")

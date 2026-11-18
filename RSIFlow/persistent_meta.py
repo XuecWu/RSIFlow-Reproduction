@@ -490,6 +490,14 @@ def _read_workflow_policy(meta_session: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _five_round_canary(policy):
+    policy = policy or {}
+    return (policy.get("evaluation_schedule") == "none"
+            and policy.get("experiment_scope") == "deepcoder_five_round_canary"
+            and policy.get("rounds") == 5
+            and policy.get("retry_rejected_from_round") == 6)
+
+
 def _single_attempt_canary(policy: dict | None) -> bool:
     policy = policy or {}
     return (policy.get('evaluation_schedule') == 'none'
@@ -499,6 +507,28 @@ def _single_attempt_canary(policy: dict | None) -> bool:
 
 
 def persistent_instructions(policy: dict | None = None) -> str:
+    if _five_round_canary(policy):
+        text = PERSISTENT_META_INSTRUCTIONS.replace(
+            "Generate one candidate PER ATTEMPT. Rejection retains the parent and returns to component selection\n"
+            "on the same round and task batch, after saving failure experience. Do not independently validate or\n"
+            "advance a round after rejection. Use a fresh round_N/attempts/attempt_K directory for each attempt;\n"
+            "reuse unchanged parent results and preserve every earlier attempt. Pass output_dir explicitly for\n"
+            "each candidate build/SFT/rollout so retries do not overwrite prior attempts. There is no fixed retry limit.",
+            "Generate one candidate in attempt_1 for each of B1-B5: one attempt per round on the repeated\n"
+            "16-task batch. retain_parent means retain completes the current round and advances after comparison,\n"
+            "selection, skills, context and snapshot; do not activate, reselect or create attempt_2. Acceptance\n"
+            "activates the candidate and likewise advances after those current-round products. "
+            "There is no independent validation.\n"
+            "Preserve the parent results and pass output_dir explicitly for every build/SFT/rollout.")
+        text = text.replace(
+            "The next attempt/round reads relevant entries from the accumulated ledger and the structured context.",
+            "The next round reads relevant entries from the accumulated ledger and the structured context.")
+        text = text.replace(
+            "compose_task can combine model_001 with harness_002 for later report-only evaluation; it never deploys.",
+            "compose_task never deploys and is not needed by this no-validation canary.")
+        return text.replace(
+            "Finish only through finish_experiment after all required rounds, snapshots and validations.",
+            "Finish through finish_experiment only after B5 has recorded comparison, selection, skills, context and snapshot.")
     if not _single_attempt_canary(policy):
         return PERSISTENT_META_INSTRUCTIONS
     text = PERSISTENT_META_INSTRUCTIONS.replace(
@@ -524,6 +554,28 @@ def persistent_instructions(policy: dict | None = None) -> str:
 
 
 def mainline_reminder(policy: dict | None = None) -> str:
+    if _five_round_canary(policy):
+        text = MAINLINE_REMINDER.replace(
+            "If rejected, keep the\n   parent and return to step 3 on this SAME round/batch; do not go to validation or the next round.",
+            "If rejected, keep the\n   parent: retain completes the current round and advances after skills, context, and snapshot; "
+            "do not activate, reselect, or create attempt_2.")
+        text = text.replace(
+            "9. Run independent validation only when due under the configured evaluation schedule; for final_only, only after the final round.",
+            "9. There is no independent validation for A0 or B1-B5.")
+        text = text.replace(
+            "10. Continue to the next round, carrying evidence and artifacts through the configured final stage.",
+            "10. Complete B1-B5 with one attempt per round; use finish_experiment only after B5 is complete.")
+        text = text.replace(
+            "MODEL uses successful-parent SFT. Reuse unchanged parent results across rejected attempts.",
+            "MODEL uses successful-parent SFT. Every round reuses the same repeated 16-task batch.")
+        text = text.replace(
+            "Keep decision, reports, candidate, scores and selection under round_N/attempts/attempt_K/;\n"
+            "never overwrite earlier attempts. No fixed retry count is imposed; Meta chooses again after rejection.",
+            "Keep decision, reports, candidate, scores and selection under round_N/attempts/attempt_1/;\n"
+            "there is one attempt per round, and retain never triggers reselection or attempt_2.")
+        return text.replace(
+            "After acceptance, activate and snapshot, independently validate only when due under the configured schedule, then advance to fresh next-round tasks.",
+            "After acceptance, activate and snapshot, then advance to the next round on the repeated batch; finish after B5.")
     if not _single_attempt_canary(policy):
         return MAINLINE_REMINDER
     text = MAINLINE_REMINDER.replace(

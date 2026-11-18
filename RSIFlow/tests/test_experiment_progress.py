@@ -292,3 +292,114 @@ def test_validation_failed_candidate_is_not_successful(tmp_path):
         for line in (session / "workflow_events.jsonl").read_text().splitlines()
     ]
     assert events[0]["outcome"] == "failed"
+
+
+FIVE_ROUND_POLICY = {
+    "rounds": 5,
+    "experiment_scope": "deepcoder_five_round_canary",
+    "evaluation_schedule": "none",
+    "retry_rejected_from_round": 6,
+}
+
+
+def _five_round_turn(session, number, operation, round_number, **request):
+    turn = session / "turns" / f"{number:04d}"
+    turn.mkdir(parents=True)
+    request = {"operation": operation, "round_number": round_number, **request}
+    receipt = {"operation": operation, "status": {
+        "compare_scores": "compared",
+        "snapshot_task_meta": "snapshotted",
+    }.get(operation, "completed")}
+    if operation == "sft":
+        receipt["candidate_state_path"] = f"/run/round_{round_number}/candidate.json"
+    if operation == "append_skills":
+        receipt["appended_count"] = 1
+    (turn / "command.json").write_text(json.dumps({"action": "tool", "request": request}))
+    (turn / "receipt.json").write_text(json.dumps(receipt))
+
+
+def _complete_five_round_a0(session, start=0):
+    for offset, operation in enumerate(("bootstrap", "snapshot_task_meta")):
+        _five_round_turn(session, start + offset, operation, 0)
+    return start + 2
+
+
+def _record_five_round(session, number, start, choice="accept_candidate", *, skip=0, steps=10):
+    operations = [
+        ("run_parent", {}),
+        ("prepare_meta_evidence", {}),
+        ("write_text", {"path": f"/run/round_{number}/attempts/attempt_1/decision.json"}),
+        ("sft", {}),
+        ("run_candidate", {}),
+        ("compare_scores", {}),
+        ("write_text", {
+            "path": f"/run/round_{number}/attempts/attempt_1/selection.json",
+            "content": json.dumps({"accept_or_retain": choice}),
+        }),
+        ("append_skills", {}),
+        ("write_text", {"path": "/run/meta/context.json"}),
+        ("snapshot_task_meta", {}),
+    ]
+    for offset, (operation, extra) in enumerate(operations[skip:skip + steps], start=skip):
+        _five_round_turn(session, start + offset - skip, operation, number, **extra)
+    return start + len(operations[skip:skip + steps])
+
+
+def test_five_round_progress_advances_after_accept_and_terminal_retain(tmp_path):
+    session = tmp_path / "meta_session"
+    session.mkdir()
+    (session / "workflow_policy.json").write_text(json.dumps(FIVE_ROUND_POLICY))
+    progress = ExperimentProgress(session, rounds=5)
+
+    next_turn = _complete_five_round_a0(session)
+    next_turn = _record_five_round(session, 1, next_turn)
+    state = progress.rebuild()
+    assert [stage["id"] for stage in state["stages"]] == ["A0", "B1", "B2", "B3", "B4", "B5"]
+    assert state["current_stage"] == "B2"
+    assert state["stages"][1]["attempt"] == 1
+    assert state["stages"][2]["completed_milestones"] == []
+    assert state["finish_allowed"] is False
+
+    next_turn = _record_five_round(session, 2, next_turn, "retain_parent", steps=7)
+    state = progress.rebuild()
+    assert state["current_stage"] == "B2"
+    assert state["next_milestone"] == "skills_appended"
+    assert state["stages"][2]["attempt"] == 1
+    assert not state["stages"][2].get("retry_pending", False)
+    assert "component_reselection" not in state["stages"][2]["remaining_milestones"]
+    assert "retain completes the current round and advances" in compact_status_block(session)
+
+    next_turn = _record_five_round(session, 2, next_turn, skip=7)
+    state = progress.rebuild()
+    assert state["current_stage"] == "B3"
+    assert state["stages"][2]["status"] == "complete"
+    assert state["finish_allowed"] is False
+
+    next_turn = _record_five_round(session, 3, next_turn)
+    assert progress.rebuild()["current_stage"] == "B4"
+    next_turn = _record_five_round(session, 4, next_turn)
+    state = progress.rebuild()
+    assert state["current_stage"] == "B5"
+    assert state["finish_allowed"] is False
+
+    next_turn = _record_five_round(session, 5, next_turn, steps=6)
+    state = progress.rebuild()
+    assert state["current_stage"] == "B5"
+    assert state["next_milestone"] == "selection_recorded"
+    assert state["finish_allowed"] is False
+
+    _record_five_round(session, 5, next_turn, skip=6)
+    state = progress.rebuild()
+    assert state["current_stage"] == "COMPLETE"
+    assert state["finish_allowed"] is True
+    assert all(stage.get("attempt") == 1 for stage in state["stages"][1:])
+    commands = [json.loads(path.read_text())["request"]
+                for path in sorted((session / "turns").glob("*/command.json"))]
+    decisions = [request["path"] for request in commands
+                 if request.get("path", "").endswith("/decision.json")]
+    selections = [request["path"] for request in commands
+                  if request.get("path", "").endswith("/selection.json")]
+    assert decisions == [f"/run/round_{number}/attempts/attempt_1/decision.json"
+                         for number in range(1, 6)]
+    assert selections == [f"/run/round_{number}/attempts/attempt_1/selection.json"
+                          for number in range(1, 6)]

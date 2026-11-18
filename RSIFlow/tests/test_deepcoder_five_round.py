@@ -638,3 +638,332 @@ def test_five_round_preflight_rejects_output_inside_frozen_release(
         five_round_preflight.run_preflight(config, release, output)
     assert not output.exists()
     assert five_round_preflight._release_hashes(release) == before
+
+
+# ---------------------------------------------------------------------------
+# Task 6 (offline): read-only five-round result summarizer contracts.
+# ---------------------------------------------------------------------------
+
+import hashlib
+
+SUMMARIZER_PATH = ROOT.parent / "reproduction/scripts/summarize_deepcoder_five_round.py"
+
+
+def _load_summarizer():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("summarize_deepcoder_five_round_test", SUMMARIZER_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+TASK_IDS = [f"deepcoder_taco:deepcoder-taco-{i}" for i in range(1000, 1016)]
+MANIFEST_HASH = "m" * 64
+
+
+def _source_hash(task_id):
+    return hashlib.sha256(("source:" + task_id).encode()).hexdigest()
+
+
+def _trajectory(task_id, *, success, calls, branch, round_n, state_hash,
+                error=None, execution_error_type="candidate_error",
+                infrastructure_error=False):
+    valid_answer = bool(calls) and success or (bool(calls) and not success)
+    # zero-call rows have no valid answer and must not count as full tests
+    valid_answer = bool(calls)
+    full_verifier = bool(calls)
+    verification = {
+        "status": "completed",
+        "verifier_id": "deepcoder_taco_all_tests_stdio_or_function_v2_tol1e-6",
+        "success": bool(success),
+        "full_verifier": full_verifier,
+        "tests_completed": 11 if calls else 0,
+        "tests_total": 11,
+    }
+    trajectory_id = hashlib.sha256(f"{task_id}:{branch}:{round_n}".encode()).hexdigest()
+    return {
+        "task_id": task_id, "question_id": task_id, "source": "deepcoder_taco",
+        "domain": "code", "split": "evolve_train", "rollout_id": 0,
+        "state_hash": state_hash, "manifest_hash": MANIFEST_HASH,
+        "task_source_hash": _source_hash(task_id),
+        "infrastructure_error": infrastructure_error, "infrastructure_failure": infrastructure_error,
+        "verification": verification, "valid_answer": valid_answer,
+        "model_call_count": calls,
+        "transport_calls": [{"call_id": i, "status": "completed"} for i in range(calls)],
+        "execution_error_type": execution_error_type,
+        "error_type": "parse_failure" if not calls else ("candidate_error" if not success else None),
+        "error": error, "terminal_reward": 1.0 if success else 0.0,
+        "branch_id": branch, "round_id": round_n, "collection_stage": "parent_pre_update",
+        "trajectory_id": trajectory_id,
+    }
+
+
+def _performance(rows, round_n):
+    successes = sum(1 for r in rows if r["verification"]["success"])
+    n = len(rows)
+    rate = successes / n if n else None
+    errors = {}
+    for r in rows:
+        if not r["verification"]["success"]:
+            key = r.get("execution_error_type") or "unknown"
+            errors[key] = errors.get(key, 0) + 1
+    code = {"correct": successes, "denominator": n, "success_rate": rate,
+            "mean_native_reward": rate, "errors": errors}
+    return {
+        "domains": {"tool_use": {"correct": 0, "denominator": 0, "success_rate": None, "errors": {}},
+                    "code": code,
+                    "searchqa": {"correct": 0, "denominator": 0, "success_rate": None, "errors": {}}},
+        "macro_success": rate, "domain_weights": {"code": 1.0}, "status": "complete",
+        "total_rollouts": n, "units": "fraction_0_1", "round_id": round_n,
+        "training_manifest": MANIFEST_HASH, "evaluation_protocol": "same_round_full_B_parent_child_v2",
+        "feedback_role": "train_evolution",
+        "benchmarks": {"deepcoder_taco": {"count": n, "successes": successes, "errors": errors}},
+    }
+
+
+def _write_side(round_dir, side, rows, state_hash):
+    side_dir = round_dir / side if side == "parent" else round_dir / "attempts/attempt_1/candidate"
+    side_dir.mkdir(parents=True, exist_ok=True)
+    (side_dir / "train_trajectories.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    (side_dir / "performance.json").write_text(json.dumps(_performance(rows, rows[0]["round_id"])), encoding="utf-8")
+    cache = side_dir.parent / "rollout_cache" / state_hash / "train_rollouts"
+    cache.mkdir(parents=True, exist_ok=True)
+    for r in rows:
+        (cache / (r["trajectory_id"] + ".json")).write_text(
+            json.dumps({"binding": {"task": r["task_id"], "state_hash": state_hash, "rollout": 0},
+                        "row": {"model_call_count": r["model_call_count"]}}),
+            encoding="utf-8")
+        if r["model_call_count"]:
+            calls_dir = cache / (r["trajectory_id"] + ".calls")
+            calls_dir.mkdir(parents=True, exist_ok=True)
+            for i in range(r["model_call_count"]):
+                (calls_dir / f"{i:04d}.json").write_text(
+                    json.dumps({"call_id": i, "status": "completed", "binding": {"state_hash": state_hash}}),
+                    encoding="utf-8")
+
+
+def _write_round(run, n, *, parent_success, candidate_success, zero_call,
+                 component="HARNESS", decision="accept_candidate", errors=None,
+                 infrastructure_error_ids=()):
+    errors = errors or {}
+    round_dir = run / f"round_{n}"
+    parent_state = hashlib.sha256(f"parent-state-{n}".encode()).hexdigest()
+    candidate_state = hashlib.sha256(f"candidate-state-{n}".encode()).hexdigest()
+
+    def make_rows(success_set, branch, state_hash):
+        rows = []
+        for tid in TASK_IDS:
+            calls = 0 if tid in zero_call else 7
+            rows.append(_trajectory(
+                tid, success=tid in success_set, calls=calls, branch=branch, round_n=n,
+                state_hash=state_hash, error=errors.get(tid),
+                infrastructure_error=tid in infrastructure_error_ids))
+        return rows
+
+    parent_rows = make_rows(parent_success, "parent", parent_state)
+    candidate_rows = make_rows(candidate_success, "candidate", candidate_state)
+    _write_side(round_dir, "parent", parent_rows, parent_state)
+    attempt = round_dir / "attempts/attempt_1"
+    _write_side(round_dir, "candidate", candidate_rows, candidate_state)
+    before = len(parent_success) / 16
+    after = len(candidate_success) / 16
+    new_success = len(candidate_success - parent_success)
+    new_regression = len(parent_success - candidate_success)
+    (attempt / "decision.json").write_text(json.dumps({
+        "round": n, "attempt": 1, "component": component, "relevant_skill_ids": [],
+        "rationale": "fixture", "prediction": {},
+    }), encoding="utf-8")
+    (attempt / "selection.json").write_text(json.dumps({
+        "round": n, "attempt": 1, "decision": decision, "reason": "fixture",
+        "before": before, "after": after, "delta": after - before,
+        "paired_tasks": 16, "new_success": new_success, "new_regression": new_regression,
+    }), encoding="utf-8")
+    (attempt / "skill_use.json").write_text(json.dumps({"used_skill_ids": []}), encoding="utf-8")
+    diff_dir = attempt / "task_differences"
+    diff_dir.mkdir(parents=True, exist_ok=True)
+    (diff_dir / "summary.json").write_text(json.dumps({
+        "status": "compared", "paired_tasks": 16, "same_id_set": True,
+        "counts": {"retained_failure": 16 - len(parent_success | candidate_success),
+                   "new_success": new_success, "new_regression": new_regression},
+    }), encoding="utf-8")
+    snap = run / "snapshots" / f"round_{n}_attempt_1"
+    (snap / "task").mkdir(parents=True, exist_ok=True)
+    (snap / "snapshot_receipt.json").write_text(json.dumps({"status": "snapshotted"}), encoding="utf-8")
+    (snap / "task/task_state_snapshot.json").write_text(json.dumps({"generation": n}), encoding="utf-8")
+    return {"parent_success": parent_success, "candidate_success": candidate_success,
+            "new_success": new_success, "new_regression": new_regression}
+
+
+def _build_two_round_run(tmp_path, *, complete=False):
+    run = tmp_path / "run"
+    run.mkdir()
+    # B1: accept, positive gain; new success/regression overlap zero-call process anomalies.
+    # new_success TASK_IDS[3] and new_regression TASK_IDS[0] are zero-call to force overlap.
+    b1 = _write_round(
+        run, 1,
+        parent_success=set(TASK_IDS[:3]),
+        candidate_success=set(TASK_IDS[3:7]),
+        zero_call=set(TASK_IDS[7:16]) | {TASK_IDS[3], TASK_IDS[0]},
+        errors={TASK_IDS[7]: "FileNotFoundError: [Errno 2] No such file or directory",
+                TASK_IDS[8]: "BlockingIOError: [Errno 11] Resource temporarily unavailable (EAGAIN)",
+                TASK_IDS[3]: "FileNotFoundError: [Errno 2] No such file or directory"},
+        component="HARNESS", decision="accept_candidate")
+    # B2: retain, zero delta
+    b2 = _write_round(
+        run, 2,
+        parent_success=set(TASK_IDS[3:7]),
+        candidate_success=set(TASK_IDS[3:7]),
+        zero_call=set(TASK_IDS[7:16]),
+        component="HARNESS", decision="retain_parent")
+    (run / "active_task.json").write_text(json.dumps({
+        "generation": 1, "model_ref": "/models/Qwen3-4B",
+        "harness_path": str(run / "round_1/attempts/attempt_1/build/candidate_bundle.json"),
+        "checkpoint_path": "/models/Qwen3-4B", "artifacts": {"directory": None, "manifest": []},
+    }), encoding="utf-8")
+    (run / "snapshots/A0/task").mkdir(parents=True, exist_ok=True)
+    (run / "snapshots/A0/snapshot_receipt.json").write_text(json.dumps({"status": "snapshotted"}), encoding="utf-8")
+    meta = run / "meta"
+    meta.mkdir(exist_ok=True)
+    (meta / "skills.jsonl").write_text(json.dumps({"id": "case.HARNESS.x", "type": "case"}) + "\n", encoding="utf-8")
+    (meta / "context.json").write_text(json.dumps({"round": 2, "attempt": 1, "component": "HARNESS", "selection": "retained"}), encoding="utf-8")
+    session = run / "meta_session"
+    session.mkdir(exist_ok=True)
+    (session / "state.json").write_text(json.dumps({"status": "complete" if complete else "running", "transport": "app_server"}), encoding="utf-8")
+    (session / "RUN_STATUS.md").write_text(
+        "Current stage: **COMPLETE**\nFinish allowed: **yes**\n" if complete else
+        "Current stage: **B3**\nFinish allowed: **no**\n", encoding="utf-8")
+    jobs = session / "jobs"
+    jobs.mkdir(exist_ok=True)
+    job = jobs / "job1"
+    job.mkdir()
+    result = run / "controller_transport/job1/result.json"
+    result.parent.mkdir(parents=True, exist_ok=True)
+    if complete:
+        result.write_text(json.dumps({"status": "completed", "returncode": 0}), encoding="utf-8")
+    (job / "job.json").write_text(json.dumps({"job_id": "job1", "result_path": str(result)}), encoding="utf-8")
+    if complete:
+        (session / "services_stopped.json").write_text(json.dumps({"status": "stopped", "gpus": [0, 1, 2, 3]}), encoding="utf-8")
+        # add B3-B5 to make a complete five-round run
+        for n in (3, 4, 5):
+            _write_round(run, n, parent_success=set(TASK_IDS[3:7]), candidate_success=set(TASK_IDS[3:7]),
+                         zero_call=set(TASK_IDS[7:16]), component="HARNESS",
+                         decision="accept_candidate" if n == 5 else "retain_parent")
+    return run, b1, b2
+
+
+def test_summarizer_two_rounds_denominator_calls_and_transitions(tmp_path):
+    summarize = _load_summarizer().summarize
+    run, b1, b2 = _build_two_round_run(tmp_path)
+    result = summarize(run)
+    assert result["completed_rounds"] == 2
+    assert result["run_complete"] is False
+    rounds = {r["round"]: r for r in result["rounds"]}
+    assert set(rounds) == {1, 2}
+    for n, spec in ((1, b1), (2, b2)):
+        r = rounds[n]
+        assert r["parent"]["denominator"] == 16
+        assert r["candidate"]["denominator"] == 16
+        assert r["denominator_match"] is True
+        assert r["ids_match"] is True
+        assert r["source_hashes_match"] is True
+        # calls cross-recomputed from trajectories + transport + persisted receipts
+        assert r["calls"]["parent"]["trajectory_calls"] == r["calls"]["parent"]["persisted_receipts"]
+        assert r["calls"]["parent"]["transport_calls"] == r["calls"]["parent"]["trajectory_calls"]
+        assert r["calls"]["cross_check_ok"] is True
+        assert r["transitions"]["new_success"] == spec["new_success"]
+        assert r["transitions"]["new_regression"] == spec["new_regression"]
+    assert rounds[1]["delta"] == pytest.approx(0.0625)
+    assert rounds[1]["selection"]["decision"] == "accept_candidate"
+    assert rounds[1]["activated"] is True
+    assert rounds[2]["selection"]["decision"] == "retain_parent"
+    assert rounds[2]["activated"] is False
+    assert rounds[2]["delta"] == pytest.approx(0.0)
+
+
+def test_summarizer_separates_verification_valid_full_and_success(tmp_path):
+    summarize = _load_summarizer().summarize
+    run, _, _ = _build_two_round_run(tmp_path)
+    # B2 parent: 9 zero-call rows + 7 called rows (4 success). Zero-call rows have a
+    # completed verification record but no valid answer and must not count as full tests.
+    r = {x["round"]: x for x in summarize(run)["rounds"]}[2]
+    v = r["verification"]["parent"]
+    assert v["completed"] == 16
+    assert v["valid_answer"] == 7
+    assert v["full_verifier"] == 7
+    assert v["success"] == 4
+    # zero-call rows must NOT be counted as full tests
+    assert v["full_verifier"] < v["completed"]
+    assert v["success"] <= v["full_verifier"]
+
+
+def test_summarizer_zero_call_errors_and_transition_overlap(tmp_path):
+    summarize = _load_summarizer().summarize
+    run, _, _ = _build_two_round_run(tmp_path)
+    r = {x["round"]: x for x in summarize(run)["rounds"]}[1]
+    errs = r["errors"]["parent"]
+    assert errs["zero_call"] == 11  # 9 retained + TASK_IDS[3] + TASK_IDS[0]
+    assert errs["enoent"] >= 1
+    assert errs["eagain"] >= 1
+    assert errs["execution_error_type"]["candidate_error"] >= 1
+    # protocol infrastructure_error preserved (fixture default False)
+    assert errs["infrastructure_error_true"] == 0
+    # zero-call overlap with new_success / new_regression
+    overlap = r["zero_call_overlap"]
+    assert overlap["new_success_zero_call"] >= 1
+    assert overlap["new_regression_zero_call"] >= 1
+
+
+def test_summarizer_component_selection_active_snapshot_skills_context(tmp_path):
+    summarize = _load_summarizer().summarize
+    run, _, _ = _build_two_round_run(tmp_path)
+    result = summarize(run)
+    r1 = {x["round"]: x for x in result["rounds"]}[1]
+    assert r1["component"] == "HARNESS"
+    assert r1["attempt_count"] == 1
+    assert r1["snapshot_present"] is True
+    assert result["active_identity"]["generation"] == 1
+    assert result["skills_present"] is True
+    assert result["context_present"] is True
+
+
+def test_summarizer_missing_b3_reports_two_rounds_not_complete(tmp_path):
+    summarize = _load_summarizer().summarize
+    run, _, _ = _build_two_round_run(tmp_path)
+    result = summarize(run)
+    assert result["completed_rounds"] == 2
+    assert result["expected_rounds"] == 5
+    assert result["run_complete"] is False
+    assert any("B3" in b or "round" in b.lower() for b in result["run_complete_blockers"])
+
+
+def test_summarizer_run_complete_requires_all_real_facts(tmp_path):
+    summarize = _load_summarizer().summarize
+    run, _, _ = _build_two_round_run(tmp_path, complete=True)
+    result = summarize(run)
+    assert result["completed_rounds"] == 5
+    assert result["run_complete"] is True
+    assert result["run_complete_blockers"] == []
+    # remove stopped-services evidence -> must not claim complete
+    (run / "meta_session/services_stopped.json").unlink()
+    again = summarize(run)
+    assert again["run_complete"] is False
+    assert any("service" in b.lower() for b in again["run_complete_blockers"])
+
+
+def test_summarizer_model_sft_not_run_without_real_evidence(tmp_path):
+    summarize = _load_summarizer().summarize
+    run, _, _ = _build_two_round_run(tmp_path)
+    result = summarize(run)
+    assert result["model_sft"]["status"] == "not_run"
+    assert result["model_sft"]["rounds"] == []
+    # add a real MODEL decision + candidate training_metrics -> recorded
+    attempt = run / "round_2/attempts/attempt_1"
+    decision = json.loads((attempt / "decision.json").read_text())
+    decision["component"] = "MODEL"
+    (attempt / "decision.json").write_text(json.dumps(decision), encoding="utf-8")
+    (attempt / "candidate/training_metrics.json").write_text(
+        json.dumps({"optimizer_steps": 5, "warmup_steps": 2, "training_loss": 0.25}), encoding="utf-8")
+    again = summarize(run)
+    assert again["model_sft"]["status"] == "recorded"
+    assert 2 in again["model_sft"]["rounds"]

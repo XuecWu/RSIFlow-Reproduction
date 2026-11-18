@@ -270,20 +270,30 @@ def _validate_source(source_run, release_dir):
             if verification.get("full_verifier") is not True:
                 raise SmokeBlocked(f"Positive trajectory lacks full official verification: {task_id}")
         calls = row.get("model_call_count")
-        if type(calls) is not int or calls < 1:
-            raise SmokeBlocked(f"Parent trajectory has no real transport call: {task_id}")
-        _validate_transport_calls(row)
-        if len(row["transport_calls"]) != calls:
-            raise SmokeBlocked(f"Transport call count disagrees with the parent row: {task_id}")
-        for call in row["transport_calls"]:
-            response = call.get("response") or {}
-            binding = response.get("binding") or {}
-            if (Path(str(binding.get("checkpoint_path", ""))).resolve() != checkpoint
-                    or binding.get("weights") != state.checkpoint_manifest
-                    or response.get("model_ref_requested") != state.model_ref
-                    or response.get("model_ref_response") != state.model_ref):
-                raise SmokeBlocked(f"Transport response is not bound to the A0 checkpoint: {task_id}")
-        transport_count += calls
+        if type(calls) is not int or calls < 0:
+            raise SmokeBlocked(f"Parent trajectory has invalid model call count: {task_id}")
+        if calls == 0:
+            if verification["success"] is not False:
+                raise SmokeBlocked(f"Zero-call successful trajectory is not importable: {task_id}")
+            if row.get("infrastructure_error") is not False:
+                raise SmokeBlocked(
+                    f"Zero-call negative must retain infrastructure_error=false: {task_id}")
+            if any(row.get(key) not in (None, []) for key in ("transport_calls", "model_calls")):
+                raise SmokeBlocked(
+                    f"Zero-call negative must have empty transport_calls/model_calls: {task_id}")
+        else:
+            _validate_transport_calls(row)
+            if len(row["transport_calls"]) != calls:
+                raise SmokeBlocked(f"Transport call count disagrees with the parent row: {task_id}")
+            for call in row["transport_calls"]:
+                response = call.get("response") or {}
+                binding = response.get("binding") or {}
+                if (Path(str(binding.get("checkpoint_path", ""))).resolve() != checkpoint
+                        or binding.get("weights") != state.checkpoint_manifest
+                        or response.get("model_ref_requested") != state.model_ref
+                        or response.get("model_ref_response") != state.model_ref):
+                    raise SmokeBlocked(f"Transport response is not bound to the A0 checkpoint: {task_id}")
+            transport_count += calls
         if (row.get("state_hash") != a0_task_hash or row.get("model_ref") != state.model_ref
                 or row.get("harness_sha256") != harness_hash
                 or row.get("artifact_input_manifest") != state.artifacts.manifest):

@@ -1669,10 +1669,134 @@ def model_source(world, tmp_path):
             "harness": harness, "artifacts": artifacts}
 
 
+def _persist_model_source_rows(model_source, rows):
+    by_task = {row["task_id"]: row for row in rows}
+    for path in model_source["source_run"].glob("rollout_cache/*/train_rollouts/*.json"):
+        receipt = json.loads(path.read_text())
+        receipt["row"] = by_task[receipt["row"]["task_id"]]
+        path.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+    (model_source["parent"] / "train_trajectories.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows))
+    successes = sum(row["verification"]["success"] is True for row in rows)
+    performance_path = model_source["parent"] / "performance.json"
+    performance = json.loads(performance_path.read_text())
+    performance["macro_success"] = successes / 16
+    performance["benchmarks"]["deepcoder_taco"]["successes"] = successes
+    performance_path.write_text(json.dumps(performance))
+    model_source["rows"] = rows
+
+
+def _production_zero_call_source(model_source):
+    rows = json.loads(json.dumps(model_source["rows"]))
+    call_counts = [12, 10, 8, 6, 5, 4, 6] + [0] * 9
+    for index, (row, count) in enumerate(zip(rows, call_counts)):
+        success = index < 3
+        row["terminal_reward"] = 1.0 if success else 0.0
+        row["verification"] = {
+            "status": "completed", "success": success,
+            "verifier_id": "deepcoder_taco_all_tests_stdio_or_function_v2_tol1e-6",
+            "full_verifier": success,
+        }
+        if success:
+            row["verification"].update(task_success=True, exact_match=1)
+        row["infrastructure_error"] = False
+        row["execution_error_type"] = "candidate_error"
+        row["model_call_count"] = count
+        if count:
+            template = row["transport_calls"][0]
+            row["transport_calls"] = [
+                dict(template, call_id=call_id) for call_id in range(count)]
+        else:
+            row["transport_calls"] = []
+            row["model_calls"] = []
+            row["sft_conversations"] = []
+            row["messages"] = [{"role": "user", "content": "question"}]
+            row["error"] = (
+                "BlockingIOError: [Errno 11] Resource temporarily unavailable"
+                if index < 13 else "FileNotFoundError: [Errno 2] No such file or directory")
+    _persist_model_source_rows(model_source, rows)
+    return rows
+
+
 def _model_plan(model_smoke, model_source, tmp_path, name="model-smoke"):
     return model_smoke.plan_model_smoke(
         model_source["source_run"], tmp_path / "logs" / name,
         model_source["machine_config"])
+
+
+def test_model_smoke_plan_accepts_complete_zero_call_negative_parent_rows(
+        model_smoke, model_source, tmp_path):
+    rows = _production_zero_call_source(model_source)
+    before = _source_tree_hashes(model_source["source_run"])
+
+    receipt = _model_plan(model_smoke, model_source, tmp_path, "production-zero-call-negatives")
+
+    assert receipt["status"] == "planned"
+    assert receipt["source"]["task_count"] == 16
+    assert receipt["source"]["official_success_count"] == 3
+    assert receipt["source"]["transport_calls_verified"] == 51
+    assert receipt["positive_parent_count"] == 3
+    selected_ids = {row["task_id"] for row in model_smoke.select_positive_rows(
+        rows, profile="multidomain")}
+    assert selected_ids == {row["task_id"] for row in rows[:3]}
+    assert sum(row["model_call_count"] for row in rows) == 51
+    assert sum(row["model_call_count"] == 0 for row in rows) == 9
+    assert all(row["verification"]["status"] == "completed"
+               and row["verification"]["success"] is False
+               and row["infrastructure_error"] is False
+               and row["transport_calls"] == [] and row["model_calls"] == []
+               for row in rows[7:])
+    assert receipt["source"]["source_hashes_after"] == before
+    assert _source_tree_hashes(model_source["source_run"]) == before
+
+
+@pytest.mark.parametrize(("mode", "error"), [
+    ("success_without_call", "Zero-call successful"),
+    ("nonzero_missing_transport", "No persisted transport calls"),
+    ("missing_verification", "Missing completed official scoring"),
+    ("missing_receipt", "Missing exact persisted parent receipt"),
+    ("manifest_mismatch", "outside B_r"),
+    ("missing_infrastructure_error", "infrastructure_error=false"),
+    ("zero_with_transport", "Zero-call negative.*empty"),
+    ("zero_with_model_calls", "Zero-call negative.*empty"),
+])
+def test_model_smoke_plan_rejects_unbound_or_forged_zero_call_rows(
+        model_smoke, model_source, tmp_path, mode, error):
+    rows = _production_zero_call_source(model_source)
+    _model_plan(model_smoke, model_source, tmp_path, f"zero-control-{mode}")
+    row = rows[7]
+    receipt_path = None
+    if mode == "success_without_call":
+        row["verification"].update(success=True, full_verifier=True,
+                                   task_success=True, exact_match=1)
+        row["terminal_reward"] = 1.0
+    elif mode == "nonzero_missing_transport":
+        row["model_call_count"] = 1
+    elif mode == "missing_verification":
+        del row["verification"]["status"]
+    elif mode == "manifest_mismatch":
+        row["manifest_hash"] = "0" * 64
+    elif mode == "missing_infrastructure_error":
+        del row["infrastructure_error"]
+    elif mode == "zero_with_transport":
+        row["transport_calls"] = [json.loads(json.dumps(rows[0]["transport_calls"][0]))]
+    elif mode == "zero_with_model_calls":
+        row["model_calls"] = [{"call_id": 0}]
+    _persist_model_source_rows(model_source, rows)
+    if mode == "missing_receipt":
+        for path in model_source["source_run"].glob("rollout_cache/*/train_rollouts/*.json"):
+            if json.loads(path.read_text())["row"]["task_id"] == row["task_id"]:
+                receipt_path = path
+                break
+        assert receipt_path is not None
+        receipt_path.unlink()
+    output_root = tmp_path / "logs" / f"reject-zero-{mode}"
+
+    with pytest.raises((ValueError, RuntimeError), match=error):
+        model_smoke.plan_model_smoke(
+            model_source["source_run"], output_root, model_source["machine_config"])
+
+    assert not output_root.exists()
 
 
 def _patch_model_runtime(model_smoke, monkeypatch):

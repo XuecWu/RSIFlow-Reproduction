@@ -2,7 +2,7 @@
 
 - 版本：设计基线 v1，2026-11-18（UTC）
 - 适用范围：`deepcoder_five_round_canary`，固定同一批 16 条 function，A0+B1–B5
-- 前置状态：设计已确认；实现、预检和真实五轮尚未完成
+- 前置状态：Tasks 1–4 实现和 scoped re-review 已完成；Task 5 离线门与 dev4 只读门通过，但真实 MODEL plan 被 source-run 集中 `meta` symlink 阻断，execute 和五轮均未运行
 - 设计规格：`docs/superpowers/specs/2026-11-18-deepcoder-five-round-canary-design.md`
 
 本 SOP 规定操作顺序和判定门。具体可执行命令必须绑定最终审阅 HEAD 和机器配置，在实施计划及预检审阅后发布；不得拿单轮 canary 配置直接改 `rounds=5` 启动。
@@ -46,6 +46,28 @@
 ## 4. 阶段 B：MODEL 独立真实 smoke
 
 该 smoke 在五轮 run 外执行，输出、服务和审计均独立。
+
+### 4.1 dev4 occupier 安全交接（所有真实 RSIFlow GPU 工作通用）
+
+dev4 空闲时由 `/data/wuxuecheng/z-occupier-ready` 占卡。真实 MODEL/五轮使用 GPU 前必须完成以下交接；不得仅凭 `nvidia-smi` 或端口猜 owner：
+
+1. 读取共享 `/data/wuxuecheng/z-occupier-ready/runtime/dev4/identity.json`，保留其中的 `pid/pgid/start_ticks/owner/gpus`。当前 owner 为 `dev4-rsiflow-idle-occupier`，目标 GPU 必须精确为 0–3；PID 和 start_ticks 每次从实时 identity 读取，不写死。
+2. 在 dev4 重新读取 `/proc/<pid>/stat` 和 `cmdline`，逐项要求 PID=PGID、start_ticks 与 identity 相同，并核对完整 argv。当前已实测的精确 argv 为：
+   `/data/wuxuecheng/miniforge3/bin/python3.13 /data/wuxuecheng/miniforge3/bin/torchrun --nproc_per_node=4 train.py --mem-mb 2500 --log-interval 20`。
+   任一项不符、进程不可读或 owner 不明确都停止，不发信号。
+3. 先快照该 PGID 全部非 zombie members 的 PID/start_ticks，再只向已核验的 occupier PGID 发一次 TERM；有界等待并周期性重读 `/proc`。禁止 `pkill`、按端口 kill、按宽泛进程名 kill 或对其他 PGID 发信号。
+4. 等待后仍有 members 时，只能对重新核验“原快照 PID + 同 PGID + 同 start_ticks”的剩余 occupier 进程逐个 KILL；新 PID、start_ticks 不符或读取不确定均不发 KILL，转为 blocker。再次调和至无同 identity members。
+5. 用 `nvidia-smi --query-compute-apps` 确认无计算进程，并确认 GPU 0–3 显存释放、四端口可用；然后才允许 MODEL execute 或五轮启动。释放 occupier 不等于 RSIFlow cleanup 已完成，二者分别记录。
+
+smoke/五轮结束或失败后的 owned jobs/services/training 清理和四卡释放必须先按各自 registry/identity 完成。只有 owner 与 GPU 状态都明确时才恢复 occupier：
+
+1. 在 `/data/wuxuecheng/z-occupier-ready` 使用 `nohup setsid env CUDA_VISIBLE_DEVICES=0,1,2,3 NPROC=4 ./run.sh --mem-mb 2500 --log-interval 20`，stdin 重定向 `/dev/null`，日志追加到 `runtime/dev4/occupier.log`；记录新 `$!`，不得假定旧 PID 可复用。
+2. 有界等待 `run.sh` exec 为完整 torchrun argv，复核新 PID=PGID 和 `/proc` start_ticks 后，以临时文件 + 原子 rename 写新 `identity.json`（owner、pid、pgid、start_ticks、gpus 0–3）。不要在 exec/argv 尚未稳定时写 identity。
+3. 实测四卡均有 compute apps、显存和 util 负载，并检查 occupier log 的四个 ranks；仅进程存在不算恢复成功。若 owner/GPU 状态不明确或四卡未证实，不贸然重复启动，保留现场并报告 blocker。
+
+2026-11-18 Task 5 的实际 MODEL plan 在 GPU 交接前被 source `meta` symlink 阻断，所以没有停止 occupier；原 identity 和四卡负载已复核不变。后续真实重试仍须执行上述完整交接。
+
+### 4.2 MODEL 顺序
 
 1. 从上一轮父代自然成功轨迹中选择正例，逐条核验源 run、task ID、record hash、Task identity 和 trajectory hash。
 2. 只使用这些自然成功样本，执行 one-epoch、四-rank、positive-only LoRA SFT。

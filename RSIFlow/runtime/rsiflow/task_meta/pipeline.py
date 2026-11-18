@@ -115,6 +115,8 @@ class PipelineConfig(BaseModel):
                 raise ValueError('pause_after_round is a resumable boundary, not a max_generations replacement')
         if self.training_schedule == 'round_repeated' and self.experiment_scope != 'deepcoder_five_round_canary':
             raise ValueError('round_repeated requires deepcoder_five_round_canary')
+        if self.experiment_scope == 'deepcoder_five_round_canary' and self.training_schedule != 'round_repeated':
+            raise ValueError('deepcoder_five_round_canary requires round_repeated')
         if (self.training_schedule in {'full_cohort','round_disjoint','round_repeated'}) != (self.search_dev_fraction == 0):
             raise ValueError('Full cohort uses the entire train split and an in-training monitor')
         if self.training_schedule == 'fixed_subset' and (self.experiment_scope != 'envscaler_validation' or self.window_quotas.get('tool_use') != self.scope_train_limit):
@@ -129,6 +131,14 @@ class PipelineConfig(BaseModel):
             for values in (self.probe_per_domain, self.window_quotas):
                 if set(values) != set(DOMAINS) or any(type(v) is not int or v < 1 for v in values.values()):
                     raise ValueError('All three domains require positive fixed quotas')
+        if self.experiment_scope == 'deepcoder_five_round_canary':
+            task_positions = self.max_generations * sum(self.window_quotas.values())
+            if self.max_generations != 5 or task_positions != 80:
+                raise ValueError('DeepCoder five-round canary requires five rounds and 80 task positions')
+            if round_protocol.get('unique_tasks') != 16:
+                raise ValueError('DeepCoder five-round canary requires round_protocol unique_tasks=16')
+            if round_protocol.get('training_schedule') != self.training_schedule:
+                raise ValueError('DeepCoder five-round canary requires round_protocol training_schedule to match the top-level schedule')
         if self.mode != self.meta.run_mode:
             raise ValueError('Top-level mode and Meta run_mode must agree')
         if self.gpu_execution == 'dedicated' and self.inference_gpu == self.training_gpu:

@@ -51,3 +51,52 @@ def test_repeated_schedule_is_rejected_outside_five_round_scope(canary_config):
     canary_config.search_dev_fraction = 0
     with pytest.raises(ValueError, match="round_repeated requires deepcoder_five_round_canary"):
         PipelineConfig.model_validate(canary_config.model_dump()).checked()
+
+
+def _five_round_pipeline_value(canary_config):
+    canary_config.experiment_scope = "deepcoder_five_round_canary"
+    canary_config.training_schedule = "round_repeated"
+    canary_config.max_generations = 5
+    canary_config.window_quotas = {"tool_use": 0, "code": 16, "searchqa": 0}
+    canary_config.probe_per_domain = dict(canary_config.window_quotas)
+    canary_config.round_protocol = {
+        "training_schedule": "round_repeated", "unique_tasks": 16,
+    }
+    return canary_config.model_dump()
+
+
+INVALID_FIVE_ROUND_RUNTIME_CONFIGS = [
+    ({"training_schedule": "round_disjoint"},
+     "deepcoder_five_round_canary requires round_repeated"),
+    ({"max_generations": 4},
+     "DeepCoder five-round canary requires five rounds and 80 task positions"),
+    ({"round_protocol": None},
+     "DeepCoder five-round canary requires round_protocol unique_tasks=16"),
+    ({"round_protocol": {"training_schedule": "round_repeated"}},
+     "DeepCoder five-round canary requires round_protocol unique_tasks=16"),
+    ({"round_protocol": {"training_schedule": "round_repeated", "unique_tasks": 15}},
+     "DeepCoder five-round canary requires round_protocol unique_tasks=16"),
+    ({"round_protocol": {"unique_tasks": 16}},
+     "DeepCoder five-round canary requires round_protocol training_schedule to match the top-level schedule"),
+    ({"round_protocol": {"training_schedule": "round_disjoint", "unique_tasks": 16}},
+     "DeepCoder five-round canary requires round_protocol training_schedule to match the top-level schedule"),
+]
+
+
+@pytest.mark.parametrize("override, message", INVALID_FIVE_ROUND_RUNTIME_CONFIGS)
+def test_five_round_pipeline_rejects_invalid_runtime_identity(canary_config, override, message):
+    value = _five_round_pipeline_value(canary_config)
+    value.update(override)
+    with pytest.raises(ValueError, match=message):
+        PipelineConfig.model_validate(value).checked()
+
+
+@pytest.mark.parametrize("override, message", INVALID_FIVE_ROUND_RUNTIME_CONFIGS)
+def test_schema_v1_adapter_rejects_invalid_runtime_identity(
+        canary_config, tmp_path, override, message):
+    value = _five_round_pipeline_value(canary_config)
+    value.update(override)
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        TaskAdapter(ROOT, tmp_path / "receipts")._config({"config_path": str(path)})

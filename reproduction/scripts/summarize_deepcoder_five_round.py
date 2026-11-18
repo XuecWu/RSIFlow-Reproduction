@@ -1,14 +1,27 @@
 """Read-only summarizer for the DeepCoder single-domain five-round canary.
 
-`summarize(run_dir) -> dict` recomputes per-round facts from the real run files
-(trajectories, persisted call receipts, performance, decision/selection, snapshots,
-meta state/jobs). It never modifies scoring or selection, never invents scores, and
-never claims `run_complete` unless every required real fact is present. The CLI only
-reads a real run and prints JSON (default) or a Markdown fact sheet.
+`summarize(run_dir) -> dict` recomputes per-round facts from the real run files and
+validates them against the production protocol. It never modifies scoring or
+selection, never invents scores, and distinguishes:
 
-Protocol values such as `infrastructure_error` are preserved verbatim; process
-anomalies (EAGAIN/ENOENT, zero model calls) are counted and associated with outcome
-transitions without re-scoring.
+* ``protocol_complete`` — A0+B1-B5 products, active chain, skills/context, meta
+  state/finish/stage, durable job final receipts and supervision reconcile are all
+  present and consistent;
+* ``run_complete`` — ``protocol_complete`` AND the external cleanup evidence
+  (output-root owned four-GPU service registry ``services_stopped`` and supervision
+  exit) is present. A legal launcher finish whose external cleanup is not reconciled
+  is reported as a named pending blocker, never a fabricated receipt.
+
+Per-round validation requires: the attempt directory set is exactly ``{attempt_1}``
+with round/attempt binding; a frozen 16-unique-ID cohort with non-empty source/manifest
+hashes and round/role binding; real bool success with full-verifier/test evidence;
+side-scoped per-task/per-call persisted receipt reconciliation (no offsetting);
+selection/compare/activate receipts consistent with recomputed paired facts and a
+strictly positive gain for acceptance; and a hash-verified snapshot. Protocol values
+such as ``infrastructure_error`` are preserved verbatim; process anomalies
+(EAGAIN/ENOENT, zero model calls) are layered (all-row mentions vs zero-call negative
+subset vs called/success-with-error) and associated with per-task outcome transitions
+without re-scoring.
 """
 
 from __future__ import annotations
@@ -21,33 +34,59 @@ from collections import Counter
 from pathlib import Path
 
 EXPECTED_ROUNDS = 5
+EXPECTED_COHORT = 16
 TERMINAL_DECISIONS = {"accept_candidate", "retain_parent"}
+REQUIRED_JOB_OPERATIONS = {
+    "bootstrap", "run_parent", "run_candidate", "sft",
+    "compare_scores", "activate_task", "snapshot_task_meta",
+}
+SUCCESS_JOB_STATUS = {
+    "completed", "compared", "activated_as_requested", "snapshotted", "written", "read",
+}
+RUNNING_JOB_STATUS = {"running", "job_failed", "pending"}
 
 
 def _read_json(path: Path):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
 
 def _read_jsonl(path: Path) -> list[dict]:
     try:
-        text = path.read_text(encoding="utf-8")
+        text = Path(path).read_text(encoding="utf-8")
     except OSError:
         return []
-    return [json.loads(line) for line in text.splitlines() if line.strip()]
+    rows = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            rows.append({"_parse_error": True})
+    return rows
 
 
 def _sha256(path: Path) -> str | None:
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except OSError:
         return None
 
 
 def _success(row: dict) -> bool:
-    return bool((row.get("verification") or {}).get("success"))
+    return (row.get("verification") or {}).get("success") is True
+
+
+def _mentions(row: dict, kind: str) -> bool:
+    text = str(row.get("error") or "")
+    if kind == "enoent":
+        return "ENOENT" in text or "Errno 2" in text or "FileNotFoundError" in text
+    if kind == "eagain":
+        return "EAGAIN" in text or "Errno 11" in text
+    return False
 
 
 def _side_stats(rows: list[dict]) -> dict:
@@ -55,18 +94,26 @@ def _side_stats(rows: list[dict]) -> dict:
     successes = sum(1 for r in rows if _success(r))
     verification = {
         "completed": sum(1 for r in rows if (r.get("verification") or {}).get("status") == "completed"),
-        "valid_answer": sum(1 for r in rows if r.get("valid_answer")),
-        "full_verifier": sum(1 for r in rows if (r.get("verification") or {}).get("full_verifier")),
+        "valid_answer": sum(1 for r in rows if r.get("valid_answer") is True),
+        "full_verifier": sum(1 for r in rows if (r.get("verification") or {}).get("full_verifier") is True),
         "success": successes,
     }
-    execution_error_type = Counter(r.get("execution_error_type") or "none" for r in rows)
+    zero_rows = [r for r in rows if int(r.get("model_call_count") or 0) == 0]
+    called_rows = [r for r in rows if int(r.get("model_call_count") or 0) > 0]
+    success_rows = [r for r in rows if _success(r)]
+
+    def layer(subset):
+        return {"enoent": sum(1 for r in subset if _mentions(r, "enoent")),
+                "eagain": sum(1 for r in subset if _mentions(r, "eagain"))}
+
     errors = {
-        "execution_error_type": dict(sorted(execution_error_type.items())),
-        "zero_call": sum(1 for r in rows if (r.get("model_call_count") or 0) == 0),
-        "eagain": sum(1 for r in rows if "EAGAIN" in str(r.get("error") or "") or "Errno 11" in str(r.get("error") or "")),
-        "enoent": sum(1 for r in rows if "ENOENT" in str(r.get("error") or "") or "Errno 2" in str(r.get("error") or "")
-                      or "FileNotFoundError" in str(r.get("error") or "")),
-        "infrastructure_error_true": sum(1 for r in rows if r.get("infrastructure_error")),
+        "execution_error_type": dict(sorted(Counter(r.get("execution_error_type") or "none" for r in rows).items())),
+        "zero_call": len(zero_rows),
+        "error_mentions_all_rows": layer(rows),
+        "zero_call_negative": {"count": len(zero_rows), **layer(zero_rows)},
+        "called_with_error": layer(called_rows),
+        "success_with_error": layer(success_rows),
+        "infrastructure_error_true": sum(1 for r in rows if r.get("infrastructure_error") is True),
     }
     return {
         "denominator": denominator,
@@ -82,38 +129,159 @@ def _side_stats(rows: list[dict]) -> dict:
     }
 
 
-def _persisted_receipts(round_dir: Path, rows: list[dict]) -> int:
-    """Count persisted call receipts for this side via the rollout-cache binding.
+def _cohort_valid(rows: list[dict], performance, round_n: int, collection_stage: str) -> list[str]:
+    reasons = []
+    if any(r.get("_parse_error") for r in rows):
+        reasons.append("unparseable trajectory row")
+    if len(rows) != EXPECTED_COHORT:
+        reasons.append(f"cohort size {len(rows)} != {EXPECTED_COHORT}")
+    ids = [r.get("task_id") for r in rows]
+    if len(set(ids)) != EXPECTED_COHORT or any(not tid for tid in ids):
+        reasons.append("task IDs not 16 unique non-empty")
+    if not isinstance(performance, dict):
+        reasons.append("performance missing or unparseable")
+        return reasons
+    manifest = performance.get("training_manifest")
+    if performance.get("status") != "complete":
+        reasons.append("performance status not complete")
+    if performance.get("total_rollouts") != EXPECTED_COHORT:
+        reasons.append("performance total_rollouts != 16")
+    if performance.get("round_id") != round_n:
+        reasons.append("performance round_id mismatch")
+    if performance.get("feedback_role") != "train_evolution":
+        reasons.append("performance feedback_role not train_evolution")
+    if performance.get("collection_stage") != collection_stage:
+        reasons.append(f"performance collection_stage not {collection_stage}")
+    code = (performance.get("domains") or {}).get("code") or {}
+    if code.get("denominator") != EXPECTED_COHORT:
+        reasons.append("performance code denominator != 16")
+    successes = sum(1 for r in rows if _success(r))
+    macro = performance.get("macro_success")
+    if macro is None or abs(macro - successes / EXPECTED_COHORT) > 1e-9:
+        reasons.append("performance macro_success inconsistent with trajectories")
+    for r in rows:
+        tid = r.get("task_id")
+        if not r.get("task_source_hash"):
+            reasons.append(f"empty task_source_hash {tid}")
+        if not r.get("manifest_hash") or r.get("manifest_hash") != manifest:
+            reasons.append(f"manifest_hash mismatch {tid}")
+        if r.get("round_id") != round_n:
+            reasons.append(f"row round_id mismatch {tid}")
+        if r.get("source_role") != "train_evolution":
+            reasons.append(f"row source_role mismatch {tid}")
+        if r.get("collection_stage") != collection_stage:
+            reasons.append(f"row collection_stage mismatch {tid}")
+        verification = r.get("verification") or {}
+        if verification.get("status") != "completed":
+            reasons.append(f"verification not completed {tid}")
+        if not isinstance(verification.get("success"), bool):
+            reasons.append(f"success not a real bool {tid}")
+        if _success(r):
+            tests_completed = verification.get("tests_completed")
+            tests_total = verification.get("tests_total")
+            if (r.get("valid_answer") is not True or verification.get("full_verifier") is not True
+                    or not tests_total or tests_completed != tests_total):
+                reasons.append(f"success lacks valid answer/full verifier/complete tests {tid}")
+        if int(r.get("model_call_count") or 0) == 0 and _success(r):
+            reasons.append(f"zero-call row marked success {tid}")
+    return reasons
 
-    Real rollout cache stores `<key>.json` = {binding:{task,state_hash,...}, row}
-    plus a sibling `<key>.calls/` directory of per-call receipts. Match by the
-    binding's task_id and state_hash (not the trajectory row's trajectory_id).
-    Parent receipts live under `round_N/rollout_cache/<parent_state>/`; candidate
-    receipts under `round_N/attempts/attempt_K/rollout_cache/<candidate_state>/`,
-    so search recursively and let the binding select the correct side.
+
+def _side_calls(rows: list[dict], cache_root: Path, round_n: int) -> dict:
+    """Reconcile real Qwen calls per task against side-scoped persisted receipts.
+
+    Each trajectory row must bind to exactly one persisted rollout receipt by
+    task/state_hash/rollout/round_scope; that receipt's row must agree; and every
+    model call must align transport<->persisted by unique call_id with terminal
+    status, request hash and response model identity. Totals are summed only after
+    per-task reconciliation, so two offsetting per-task errors cannot certify.
     """
-    side_tasks = {r.get("task_id") for r in rows}
-    side_states = {r.get("state_hash") for r in rows}
-    total = 0
-    for cache_json in round_dir.glob("**/rollout_cache/*/train_rollouts/*.json"):
+    receipts = {}
+    for cache_json in cache_root.glob("*/train_rollouts/*.json"):
         receipt = _read_json(cache_json)
-        if not receipt:
+        if not isinstance(receipt, dict):
             continue
         binding = receipt.get("binding") or {}
-        if binding.get("task") not in side_tasks or binding.get("state_hash") not in side_states:
-            continue
-        calls_dir = cache_json.parent / (cache_json.stem + ".calls")
-        if calls_dir.is_dir():
-            total += sum(1 for _ in calls_dir.glob("*.json"))
-    return total
+        key = (binding.get("task"), binding.get("state_hash"), binding.get("rollout"))
+        receipts.setdefault(key, []).append((cache_json, receipt))
+
+    trajectory_calls = 0
+    transport_calls = 0
+    persisted_receipts = 0
+    per_task_ok = True
+    for r in rows:
+        tid = r.get("task_id")
+        state = r.get("state_hash")
+        rollout = r.get("rollout_id", 0)
+        calls = int(r.get("model_call_count") or 0)
+        trajectory_calls += calls
+        transport = r.get("transport_calls") or []
+        transport_calls += len(transport)
+        matches = receipts.get((tid, state, rollout), [])
+        valid = len(matches) == 1
+        if valid:
+            cache_json, receipt = matches[0]
+            binding = receipt.get("binding") or {}
+            scope = binding.get("round_scope") or {}
+            row_receipt = receipt.get("row") or {}
+            if (scope.get("role") != r.get("source_role")
+                    or scope.get("round_id") != round_n
+                    or scope.get("manifest_hash") != r.get("manifest_hash")
+                    or scope.get("collection_stage") != r.get("collection_stage")
+                    or binding.get("task_source_hash") != r.get("task_source_hash")):
+                valid = False
+            receipt_count = row_receipt.get("model_call_count")
+            if receipt_count is None:
+                receipt_count = len(row_receipt.get("model_calls") or [])
+            if row_receipt.get("task_id") != tid or receipt_count != calls:
+                valid = False
+            calls_dir = cache_json.parent / (cache_json.stem + ".calls")
+            persisted = {}
+            if calls_dir.is_dir():
+                for call_file in calls_dir.glob("*.json"):
+                    call = _read_json(call_file)
+                    if isinstance(call, dict):
+                        persisted.setdefault(call.get("call_id"), []).append(call)
+            if len(persisted) != calls or set(persisted) != set(range(calls)):
+                valid = False
+            else:
+                for call_id in range(calls):
+                    entries = persisted[call_id]
+                    if len(entries) != 1:
+                        valid = False
+                        break
+                    call = entries[0]
+                    cbinding = call.get("binding") or {}
+                    response = call.get("response") or {}
+                    if (call.get("status") != "completed"
+                            or not call.get("request_sha256")
+                            or not response.get("model_ref_response")
+                            or cbinding.get("task") != tid
+                            or cbinding.get("state_hash") != state
+                            or cbinding.get("rollout") != rollout):
+                        valid = False
+                        break
+            persisted_receipts += len(persisted) if valid else sum(len(v) for v in persisted.values())
+        else:
+            persisted_receipts += 0
+        if len(transport) != calls:
+            valid = False
+        else:
+            for i, tc in enumerate(transport):
+                if tc.get("call_id") != i or tc.get("status") != "completed":
+                    valid = False
+                    break
+        per_task_ok = per_task_ok and valid
+    cross_check_ok = (per_task_ok and trajectory_calls == transport_calls == persisted_receipts)
+    return {"trajectory_calls": trajectory_calls, "transport_calls": transport_calls,
+            "persisted_receipts": persisted_receipts, "cross_check_ok": cross_check_ok}
 
 
 def _transitions(parent_rows: list[dict], candidate_rows: list[dict]) -> dict:
     parent = {r.get("task_id"): _success(r) for r in parent_rows}
     candidate = {r.get("task_id"): _success(r) for r in candidate_rows}
-    ids = set(parent) | set(candidate)
     counts = {"new_success": 0, "new_regression": 0, "retained_failure": 0, "retained_success": 0}
-    for tid in ids:
+    for tid in set(parent) | set(candidate):
         before, after = parent.get(tid, False), candidate.get(tid, False)
         if after and not before:
             counts["new_success"] += 1
@@ -126,7 +294,7 @@ def _transitions(parent_rows: list[dict], candidate_rows: list[dict]) -> dict:
     return counts
 
 
-def _zero_call_overlap(parent_rows: list[dict], candidate_rows: list[dict], transitions: dict) -> dict:
+def _zero_call_overlap(parent_rows, candidate_rows) -> dict:
     parent_calls = {r.get("task_id"): int(r.get("model_call_count") or 0) for r in parent_rows}
     candidate_calls = {r.get("task_id"): int(r.get("model_call_count") or 0) for r in candidate_rows}
     parent_success = {r.get("task_id"): _success(r) for r in parent_rows}
@@ -135,82 +303,287 @@ def _zero_call_overlap(parent_rows: list[dict], candidate_rows: list[dict], tran
     def zero(tid):
         return parent_calls.get(tid, 0) == 0 or candidate_calls.get(tid, 0) == 0
 
-    new_success_zero = sum(1 for tid in candidate_success
-                           if candidate_success[tid] and not parent_success.get(tid, False) and zero(tid))
-    new_regression_zero = sum(1 for tid in parent_success
-                              if parent_success[tid] and not candidate_success.get(tid, False) and zero(tid))
-    return {"new_success_zero_call": new_success_zero, "new_regression_zero_call": new_regression_zero}
+    return {
+        "new_success_zero_call": sum(1 for tid in candidate_success
+                                     if candidate_success[tid] and not parent_success.get(tid, False) and zero(tid)),
+        "new_regression_zero_call": sum(1 for tid in parent_success
+                                        if parent_success[tid] and not candidate_success.get(tid, False) and zero(tid)),
+    }
+
+
+def _task_transition_details(parent_rows, candidate_rows) -> list[dict]:
+    parent = {r.get("task_id"): r for r in parent_rows}
+    candidate = {r.get("task_id"): r for r in candidate_rows}
+    details = []
+    for tid in sorted(set(parent) | set(candidate)):
+        p, c = parent.get(tid, {}), candidate.get(tid, {})
+        before, after = _success(p), _success(c)
+        transition = ("new_success" if after and not before else
+                      "new_regression" if before and not after else
+                      "retained_success" if before and after else "retained_failure")
+        details.append({
+            "task_id": tid, "transition": transition,
+            "parent_calls": int(p.get("model_call_count") or 0),
+            "candidate_calls": int(c.get("model_call_count") or 0),
+            "parent_success": before, "candidate_success": after,
+            "parent_infrastructure_error": p.get("infrastructure_error"),
+            "candidate_infrastructure_error": c.get("infrastructure_error"),
+            "parent_errno": {"enoent": _mentions(p, "enoent"), "eagain": _mentions(p, "eagain")},
+            "candidate_errno": {"enoent": _mentions(c, "enoent"), "eagain": _mentions(c, "eagain")},
+        })
+    return details
+
+
+def _find_transport_receipts(run_dir: Path, operation: str) -> list[dict]:
+    found = []
+    for result_file in (run_dir / "controller_transport").glob("*/result.json"):
+        receipt = _read_json(result_file)
+        if isinstance(receipt, dict) and receipt.get("operation") == operation:
+            found.append(receipt)
+    return found
+
+
+def _find_turn_receipts(run_dir: Path, operation: str) -> list[dict]:
+    found = []
+    for receipt_file in (run_dir / "meta_session/turns").glob("*/receipt.json"):
+        receipt = _read_json(receipt_file)
+        if isinstance(receipt, dict) and receipt.get("operation") == operation:
+            found.append(receipt)
+    return found
+
+
+def _receipt_for_round(receipts: list[dict], round_n: int, path_keys: tuple) -> dict | None:
+    marker = f"round_{round_n}/"
+    for receipt in receipts:
+        for key in path_keys:
+            value = receipt.get(key)
+            if isinstance(value, str) and marker in value:
+                return receipt
+    return None
+
+
+def _snapshot_valid(receipt_path: Path) -> bool:
+    receipt = _read_json(receipt_path)
+    if not isinstance(receipt, dict) or receipt.get("status") != "snapshotted":
+        return False
+    combinations = receipt.get("combinations") or {}
+    if "selected" not in combinations:
+        return False
+    files_sha256 = receipt.get("files_sha256") or {}
+    if not files_sha256:
+        return False
+    snap_dir = receipt_path.parent
+    for rel, expected in files_sha256.items():
+        actual = _sha256(snap_dir / rel)
+        if actual is None or actual != expected:
+            return False
+    selected_state = combinations["selected"].get("state_path")
+    return bool(selected_state and Path(selected_state).is_file())
 
 
 def _round_summary(run_dir: Path, number: int) -> dict | None:
     round_dir = run_dir / f"round_{number}"
     if not round_dir.is_dir():
         return None
+    blockers = []
     parent_rows = _read_jsonl(round_dir / "parent/train_trajectories.jsonl")
     attempts = sorted(round_dir.glob("attempts/attempt_*"))
-    attempt = attempts[0] if attempts else None
-    candidate_rows = _read_jsonl(attempt / "candidate/train_trajectories.jsonl") if attempt else []
-    decision = _read_json(attempt / "decision.json") if attempt else None
-    selection = _read_json(attempt / "selection.json") if attempt else None
+    attempt_names = {a.name for a in attempts}
+    attempt = round_dir / "attempts/attempt_1"
+    if attempt_names != {"attempt_1"}:
+        blockers.append(f"attempt set {sorted(attempt_names)} != {{attempt_1}}")
+    candidate_rows = _read_jsonl(attempt / "candidate/train_trajectories.jsonl")
+    decision = _read_json(attempt / "decision.json")
+    selection = _read_json(attempt / "selection.json")
+    parent_performance = _read_json(round_dir / "parent/performance.json")
+    candidate_performance = _read_json(attempt / "candidate/performance.json")
+
+    if not isinstance(decision, dict) or decision.get("round") != number or decision.get("attempt") != 1:
+        blockers.append("decision round/attempt binding invalid")
+    if not isinstance(selection, dict) or selection.get("round") != number or selection.get("attempt") != 1:
+        blockers.append("selection round/attempt binding invalid")
+
     parent = _side_stats(parent_rows)
     candidate = _side_stats(candidate_rows)
-    parent["persisted_receipts"] = _persisted_receipts(round_dir, parent_rows)
-    candidate["persisted_receipts"] = _persisted_receipts(round_dir, candidate_rows)
+    parent_cohort = _cohort_valid(parent_rows, parent_performance, number, "parent_pre_update")
+    candidate_cohort = _cohort_valid(candidate_rows, candidate_performance, number, "child_post_update")
+    blockers.extend(f"parent: {x}" for x in parent_cohort)
+    blockers.extend(f"candidate: {x}" for x in candidate_cohort)
 
-    def side_ok(stats):
-        return (stats["trajectory_calls"] == stats["transport_calls"] == stats["persisted_receipts"])
+    parent_calls = _side_calls(parent_rows, round_dir / "rollout_cache", number)
+    candidate_calls = _side_calls(candidate_rows, attempt / "rollout_cache", number)
+    parent["persisted_receipts"] = parent_calls["persisted_receipts"]
+    candidate["persisted_receipts"] = candidate_calls["persisted_receipts"]
+    cross_check_ok = parent_calls["cross_check_ok"] and candidate_calls["cross_check_ok"]
+    if not cross_check_ok:
+        blockers.append("per-task/per-call persisted receipt reconciliation failed")
 
-    cross_check_ok = side_ok(parent) and side_ok(candidate)
-    denominator_match = parent["denominator"] == candidate["denominator"] and parent["denominator"] > 0
-    ids_match = parent["ids"] == candidate["ids"]
+    denominator_match = (parent["denominator"] == candidate["denominator"] == EXPECTED_COHORT)
+    ids_match = parent["ids"] == candidate["ids"] and len(set(parent["ids"])) == EXPECTED_COHORT
     source_hashes_match = (parent["task_source_hashes"] == candidate["task_source_hashes"]
-                           and parent["manifest_hashes"] == candidate["manifest_hashes"])
+                           and parent["manifest_hashes"] == candidate["manifest_hashes"]
+                           and all(parent["task_source_hashes"].values()))
+    if not (denominator_match and ids_match and source_hashes_match):
+        blockers.append("paired denominator/IDs/source hashes not exactly consistent")
+
     transitions = _transitions(parent_rows, candidate_rows)
     delta = None
     if parent["macro_success"] is not None and candidate["macro_success"] is not None:
         delta = candidate["macro_success"] - parent["macro_success"]
+
     decision_value = (selection or {}).get("decision")
     terminal = decision_value in TERMINAL_DECISIONS
-    activated = decision_value == "accept_candidate"
+    if not terminal:
+        blockers.append(f"selection decision {decision_value!r} not terminal")
+
+    # selection numbers must match recomputed paired facts
+    if isinstance(selection, dict):
+        checks = [("before", parent["macro_success"]), ("after", candidate["macro_success"]),
+                  ("delta", delta), ("paired_tasks", EXPECTED_COHORT),
+                  ("new_success", transitions["new_success"]),
+                  ("new_regression", transitions["new_regression"])]
+        for key, expected in checks:
+            actual = selection.get(key)
+            if expected is None or actual is None or abs(actual - expected) > 1e-9:
+                blockers.append(f"selection {key} inconsistent with recomputed facts")
+
+    # comparison receipt + task differences
+    compare = _receipt_for_round(_find_transport_receipts(run_dir, "compare_scores"),
+                                 number, ("before_path", "after_path"))
+    if not isinstance(compare, dict) or compare.get("status") != "compared":
+        blockers.append("compare_scores receipt missing/not compared")
+    else:
+        if delta is None or abs(compare.get("delta", 0) - delta) > 1e-9:
+            blockers.append("compare_scores delta inconsistent")
+    differences = _read_json(attempt / "task_differences/summary.json")
+    if not isinstance(differences, dict) or differences.get("status") != "compared":
+        blockers.append("task_differences summary missing/not compared")
+    else:
+        counts = differences.get("counts") or {}
+        if (differences.get("paired_tasks") != EXPECTED_COHORT
+                or differences.get("same_id_set") is not True
+                or differences.get("source_mismatches")
+                or (differences.get("duplicates") or {}).get("before")
+                or (differences.get("duplicates") or {}).get("after")
+                or differences.get("missing_in_after") or differences.get("extra_in_after")):
+            blockers.append("task_differences pairing not clean")
+        for key in ("new_success", "new_regression", "retained_failure"):
+            if counts.get(key) != transitions[key]:
+                blockers.append(f"task_differences {key} inconsistent")
+
+    # activation / retention
+    activated = False
+    if decision_value == "accept_candidate":
+        if delta is None or delta <= 0:
+            blockers.append("accept_candidate without strictly positive gain")
+        activate = _receipt_for_round(_find_transport_receipts(run_dir, "activate_task"),
+                                      number, ("source_state", "active_state"))
+        if (isinstance(activate, dict) and activate.get("status") == "activated_as_requested"
+                and activate.get("source_sha256") == activate.get("active_sha256")
+                and activate.get("source_sha256")):
+            activated = True
+        else:
+            blockers.append("accept_candidate lacks activate_task receipt")
+    elif decision_value == "retain_parent":
+        activate = _receipt_for_round(_find_transport_receipts(run_dir, "activate_task"),
+                                      number, ("source_state", "active_state"))
+        if isinstance(activate, dict) and activate.get("status") == "activated_as_requested":
+            blockers.append("retain_parent must not activate candidate")
+
     snapshot_receipt = run_dir / "snapshots" / f"round_{number}_attempt_1/snapshot_receipt.json"
     snapshot_present = snapshot_receipt.is_file()
-    candidate_performance = (attempt / "candidate/performance.json") if attempt else None
-    products_complete = bool(
-        terminal and decision and selection and candidate_performance and candidate_performance.is_file()
-        and snapshot_present and denominator_match and ids_match and source_hashes_match and cross_check_ok)
+    if not _snapshot_valid(snapshot_receipt):
+        blockers.append("snapshot receipt missing/invalid/hash mismatch")
+
+    component = (decision or {}).get("component")
+    if component == "MODEL":
+        sft_ok, sft_status = _model_round_evidence(run_dir, number)
+        if not sft_ok:
+            blockers.append(f"MODEL selected but SFT evidence {sft_status}")
+
+    products_complete = not blockers
     evidence_hashes = {
         "parent_trajectories": _sha256(round_dir / "parent/train_trajectories.jsonl"),
         "parent_performance": _sha256(round_dir / "parent/performance.json"),
-        "candidate_trajectories": _sha256(attempt / "candidate/train_trajectories.jsonl") if attempt else None,
-        "candidate_performance": _sha256(candidate_performance) if candidate_performance else None,
-        "decision": _sha256(attempt / "decision.json") if attempt else None,
-        "selection": _sha256(attempt / "selection.json") if attempt else None,
+        "candidate_trajectories": _sha256(attempt / "candidate/train_trajectories.jsonl"),
+        "candidate_performance": _sha256(attempt / "candidate/performance.json"),
+        "decision": _sha256(attempt / "decision.json"),
+        "selection": _sha256(attempt / "selection.json"),
         "snapshot_receipt": _sha256(snapshot_receipt),
     }
     return {
         "round": number,
-        "component": (decision or {}).get("component"),
+        "component": component,
         "attempt_count": len(attempts),
         "selection": selection,
         "activated": activated,
         "terminal": terminal,
         "products_complete": products_complete,
+        "product_blockers": blockers,
         "parent": parent,
         "candidate": candidate,
         "denominator_match": denominator_match,
         "ids_match": ids_match,
         "source_hashes_match": source_hashes_match,
-        "calls": {"parent": {k: parent[k] for k in ("trajectory_calls", "transport_calls", "persisted_receipts")},
-                  "candidate": {k: candidate[k] for k in ("trajectory_calls", "transport_calls", "persisted_receipts")},
+        "calls": {"parent": {k: parent_calls[k] for k in ("trajectory_calls", "transport_calls", "persisted_receipts")},
+                  "candidate": {k: candidate_calls[k] for k in ("trajectory_calls", "transport_calls", "persisted_receipts")},
                   "cross_check_ok": cross_check_ok},
         "verification": {"parent": parent["verification"], "candidate": candidate["verification"]},
         "errors": {"parent": parent["errors"], "candidate": candidate["errors"]},
         "delta": delta,
         "transitions": transitions,
-        "zero_call_overlap": _zero_call_overlap(parent_rows, candidate_rows, transitions),
+        "zero_call_overlap": _zero_call_overlap(parent_rows, candidate_rows),
+        "task_transitions": _task_transition_details(parent_rows, candidate_rows),
         "snapshot_present": snapshot_present,
         "evidence_hashes": evidence_hashes,
     }
+
+
+def _model_round_evidence(run_dir: Path, number: int):
+    attempt = run_dir / f"round_{number}/attempts/attempt_1"
+    sft = _receipt_for_round(_find_transport_receipts(run_dir, "sft"), number,
+                             ("candidate_state_path", "training_metrics_path"))
+    if not isinstance(sft, dict):
+        return False, "selected_pending"
+    if sft.get("status") not in SUCCESS_JOB_STATUS:
+        return False, "selected_failed"
+    metrics_path = sft.get("training_metrics_path")
+    metrics = _read_json(metrics_path) if metrics_path else None
+    if not isinstance(metrics, dict):
+        return False, "selected_pending"
+    if "model_update" not in str(metrics_path):
+        return False, "selected_pending"
+    complete = (metrics.get("optimizer_steps", 0) > 0 and metrics.get("ranks") == 4
+                and metrics.get("epochs") == 1 and metrics.get("merged") is True
+                and metrics.get("reloaded") is True)
+    if not complete:
+        return False, "selected_failed"
+    return True, "completed"
+
+
+def _model_sft(rounds: list[dict], run_dir: Path) -> dict:
+    model_rounds = [s["round"] for s in rounds if s.get("component") == "MODEL"]
+    if not model_rounds:
+        return {"status": "not_selected", "rounds": []}
+    completed = []
+    pending = []
+    failed = []
+    for number in model_rounds:
+        ok, status = _model_round_evidence(run_dir, number)
+        if ok:
+            completed.append(number)
+        elif status == "selected_failed":
+            failed.append(number)
+        else:
+            pending.append(number)
+    if pending:
+        status = "selected_pending"
+    elif failed:
+        status = "selected_failed"
+    else:
+        status = "completed"
+    return {"status": status, "rounds": completed,
+            "pending_rounds": pending, "failed_rounds": failed}
 
 
 def _run_status(run_dir: Path) -> dict:
@@ -224,38 +597,123 @@ def _run_status(run_dir: Path) -> dict:
     finish = re.search(r"Finish allowed:\s*\*\*([^*]+)\*\*", text)
     return {
         "status": state.get("status"),
+        "last_turn_status": state.get("last_turn_status"),
         "current_stage": stage.group(1).strip() if stage else None,
         "finish_allowed": (finish.group(1).strip().lower() == "yes") if finish else False,
     }
 
 
-def _jobs_final_receipts(run_dir: Path) -> dict:
+def _jobs_validation(run_dir: Path) -> dict:
     jobs_dir = run_dir / "meta_session/jobs"
     total = 0
     missing = []
+    invalid = []
+    required_failed = []
     if jobs_dir.is_dir():
         for job_dir in sorted(jobs_dir.iterdir()):
+            if not job_dir.is_dir():
+                continue
             job = _read_json(job_dir / "job.json")
-            if not job:
+            if not isinstance(job, dict):
+                invalid.append(job_dir.name + ":job.json")
                 continue
             total += 1
+            job_id = job.get("job_id") or job_dir.name
+            request = job.get("request") or {}
+            operation = request.get("operation")
             result_path = job.get("result_path")
-            if not result_path or not Path(result_path).is_file():
-                missing.append(job.get("job_id") or job_dir.name)
-    return {"total": total, "missing_final_receipts": missing}
+            result = _read_json(result_path) if result_path else None
+            if not isinstance(result, dict):
+                missing.append(job_id)
+                continue
+            if result.get("operation") != operation:
+                invalid.append(job_id + ":operation")
+            status = result.get("status")
+            if status in RUNNING_JOB_STATUS or status is None:
+                invalid.append(job_id + ":non-terminal")
+            if operation in REQUIRED_JOB_OPERATIONS:
+                ok = status in SUCCESS_JOB_STATUS
+                if status == "exited":
+                    ok = result.get("returncode") == 0
+                if not ok:
+                    required_failed.append(job_id)
+    return {"total": total, "missing_final_receipts": missing,
+            "invalid": invalid, "required_failed": required_failed}
 
 
-def _model_sft(rounds: list[dict], run_dir: Path) -> dict:
-    recorded = []
+def _supervision(run_dir: Path) -> dict:
+    supervision_dir = run_dir / "meta_session/supervision"
+    latest = None
+    if supervision_dir.is_dir():
+        numbered = sorted((d for d in supervision_dir.iterdir() if d.is_dir() and d.name.isdigit()),
+                          key=lambda d: int(d.name))
+        latest = numbered[-1] if numbered else None
+    reconcile_ok = False
+    exit_ok = False
+    if latest is not None:
+        reconcile = _read_json(latest / "reconcile.json")
+        reconcile_ok = (isinstance(reconcile, dict) and reconcile.get("status") == "complete"
+                        and not reconcile.get("remaining"))
+        try:
+            exit_ok = (latest / "exit").read_text(encoding="utf-8").strip() == "0"
+        except OSError:
+            exit_ok = False
+    return {"present": latest is not None, "reconcile_complete": reconcile_ok, "exit_zero": exit_ok}
+
+
+def _service_registry(run_dir: Path, active: dict) -> dict:
+    # Production stop_services writes the output-root owned registry
+    # (output_root/services/four_gpu_services.json, phase=services_stopped). The run
+    # lives at output_root/runs/<run_name>, so output_root is run_dir.parent.parent.
+    # Ownership is bound by the registry checkpoint matching the active checkpoint.
+    output_root = run_dir.parent.parent
+    registry_path = output_root / "services/four_gpu_services.json"
+    registry = _read_json(registry_path)
+    ok = False
+    reason = "missing"
+    if isinstance(registry, dict):
+        if registry.get("phase") != "services_stopped":
+            reason = "phase_not_stopped"
+        else:
+            gpus = {s.get("gpu") for s in registry.get("services", [])}
+            checkpoint = active.get("checkpoint_path")
+            if gpus != {0, 1, 2, 3}:
+                reason = "gpu_set"
+            elif checkpoint and registry.get("checkpoint") != checkpoint:
+                reason = "checkpoint_binding"
+            elif not registry.get("stopped_at"):
+                reason = "no_stopped_at"
+            else:
+                ok = True
+                reason = "stopped"
+    return {"ok": ok, "reason": reason, "path": str(registry_path),
+            "sha256": _sha256(registry_path)}
+
+
+def _active_chain(run_dir: Path, rounds: list[dict], active: dict) -> list[str]:
+    reasons = []
+    a0_state = _read_json(run_dir / "snapshots/A0/task/task_state_snapshot.json")
+    a0_generation = a0_state.get("generation") if isinstance(a0_state, dict) else None
+    if a0_generation is None:
+        reasons.append("A0 snapshot generation missing")
+    previous_selected = a0_generation
+    last_selected = None
     for summary in rounds:
-        if summary.get("component") != "MODEL":
-            continue
-        attempt = run_dir / f"round_{summary['round']}/attempts/attempt_1"
-        metrics = _read_json(attempt / "candidate/training_metrics.json")
-        decision = _read_json(attempt / "decision.json")
-        if metrics and decision and decision.get("component") == "MODEL":
-            recorded.append(summary["round"])
-    return {"status": "recorded" if recorded else "not_run", "rounds": recorded}
+        number = summary["round"]
+        attempt = run_dir / f"round_{number}/attempts/attempt_1"
+        parent_state = _read_json(attempt / "before/parent_task.json")
+        candidate_state = _read_json(attempt / "build/candidate_state.json")
+        parent_gen = parent_state.get("generation") if isinstance(parent_state, dict) else None
+        candidate_gen = candidate_state.get("generation") if isinstance(candidate_state, dict) else None
+        decision_value = (summary.get("selection") or {}).get("decision")
+        selected_gen = candidate_gen if decision_value == "accept_candidate" else parent_gen
+        if parent_gen is None or parent_gen != previous_selected:
+            reasons.append(f"B{number} parent generation != previous selected (active chain)")
+        last_selected = selected_gen
+        previous_selected = selected_gen
+    if rounds and active.get("generation") != last_selected:
+        reasons.append("final active generation != last round selected (active chain)")
+    return reasons
 
 
 def summarize(run_dir) -> dict:
@@ -265,49 +723,92 @@ def summarize(run_dir) -> dict:
     present = {s["round"] for s in rounds}
     missing_rounds = [n for n in range(1, EXPECTED_ROUNDS + 1) if n not in present]
     status = _run_status(run_dir)
-    jobs = _jobs_final_receipts(run_dir)
+    jobs = _jobs_validation(run_dir)
     active = _read_json(run_dir / "active_task.json") or {}
-    services_stopped = _read_json(run_dir / "meta_session/services_stopped.json")
-    services_ok = bool(services_stopped and services_stopped.get("status") == "stopped")
+    supervision = _supervision(run_dir)
+    registry = _service_registry(run_dir, active)
+    skills_present = (run_dir / "meta/skills.jsonl").is_file()
+    context_present = (run_dir / "meta/context.json").is_file()
+    a0_present = (run_dir / "snapshots/A0/snapshot_receipt.json").is_file()
+    finish_receipts = [r for r in _find_turn_receipts(run_dir, "finish_experiment")
+                       if r.get("status") == "complete"]
+    chain_reasons = _active_chain(run_dir, rounds, active)
 
-    blockers = []
+    protocol_blockers = []
     if missing_rounds:
-        blockers.append("missing rounds: " + ", ".join(f"B{n}" for n in missing_rounds))
-    incomplete_products = [s["round"] for s in rounds if not s["products_complete"]]
-    if incomplete_products:
-        blockers.append("rounds lacking required products: " + ", ".join(f"B{n}" for n in incomplete_products))
+        protocol_blockers.append("missing rounds: " + ", ".join(f"B{n}" for n in missing_rounds))
+    incomplete = [s["round"] for s in rounds if not s["products_complete"]]
+    if incomplete:
+        protocol_blockers.append("rounds lacking required products: " + ", ".join(f"B{n}" for n in incomplete))
     if completed_rounds != EXPECTED_ROUNDS:
-        blockers.append(f"completed_rounds={completed_rounds} != expected {EXPECTED_ROUNDS}")
+        protocol_blockers.append(f"completed_rounds={completed_rounds} != expected {EXPECTED_ROUNDS}")
+    if not a0_present:
+        protocol_blockers.append("A0 snapshot missing")
+    if not skills_present:
+        protocol_blockers.append("skills ledger missing")
+    if not context_present:
+        protocol_blockers.append("meta context missing")
+    if active.get("generation") is None:
+        protocol_blockers.append("active identity missing")
+    protocol_blockers.extend(chain_reasons)
     if status["status"] != "complete":
-        blockers.append(f"meta state status={status['status']!r} != 'complete'")
+        protocol_blockers.append(f"meta state status={status['status']!r} != 'complete'")
+    if status["current_stage"] != "COMPLETE":
+        protocol_blockers.append(f"current_stage={status['current_stage']!r} != COMPLETE")
     if not status["finish_allowed"]:
-        blockers.append("finish_allowed is not true")
+        protocol_blockers.append("finish_allowed is not true")
+    if status["last_turn_status"] != "completed":
+        protocol_blockers.append("last_turn_status not completed")
+    if not finish_receipts:
+        protocol_blockers.append("finish_experiment complete receipt missing")
     if jobs["missing_final_receipts"]:
-        blockers.append("jobs missing final receipts: " + ", ".join(jobs["missing_final_receipts"]))
-    if not services_ok:
-        blockers.append("stopped services evidence missing")
+        protocol_blockers.append("jobs missing final receipts: " + ", ".join(jobs["missing_final_receipts"]))
+    if jobs["invalid"]:
+        protocol_blockers.append("jobs invalid/non-terminal: " + ", ".join(jobs["invalid"]))
+    if jobs["required_failed"]:
+        protocol_blockers.append("required production jobs failed: " + ", ".join(jobs["required_failed"]))
+    if not supervision["reconcile_complete"]:
+        protocol_blockers.append("supervision reconcile not complete")
+    model_sft = _model_sft(rounds, run_dir)
+    if model_sft["status"] in ("selected_pending", "selected_failed"):
+        protocol_blockers.append(f"MODEL/SFT evidence {model_sft['status']}")
 
-    run_complete = (completed_rounds == EXPECTED_ROUNDS and not blockers)
+    protocol_complete = (completed_rounds == EXPECTED_ROUNDS and not protocol_blockers)
+
+    cleanup_blockers = []
+    if not registry["ok"]:
+        cleanup_blockers.append(f"stopped services registry pending ({registry['reason']})")
+    if not supervision["exit_zero"]:
+        cleanup_blockers.append("supervision exit not zero (cleanup pending)")
+    run_complete = protocol_complete and not cleanup_blockers
+
+    blockers = protocol_blockers + cleanup_blockers
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_dir": str(run_dir),
         "expected_rounds": EXPECTED_ROUNDS,
         "completed_rounds": completed_rounds,
+        "protocol_complete": protocol_complete,
+        "protocol_complete_blockers": protocol_blockers,
         "run_complete": run_complete,
         "run_complete_blockers": blockers,
         "rounds": rounds,
         "active_identity": {k: active.get(k) for k in ("generation", "model_ref", "harness_path", "checkpoint_path")},
-        "skills_present": (run_dir / "meta/skills.jsonl").is_file(),
-        "context_present": (run_dir / "meta/context.json").is_file(),
+        "skills_present": skills_present,
+        "context_present": context_present,
+        "a0_present": a0_present,
         "state": status,
         "jobs": jobs,
-        "services_stopped": services_ok,
-        "model_sft": _model_sft(rounds, run_dir),
+        "supervision": supervision,
+        "services_stopped": registry["ok"],
+        "service_registry": registry,
+        "model_sft": model_sft,
         "evidence_hashes": {
             "active_task": _sha256(run_dir / "active_task.json"),
             "meta_state": _sha256(run_dir / "meta_session/state.json"),
             "skills": _sha256(run_dir / "meta/skills.jsonl"),
             "context": _sha256(run_dir / "meta/context.json"),
+            "service_registry": registry["sha256"],
         },
     }
 
@@ -315,20 +816,33 @@ def summarize(run_dir) -> dict:
 def _markdown(result: dict) -> str:
     lines = [f"# DeepCoder five-round summary: {result['run_dir']}",
              f"- completed_rounds: {result['completed_rounds']}/{result['expected_rounds']}",
+             f"- protocol_complete: {result['protocol_complete']}",
              f"- run_complete: {result['run_complete']}",
+             f"- active identity: {result['active_identity']}",
+             f"- skills_present: {result['skills_present']} context_present: {result['context_present']} "
+             f"a0_present: {result['a0_present']}",
+             f"- services_stopped: {result['services_stopped']} supervision: {result['supervision']}",
              f"- model_sft: {result['model_sft']['status']} rounds={result['model_sft']['rounds']}"]
     if result["run_complete_blockers"]:
         lines.append("- blockers:")
         lines.extend(f"  - {b}" for b in result["run_complete_blockers"])
     for s in result["rounds"]:
         lines.append(f"\n## B{s['round']} component={s['component']} decision={(s['selection'] or {}).get('decision')}")
+        lines.append(f"- attempt_count: {s['attempt_count']} activated: {s['activated']} "
+                     f"snapshot_present: {s['snapshot_present']} products_complete: {s['products_complete']}")
         lines.append(f"- denominator parent/candidate: {s['parent']['denominator']}/{s['candidate']['denominator']} "
                      f"match={s['denominator_match']} ids_match={s['ids_match']} source_hashes_match={s['source_hashes_match']}")
         lines.append(f"- delta: {s['delta']} transitions: {s['transitions']}")
-        lines.append(f"- calls cross_check_ok: {s['calls']['cross_check_ok']}")
+        lines.append(f"- calls parent: {s['calls']['parent']}")
+        lines.append(f"- calls candidate: {s['calls']['candidate']} cross_check_ok: {s['calls']['cross_check_ok']}")
         lines.append(f"- verification parent: {s['verification']['parent']}")
+        lines.append(f"- verification candidate: {s['verification']['candidate']}")
         lines.append(f"- errors parent: {s['errors']['parent']}")
+        lines.append(f"- errors candidate: {s['errors']['candidate']}")
         lines.append(f"- zero_call_overlap: {s['zero_call_overlap']}")
+        if s["product_blockers"]:
+            lines.append("- product_blockers:")
+            lines.extend(f"  - {b}" for b in s["product_blockers"])
     return "\n".join(lines) + "\n"
 
 

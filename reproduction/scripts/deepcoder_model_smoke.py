@@ -148,7 +148,7 @@ def _read_rows(path):
 
 def _matching_receipt(source_run, row):
     matches = []
-    for path in sorted(Path(source_run).glob("rollout_cache/*/train_rollouts/*.json")):
+    for path in sorted(Path(source_run).glob("round_1/rollout_cache/*/train_rollouts/*.json")):
         if ".calls" in path.name:
             continue
         value = read(path)
@@ -174,9 +174,29 @@ def _file_tree_seals(path):
     return seals
 
 
-def _a0_input_seals(state):
+def _completed_turn(source_run, operation):
+    matches = []
+    for command_path in sorted((source_run / "meta_session/turns").glob("*/command.json")):
+        command = read(command_path)
+        request = command.get("request") or {}
+        if command.get("action") != "tool" or request.get("operation") != operation:
+            continue
+        receipt_path = command_path.with_name("receipt.json")
+        if not receipt_path.is_file():
+            continue
+        receipt = read(receipt_path)
+        if receipt.get("operation") == operation and receipt.get("status") == "completed":
+            matches.append((command_path.parent, request, receipt))
+    if len(matches) != 1:
+        raise SmokeBlocked(f"MODEL import requires exactly one completed {operation} source turn")
+    return matches[0]
+
+
+def _a0_input_seals(state, parent_harness_path=None):
     checkpoint = _file_tree_seals(Path(state.checkpoint_path))
     harness = _file_tree_seals(Path(state.harness_path))
+    if parent_harness_path is not None:
+        harness.update(_file_tree_seals(Path(parent_harness_path)))
     artifacts = (_file_tree_seals(Path(state.artifacts.directory))
                  if state.artifacts.directory else {})
     provenance = {}
@@ -192,7 +212,7 @@ def _a0_input_seals(state):
 
 def _verify_input_seals(source):
     state = load_task(read(Path(source["state_path"])))
-    current = _a0_input_seals(state)
+    current = _a0_input_seals(state, source["parent_harness_path"])
     if current != source["input_seals"]:
         changed = sorted(key for key in current if current[key] != source["input_seals"].get(key))
         raise SmokeBlocked(f"External A0 input seals changed: {changed}")
@@ -210,15 +230,19 @@ def _validate_source(source_run, release_dir):
     snapshot_path = a0_dir / "snapshot_receipt.json"
     snapshot = read(snapshot_path)
     state_path = a0_dir / "task/task_state_snapshot.json"
+    selected = (snapshot.get("combinations") or {}).get("selected") or {}
     if (snapshot.get("status") != "snapshotted"
             or Path(snapshot.get("destination", "")).resolve() != a0_dir
-            or Path(snapshot.get("restorable_task_state_path", "")).resolve() != state_path):
+            or Path(snapshot.get("restorable_task_state_path", "")).resolve() != state_path
+            or Path(selected.get("state_path", "")).resolve() != state_path):
         raise SmokeBlocked("Source state must come only from the canonical A0 snapshot receipt")
     sealed_state = (snapshot.get("files_sha256") or {}).get("task/task_state_snapshot.json")
     if not sealed_state or sealed_state != file_hash(state_path):
         raise SmokeBlocked("A0 snapshot state hash does not match its snapshot receipt")
     state_value = read(state_path)
     state = load_task(state_value)
+    if state.generation != 0:
+        raise SmokeBlocked("Canonical A0 Task must have generation=0")
     a0_task_hash = task_hash(state)
     checkpoint = Path(state.checkpoint_path).resolve()
     harness = Path(state.harness_path).resolve()
@@ -227,11 +251,42 @@ def _validate_source(source_run, release_dir):
     harness_hash = file_hash(harness)
     policy_hash = fingerprint(state.checkpoint_manifest)
 
+    bootstrap_turn, bootstrap_request, bootstrap_receipt = _completed_turn(source_run, "bootstrap")
+    run_parent_turn, run_parent_request, run_parent_receipt = _completed_turn(source_run, "run_parent")
+    source_state = Path(selected.get("source_state", "")).resolve()
+    if (Path(bootstrap_request.get("state_path", "")).resolve() != source_state
+            or Path(bootstrap_receipt.get("state_path", "")).resolve() != source_state
+            or Path(run_parent_request.get("state_path", "")).resolve() != source_state
+            or Path(run_parent_receipt.get("state_path", "")).resolve() != source_state):
+        raise SmokeBlocked("Bootstrap/run_parent state_path does not match the A0 source state")
+    if (Path(bootstrap_request.get("config_path", "")).resolve()
+            != Path(run_parent_request.get("config_path", "")).resolve()):
+        raise SmokeBlocked("Bootstrap/run_parent config_path mismatch")
+    if Path(bootstrap_receipt.get("checkpoint_path", "")).resolve() != checkpoint:
+        raise SmokeBlocked("Bootstrap checkpoint does not match the A0 checkpoint")
+    parent_harness = Path(bootstrap_receipt.get("harness_path", "")).resolve()
+    if not parent_harness.is_file():
+        raise SmokeBlocked("Bootstrap parent Harness is unavailable")
+    if file_hash(parent_harness) != harness_hash:
+        raise SmokeBlocked("Bootstrap parent and relocated A0 Harness bytes differ")
+    parent_state = load_task(dict(state_value, harness_path=str(parent_harness)))
+    parent_task_hash = task_hash(parent_state)
+
     parent_dir = source_run / "round_1/parent"
     if parent_dir.is_symlink() or not parent_dir.is_dir():
         raise SmokeBlocked("Natural positives must come only from round_1/parent")
     trajectories_path = parent_dir / "train_trajectories.jsonl"
     performance_path = parent_dir / "performance.json"
+    if (run_parent_request.get("round_number") != 1
+            or run_parent_receipt.get("round_number") != 1
+            or run_parent_receipt.get("rollout_stage") != "parent"
+            or run_parent_receipt.get("stage") != "rollout"
+            or run_parent_receipt.get("collection_stage") != "parent_pre_update"
+            or Path(run_parent_request.get("output_dir", "")).resolve() != parent_dir
+            or Path(run_parent_receipt.get("output_dir", "")).resolve() != parent_dir
+            or Path(run_parent_receipt.get("performance_path", "")).resolve() != performance_path
+            or Path(run_parent_receipt.get("trajectories_path", "")).resolve() != trajectories_path):
+        raise SmokeBlocked("run_parent round/output_dir is not the canonical B1 parent rollout")
     rows = _read_rows(trajectories_path)
     performance = read(performance_path)
     manifest = stage_manifest(release_dir, 1)
@@ -248,7 +303,9 @@ def _validate_source(source_run, release_dir):
             or performance.get("feedback_role") != "train_evolution"
             or performance.get("collection_stage") != "parent_pre_update"
             or performance.get("total_rollouts") != 16
-            or performance.get("evaluation_protocol") != "same_round_full_B_parent_child_v2"):
+            or performance.get("evaluation_protocol") != "same_round_full_B_parent_child_v2"
+            or run_parent_receipt.get("tasks_observed") != 16
+            or run_parent_receipt.get("macro_success") != performance.get("macro_success")):
         raise SmokeBlocked("Parent performance is not complete B1 parent_pre_update evidence")
     training_provenance(rows, manifest, round_id=1, branch_id="parent",
                         harness_hash=harness_hash, parent_policy_hash=policy_hash)
@@ -294,10 +351,10 @@ def _validate_source(source_run, release_dir):
                         or response.get("model_ref_response") != state.model_ref):
                     raise SmokeBlocked(f"Transport response is not bound to the A0 checkpoint: {task_id}")
             transport_count += calls
-        if (row.get("state_hash") != a0_task_hash or row.get("model_ref") != state.model_ref
+        if (row.get("model_ref") != parent_state.model_ref
                 or row.get("harness_sha256") != harness_hash
-                or row.get("artifact_input_manifest") != state.artifacts.manifest):
-            raise SmokeBlocked(f"Parent trajectory is not bound to the A0 Task: {task_id}")
+                or row.get("artifact_input_manifest") != parent_state.artifacts.manifest):
+            raise SmokeBlocked(f"Parent trajectory is not bound to the reconstructed parent Task: {task_id}")
         receipt_path, persisted = _matching_receipt(source_run, row)
         binding = persisted.get("binding") or {}
         scope = binding.get("round_scope") or {}
@@ -309,12 +366,13 @@ def _validate_source(source_run, release_dir):
                 or scope.get("manifest_hash") != manifest["manifest_hash"]
                 or scope.get("round_id") != 1
                 or scope.get("collection_stage") != "parent_pre_update"
-                or scope.get("task_hash") != a0_task_hash
+                or scope.get("task_hash") != parent_task_hash
                 or scope.get("harness_sha256") != harness_hash
-                or scope.get("checkpoint_manifest") != state.checkpoint_manifest
-                or scope.get("artifacts") != state.artifacts.manifest
-                or binding.get("state_hash") != fingerprint(scope)):
-            raise SmokeBlocked(f"Persisted rollout receipt has the wrong round/A0 binding: {task_id}")
+                or scope.get("checkpoint_manifest") != parent_state.checkpoint_manifest
+                or scope.get("artifacts") != parent_state.artifacts.manifest
+                or binding.get("state_hash") != fingerprint(scope)
+                or row.get("state_hash") != binding.get("state_hash")):
+            raise SmokeBlocked(f"Persisted rollout receipt has the wrong round/parent Task binding: {task_id}")
         receipt_paths[task_id] = str(receipt_path)
 
     benchmark = (performance.get("benchmarks") or {}).get("deepcoder_taco") or {}
@@ -342,9 +400,20 @@ def _validate_source(source_run, release_dir):
         "official_success_count": successes,
         "transport_calls_verified": transport_count,
         "a0_task_hash": a0_task_hash,
+        "parent_task_hash": parent_task_hash,
         "checkpoint_path": str(checkpoint),
         "harness_path": str(harness),
-        "input_seals": _a0_input_seals(state),
+        "parent_harness_path": str(parent_harness),
+        "bootstrap_turn": str(bootstrap_turn.relative_to(source_run)),
+        "run_parent_turn": str(run_parent_turn.relative_to(source_run)),
+        "relocated_identity": {
+            "snapshot_task_hash": a0_task_hash,
+            "parent_task_hash": parent_task_hash,
+            "snapshot_harness_path": str(harness),
+            "parent_harness_path": str(parent_harness),
+            "harness_sha256": harness_hash,
+        },
+        "input_seals": _a0_input_seals(state, parent_harness),
         "receipt_paths": receipt_paths,
         "accepted_candidate_used": False,
         "skills_used": False,
@@ -453,7 +522,8 @@ def plan_model_smoke(source_run, output_root, machine_config):
         base_config = project_root / launcher.get("runtime_source", "runtime") / base_config
     assets = [("frozen release", release_dir), ("machine config", machine_config),
               ("base config", base_config), ("A0 checkpoint", source["checkpoint_path"]),
-              ("A0 Harness", source["harness_path"])]
+              ("A0 Harness", source["harness_path"]),
+              ("bootstrap parent Harness", source["parent_harness_path"])]
     meta_seal = source.get("meta_link_seal")
     if meta_seal:
         assets.extend([("central meta target", meta_seal["resolved_path"]),

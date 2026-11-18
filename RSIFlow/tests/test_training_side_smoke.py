@@ -1567,9 +1567,10 @@ def model_source(world, tmp_path):
     a0_dir = source_run / "snapshots/A0"
     task_dir = a0_dir / "task"
     task_dir.mkdir(parents=True)
-    harness = tmp_path / "external-harness/harness.json"
-    harness.parent.mkdir()
+    harness = source_run / "versions/harness_001/contents.json"
+    harness.parent.mkdir(parents=True)
     harness.write_bytes(world["harness"].read_bytes())
+    bootstrap_harness = world["harness"]
     artifacts = tmp_path / "external-artifacts"
     artifacts.mkdir()
     (artifacts / "workflow.json").write_text('{"step":"external-fixture"}')
@@ -1578,16 +1579,25 @@ def model_source(world, tmp_path):
     (world["checkpoint"] / "config.json").write_text('{"model_type":"fixture"}')
     (world["checkpoint"] / "tokenizer_config.json").write_text('{"tokenizer":"fixture"}')
     checkpoint_manifest = smoke.checkpoint_manifest(world["checkpoint"])
-    state = {"generation": 0, "model_ref": "Qwen3-4B", "harness_path": str(harness),
+    source_state_path = source_run / "active_task.json"
+    state = {"generation": 0, "model_ref": str(world["checkpoint"]),
+             "harness_path": str(harness),
              "checkpoint_path": str(world["checkpoint"]),
              "checkpoint_manifest": checkpoint_manifest,
              "artifacts": {"directory": str(artifacts), "manifest": artifacts_manifest}}
     state_path = task_dir / "task_state_snapshot.json"
     freeze(state_path, state)
     a0_hash = task_hash(load_task(state))
+    parent_state = dict(state, harness_path=str(bootstrap_harness))
+    parent_hash = task_hash(load_task(parent_state))
+    assert a0_hash != parent_hash
     snapshot_receipt = {"status": "snapshotted", "destination": str(a0_dir),
                         "restorable_task_state_path": str(state_path),
-                        "files_sha256": {"task/task_state_snapshot.json": file_hash(state_path)}}
+                        "files_sha256": {"task/task_state_snapshot.json": file_hash(state_path)},
+                        "combinations": {"selected": {
+                            "state_path": str(state_path),
+                            "source_state": str(source_state_path),
+                        }}}
     freeze(a0_dir / "snapshot_receipt.json", snapshot_receipt)
     freeze(source_run / "meta_session/state.json", {
         "transport": "app_server", "status": "complete", "thread_id": "source-thread",
@@ -1595,11 +1605,44 @@ def model_source(world, tmp_path):
     freeze(source_run / "round_1/attempts/attempt_1/candidate/candidate_state.json", {
         "checkpoint_path": str(tmp_path / "accepted-candidate-must-not-be-used"),
     })
+    freeze(source_state_path, {
+        "generation": 1,
+        "model_ref": str(world["checkpoint"]),
+        "harness_path": str(source_run / "round_1/attempts/attempt_1/candidate/candidate_state.json"),
+        "checkpoint_path": str(world["checkpoint"]),
+        "checkpoint_manifest": checkpoint_manifest,
+        "artifacts": {"directory": str(artifacts), "manifest": artifacts_manifest},
+    })
     (source_run / "meta").mkdir(parents=True)
     (source_run / "meta/skills.jsonl").write_text('{"skill":"must-not-be-used"}\n')
 
     parent = source_run / "round_1/parent"
     parent.mkdir(parents=True)
+    bootstrap_command = source_run / "meta_session/turns/0008/command.json"
+    freeze(bootstrap_command, {"action": "tool", "request": {
+        "operation": "bootstrap", "config_path": str(world["launcher_path"]),
+        "state_path": str(source_state_path),
+    }})
+    freeze(bootstrap_command.with_name("receipt.json"), {
+        "operation": "bootstrap", "status": "completed", "stage": "bootstrap",
+        "state_path": str(source_state_path), "checkpoint_path": str(world["checkpoint"]),
+        "harness_path": str(bootstrap_harness),
+    })
+    run_parent_command = source_run / "meta_session/turns/0011/command.json"
+    freeze(run_parent_command, {"action": "tool", "request": {
+        "operation": "run_parent", "config_path": str(world["launcher_path"]),
+        "state_path": str(source_state_path), "round_number": 1,
+        "output_dir": str(parent),
+    }})
+    freeze(run_parent_command.with_name("receipt.json"), {
+        "operation": "run_parent", "status": "completed", "stage": "rollout",
+        "round_number": 1, "rollout_stage": "parent", "output_dir": str(parent),
+        "state_path": str(source_state_path),
+        "performance_path": str(parent / "performance.json"),
+        "trajectories_path": str(parent / "train_trajectories.jsonl"),
+        "tasks_observed": 16, "macro_success": 1.0,
+        "collection_stage": "parent_pre_update",
+    })
     harness_hash = file_hash(harness)
     policy_hash = fingerprint(checkpoint_manifest)
     trajectory_rows = []
@@ -1607,24 +1650,25 @@ def model_source(world, tmp_path):
         task_id = task["task_id"]
         scope = {"role": "train_evolution", "purpose": "evolution_train", "round_id": 1,
                  "manifest_hash": parent_manifest["manifest_hash"],
-                 "collection_stage": "parent_pre_update", "task_hash": a0_hash,
+                 "collection_stage": "parent_pre_update", "task_hash": parent_hash,
                  "harness_sha256": harness_hash, "checkpoint_manifest": checkpoint_manifest,
                  "artifacts": artifacts_manifest, "protocol_hash": "official-fixture-protocol"}
+        state_hash = fingerprint(scope)
         message = {"role": "assistant", "content": "def solution():\n    return 1"}
         binding = {"checkpoint_path": str(world["checkpoint"].resolve()),
                    "weights": checkpoint_manifest}
         calls = [{"call_id": 0, "status": "completed",
                   "response": {"message": message,
                                "usage": {"prompt_tokens": 4, "completion_tokens": 4},
-                               "binding": binding, "model_ref_requested": "Qwen3-4B",
-                               "model_ref_response": "Qwen3-4B"}}]
+                               "binding": binding, "model_ref_requested": state["model_ref"],
+                               "model_ref_response": state["model_ref"]}}]
         row = {"task_id": task_id, "source": "deepcoder_taco", "domain": "code",
                "source_role": "train_evolution", "purpose": "evolution_train", "round_id": 1,
                "branch_id": "parent", "split": "evolve_train",
                "manifest_hash": parent_manifest["manifest_hash"],
                "collection_stage": "parent_pre_update", "question_id": task_id,
                "rollout_id": 0, "model_call_count": 1, "transport_calls": calls,
-               "state_hash": a0_hash, "model_ref": "Qwen3-4B",
+               "state_hash": state_hash, "model_ref": state["model_ref"],
                "harness_sha256": harness_hash, "harness_hash": harness_hash,
                "artifact_input_manifest": artifacts_manifest, "parent_policy_hash": policy_hash,
                "task_source_hash": task["content_hash"], "terminal_reward": 1.0,
@@ -1637,9 +1681,9 @@ def model_source(world, tmp_path):
         trajectory_rows.append(row)
         receipt = {"binding": {"task": task_id, "task_source_hash": task["content_hash"],
                                "task_record": task["content_hash"], "rollout": 0, "probe": False,
-                               "state_hash": fingerprint(scope), "round_scope": scope},
+                               "state_hash": state_hash, "round_scope": scope},
                    "row": row}
-        receipt_path = source_run / "rollout_cache" / fingerprint(scope) / "train_rollouts" / (
+        receipt_path = source_run / "round_1/rollout_cache" / state_hash / "train_rollouts" / (
             hashlib.sha256(f"{task_id}:0".encode()).hexdigest() + ".json")
         freeze(receipt_path, receipt)
     (parent / "train_trajectories.jsonl").write_text(
@@ -1671,7 +1715,7 @@ def model_source(world, tmp_path):
 
 def _persist_model_source_rows(model_source, rows):
     by_task = {row["task_id"]: row for row in rows}
-    for path in model_source["source_run"].glob("rollout_cache/*/train_rollouts/*.json"):
+    for path in model_source["source_run"].glob("round_1/rollout_cache/*/train_rollouts/*.json"):
         receipt = json.loads(path.read_text())
         receipt["row"] = by_task[receipt["row"]["task_id"]]
         path.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
@@ -1683,6 +1727,11 @@ def _persist_model_source_rows(model_source, rows):
     performance["macro_success"] = successes / 16
     performance["benchmarks"]["deepcoder_taco"]["successes"] = successes
     performance_path.write_text(json.dumps(performance))
+    run_parent_receipt_path = (model_source["source_run"] /
+                               "meta_session/turns/0011/receipt.json")
+    run_parent_receipt = json.loads(run_parent_receipt_path.read_text())
+    run_parent_receipt["macro_success"] = successes / 16
+    run_parent_receipt_path.write_text(json.dumps(run_parent_receipt))
     model_source["rows"] = rows
 
 
@@ -1784,7 +1833,7 @@ def test_model_smoke_plan_rejects_unbound_or_forged_zero_call_rows(
         row["model_calls"] = [{"call_id": 0}]
     _persist_model_source_rows(model_source, rows)
     if mode == "missing_receipt":
-        for path in model_source["source_run"].glob("rollout_cache/*/train_rollouts/*.json"):
+        for path in model_source["source_run"].glob("round_1/rollout_cache/*/train_rollouts/*.json"):
             if json.loads(path.read_text())["row"]["task_id"] == row["task_id"]:
                 receipt_path = path
                 break
@@ -2271,3 +2320,163 @@ def test_model_smoke_plan_rejects_output_root_overlapping_central_meta_storage(
     assert central_meta.stat().st_ino == target_identity.st_ino
     assert file_hash(central / ".run-owner.json") == owner_hash
     assert file_hash(central_meta / "skills.jsonl") == skills_hash
+
+
+
+def test_model_smoke_plan_reconstructs_relocated_a0_parent_identity(
+        model_smoke, model_source, tmp_path):
+    from rsiflow.task_meta.durable import load_task, task_hash
+
+    before = _source_tree_hashes(model_source["source_run"])
+    receipt = _model_plan(model_smoke, model_source, tmp_path, "relocated-a0-parent")
+
+    source = receipt["source"]
+    state_value = json.loads(model_source["state_path"].read_text())
+    bootstrap = json.loads((model_source["source_run"] /
+                            "meta_session/turns/0008/receipt.json").read_text())
+    parent_value = dict(state_value, harness_path=bootstrap["harness_path"])
+    a0_hash = task_hash(load_task(state_value))
+    parent_hash = task_hash(load_task(parent_value))
+    assert a0_hash != parent_hash
+    assert source["a0_task_hash"] == a0_hash
+    assert source["parent_task_hash"] == parent_hash
+    assert source["harness_path"] == str(model_source["harness"].resolve())
+    assert source["parent_harness_path"] == str(Path(bootstrap["harness_path"]).resolve())
+    assert source["relocated_identity"] == {
+        "snapshot_task_hash": a0_hash,
+        "parent_task_hash": parent_hash,
+        "snapshot_harness_path": str(model_source["harness"].resolve()),
+        "parent_harness_path": str(Path(bootstrap["harness_path"]).resolve()),
+        "harness_sha256": file_hash(model_source["harness"]),
+    }
+    assert source["input_seals"]["harness"] == {
+        str(model_source["harness"].resolve()): file_hash(model_source["harness"]),
+        str(Path(bootstrap["harness_path"]).resolve()): file_hash(bootstrap["harness_path"]),
+    }
+    persisted = json.loads(next(
+        model_source["source_run"].glob("round_1/rollout_cache/*/train_rollouts/*.json")).read_text())
+    scope = persisted["binding"]["round_scope"]
+    assert scope["task_hash"] == parent_hash
+    assert persisted["binding"]["state_hash"] == fingerprint(scope)
+    assert persisted["row"]["state_hash"] == persisted["binding"]["state_hash"]
+    assert receipt["status"] == "planned"
+    assert _source_tree_hashes(model_source["source_run"]) == before
+
+
+
+@pytest.mark.parametrize(("mode", "error"), [
+    ("missing_bootstrap", "completed bootstrap"),
+    ("duplicate_bootstrap", "completed bootstrap"),
+    ("missing_run_parent", "completed run_parent"),
+    ("duplicate_run_parent", "completed run_parent"),
+    ("wrong_state_path", "state_path"),
+    ("wrong_output_dir", "output_dir"),
+    ("wrong_round", "round"),
+    ("wrong_checkpoint", "checkpoint"),
+    ("wrong_generation", "generation"),
+])
+def test_model_smoke_plan_rejects_bootstrap_parent_turn_chain_conflicts(
+        model_smoke, model_source, tmp_path, mode, error):
+    source_run = model_source["source_run"]
+    bootstrap = source_run / "meta_session/turns/0008"
+    run_parent = source_run / "meta_session/turns/0011"
+    _model_plan(model_smoke, model_source, tmp_path, f"turn-control-{mode}")
+
+    if mode == "missing_bootstrap":
+        (bootstrap / "command.json").unlink()
+    elif mode == "duplicate_bootstrap":
+        for name in ("command.json", "receipt.json"):
+            freeze(source_run / f"meta_session/turns/0009/{name}",
+                   json.loads((bootstrap / name).read_text()))
+    elif mode == "missing_run_parent":
+        (run_parent / "command.json").unlink()
+    elif mode == "duplicate_run_parent":
+        for name in ("command.json", "receipt.json"):
+            freeze(source_run / f"meta_session/turns/0012/{name}",
+                   json.loads((run_parent / name).read_text()))
+    elif mode in {"wrong_state_path", "wrong_output_dir", "wrong_round"}:
+        command = json.loads((run_parent / "command.json").read_text())
+        receipt = json.loads((run_parent / "receipt.json").read_text())
+        if mode == "wrong_state_path":
+            replacement = str(source_run / "round_1/attempts/attempt_1/candidate/candidate_state.json")
+            command["request"]["state_path"] = replacement
+            receipt["state_path"] = replacement
+        elif mode == "wrong_output_dir":
+            replacement = str(source_run / "round_1/attempts/attempt_1/candidate")
+            command["request"]["output_dir"] = replacement
+            receipt["output_dir"] = replacement
+        else:
+            command["request"]["round_number"] = 2
+            receipt["round_number"] = 2
+        (run_parent / "command.json").write_text(json.dumps(command))
+        (run_parent / "receipt.json").write_text(json.dumps(receipt))
+    elif mode == "wrong_checkpoint":
+        receipt = json.loads((bootstrap / "receipt.json").read_text())
+        receipt["checkpoint_path"] = str(tmp_path / "different-checkpoint")
+        (bootstrap / "receipt.json").write_text(json.dumps(receipt))
+    else:
+        state = json.loads(model_source["state_path"].read_text())
+        state["generation"] = 1
+        model_source["state_path"].write_text(json.dumps(state))
+        snapshot = json.loads(model_source["snapshot_receipt"].read_text())
+        snapshot["files_sha256"]["task/task_state_snapshot.json"] = file_hash(
+            model_source["state_path"])
+        model_source["snapshot_receipt"].write_text(json.dumps(snapshot))
+
+    output_root = tmp_path / "logs" / f"reject-turn-{mode}"
+    with pytest.raises((ValueError, RuntimeError), match=error):
+        model_smoke.plan_model_smoke(
+            source_run, output_root, model_source["machine_config"])
+    assert not output_root.exists()
+
+
+def test_model_smoke_plan_rejects_bootstrap_harness_byte_mismatch(
+        model_smoke, model_source, tmp_path):
+    _model_plan(model_smoke, model_source, tmp_path, "harness-bytes-control")
+    bootstrap = json.loads((model_source["source_run"] /
+                            "meta_session/turns/0008/receipt.json").read_text())
+    harness = Path(bootstrap["harness_path"])
+    harness.write_bytes(harness.read_bytes() + b"different-bootstrap-harness")
+    output_root = tmp_path / "logs/reject-harness-bytes"
+
+    with pytest.raises((ValueError, RuntimeError), match="Harness"):
+        model_smoke.plan_model_smoke(
+            model_source["source_run"], output_root, model_source["machine_config"])
+    assert not output_root.exists()
+
+
+@pytest.mark.parametrize("mode", ["row", "binding", "scope"])
+def test_model_smoke_plan_rejects_row_binding_scope_hash_mismatch(
+        model_smoke, model_source, tmp_path, mode):
+    from rsiflow.task_meta.durable import load_task, task_hash
+
+    _model_plan(model_smoke, model_source, tmp_path, f"hash-control-{mode}")
+    receipt_path = next(model_source["source_run"].glob(
+        "round_1/rollout_cache/*/train_rollouts/*.json"))
+    persisted = json.loads(receipt_path.read_text())
+    task_id = persisted["row"]["task_id"]
+    rows = json.loads(json.dumps(model_source["rows"]))
+    row = next(item for item in rows if item["task_id"] == task_id)
+    if mode == "row":
+        row["state_hash"] = "0" * 64
+        _persist_model_source_rows(model_source, rows)
+    elif mode == "binding":
+        persisted["binding"]["state_hash"] = "0" * 64
+        receipt_path.write_text(json.dumps(persisted))
+    else:
+        state = load_task(json.loads(model_source["state_path"].read_text()))
+        persisted["binding"]["round_scope"]["task_hash"] = task_hash(state)
+        changed_hash = fingerprint(persisted["binding"]["round_scope"])
+        persisted["binding"]["state_hash"] = changed_hash
+        row["state_hash"] = changed_hash
+        _persist_model_source_rows(model_source, rows)
+        persisted = json.loads(receipt_path.read_text())
+        persisted["binding"]["round_scope"]["task_hash"] = task_hash(state)
+        persisted["binding"]["state_hash"] = changed_hash
+        receipt_path.write_text(json.dumps(persisted))
+    output_root = tmp_path / "logs" / f"reject-hash-{mode}"
+
+    with pytest.raises((ValueError, RuntimeError), match="hash|binding|Task"):
+        model_smoke.plan_model_smoke(
+            model_source["source_run"], output_root, model_source["machine_config"])
+    assert not output_root.exists()

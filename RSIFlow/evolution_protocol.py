@@ -17,6 +17,11 @@ def training_quotas(config):
     quotas = dict(config.get('train_quotas_per_round', TRAIN_QUOTAS))
     if not quotas or any(type(n) is not int or n < 1 for n in quotas.values()):
         raise ValueError('Training quotas must be positive integer task counts')
+    if config.get('experiment_scope') == 'deepcoder_five_round_canary':
+        expected = dict(training_schedule='round_repeated', rounds=5,
+                        training_tasks_per_pass=16, unique_tasks=16, allocated_tasks=80)
+        if any(config.get(key) != value for key, value in expected.items()):
+            raise ValueError('DeepCoder five-round canary requires round_repeated, five rounds, 16 tasks per pass, 16 unique tasks and 80 allocated task slots')
     total = sum(quotas.values())
     if config.get('training_tasks_per_pass', total) != total:
         raise ValueError('Training task count does not match source quotas')

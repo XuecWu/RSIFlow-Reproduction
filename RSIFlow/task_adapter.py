@@ -48,7 +48,8 @@ class TaskAdapter:
         runtime = self.project_root / value.get("runtime_source", "runtime")
         base = json.loads((runtime / value["base_config"]).read_text(encoding="utf-8"))
         from evolution_protocol import SFT_PRESET, training_quotas
-        if value.get("experiment_scope") == "deepcoder_canary":
+        deepcoder_scopes = {"deepcoder_canary", "deepcoder_five_round_canary"}
+        if value.get("experiment_scope") in deepcoder_scopes:
             source_quotas = dict(value.get("train_quotas_per_round", {}))
             training_quotas({
                 **value,
@@ -68,7 +69,9 @@ class TaskAdapter:
             mode="full", experiment_scope=value.get("experiment_scope", "multidomain"),
             scope_train_limit=value.get("scope_train_limit", base.get("scope_train_limit", 9)),
             scope_probe_limit=value.get("scope_probe_limit", base.get("scope_probe_limit", 3)),
-            training_schedule="round_disjoint",
+            training_schedule=(value.get("training_schedule")
+                               if value.get("experiment_scope") == "deepcoder_five_round_canary"
+                               else "round_disjoint"),
             task_checkpoint=str(arguments.get("checkpoint_path") or self.model_path or base["task_checkpoint"]),
             output_root=value["output_root"], data_dir=data_dir,
             max_generations=value["rounds"], seed=value.get("rollout_seed", value.get("seed", 42)),
@@ -95,6 +98,8 @@ class TaskAdapter:
         base["training"].update(SFT_PRESET, seed=value.get("training_seed", 42))
         base["round_protocol"] = {
             "data_dir": data_dir,
+            "training_schedule": base["training_schedule"],
+            "unique_tasks": value.get("unique_tasks"),
             "train_quotas_per_round": quotas,
             "validation_manifest": value.get("validation_manifest") or str(Path(value["validation_vault"]) / "validation/manifest.json"),
             "minimum_sft_samples": value.get("minimum_sft_samples", 1),

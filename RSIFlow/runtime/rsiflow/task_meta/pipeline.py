@@ -74,11 +74,11 @@ class PipelineConfig(BaseModel):
     envscaler_utils: str = '/path/to/rsiflow-assets/dataset/evaluators/envscaler/EnvScaler/interact_with_env/envscaler_env/utils/env_util.py'
     envscaler_commit: str = '96ae8b02dc0187c911b8e2101e7bb6904271597b'
     meta: MetaBackendConfig = Field(default_factory=MetaBackendConfig)
-    experiment_scope: Literal['multidomain', 'envscaler_validation', 'deepcoder_canary'] = 'multidomain'
+    experiment_scope: Literal['multidomain', 'envscaler_validation', 'deepcoder_canary', 'deepcoder_five_round_canary'] = 'multidomain'
     scope_train_limit: int = Field(default=9, ge=1)
     scope_probe_limit: int = Field(default=3, ge=1)
     task_replicas: list[dict] = Field(default_factory=list)
-    training_schedule: Literal['stream', 'fixed_subset', 'full_cohort', 'round_disjoint'] = 'stream'
+    training_schedule: Literal['stream', 'fixed_subset', 'full_cohort', 'round_disjoint', 'round_repeated'] = 'stream'
     artifact_evaluation: Literal['rerollout', 'direct_submission'] = 'rerollout'
 
     round_protocol: dict | None = None
@@ -113,13 +113,15 @@ class PipelineConfig(BaseModel):
                 raise ValueError('pause_after_round requires the frozen round-disjoint protocol')
             if self.max_generations <= pause_after_round:
                 raise ValueError('pause_after_round is a resumable boundary, not a max_generations replacement')
-        if (self.training_schedule in {'full_cohort','round_disjoint'}) != (self.search_dev_fraction == 0):
+        if self.training_schedule == 'round_repeated' and self.experiment_scope != 'deepcoder_five_round_canary':
+            raise ValueError('round_repeated requires deepcoder_five_round_canary')
+        if (self.training_schedule in {'full_cohort','round_disjoint','round_repeated'}) != (self.search_dev_fraction == 0):
             raise ValueError('Full cohort uses the entire train split and an in-training monitor')
         if self.training_schedule == 'fixed_subset' and (self.experiment_scope != 'envscaler_validation' or self.window_quotas.get('tool_use') != self.scope_train_limit):
             raise ValueError('Fixed subset requires EnvScaler scope and a full-cohort training quota')
         if bool(self.initial_meta_bundle) != bool(self.initial_meta_bundle_hash):
             raise ValueError('Initial Meta Bundle requires both source path and pinned hash')
-        if self.experiment_scope == 'deepcoder_canary':
+        if self.experiment_scope in {'deepcoder_canary', 'deepcoder_five_round_canary'}:
             expected = {'tool_use': 0, 'code': 16, 'searchqa': 0}
             if self.probe_per_domain != expected or self.window_quotas != expected:
                 raise ValueError('DeepCoder canary requires code=16 and zero quotas for inactive domains')
@@ -134,7 +136,7 @@ class PipelineConfig(BaseModel):
         if self.task_replicas:
             from urllib.parse import urlsplit
             # Each replica owns a process and an independent domain adapter.
-            if self.experiment_scope not in {'envscaler_validation','deepcoder_canary','multidomain'}:
+            if self.experiment_scope not in {'envscaler_validation','deepcoder_canary','deepcoder_five_round_canary','multidomain'}:
                 raise ValueError('Unsupported domain scope')
             devices, endpoints = set(), set()
             for replica in self.task_replicas:
@@ -157,7 +159,7 @@ class PipelineConfig(BaseModel):
 
 
 def active_domains(config: PipelineConfig) -> tuple[str, ...]:
-    if config.experiment_scope == 'deepcoder_canary':
+    if config.experiment_scope in {'deepcoder_canary', 'deepcoder_five_round_canary'}:
         return ('code',)
     if config.experiment_scope == 'envscaler_validation':
         return ('tool_use',)

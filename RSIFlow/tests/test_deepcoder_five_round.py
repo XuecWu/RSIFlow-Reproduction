@@ -739,21 +739,37 @@ def _build_config(base, output_root, run_name, release, rounds):
     return config_path
 
 
-def _round_scope(round_n, task_id, manifest_hash, collection_stage):
+def _make_scope(round_n, manifest_hash, collection_stage, state, protocol_hash):
     return {"role": "train_evolution", "purpose": "evolution_train", "round_id": round_n,
             "manifest_hash": manifest_hash, "collection_stage": collection_stage,
-            "task_hash": _sha(task_id), "harness_sha256": "h" * 64,
-            "checkpoint_manifest": WEIGHTS, "artifacts": [], "protocol_hash": "p" * 64}
+            "task_hash": _sha(f"task-hash-{round_n}-{collection_stage}"),
+            "harness_sha256": file_hash(Path(state["harness_path"])),
+            "checkpoint_manifest": state["checkpoint_manifest"],
+            "artifacts": _artifact_manifest_fixture(state["artifacts"]["directory"]),
+            "protocol_hash": protocol_hash}
 
 
-def _transport_call(call_id):
+def _artifact_manifest_fixture(directory):
+    if directory is None or not Path(directory).exists():
+        return []
+    root = Path(directory)
+    return [{"path": p.relative_to(root).as_posix(), "bytes": p.stat().st_size,
+             "sha256": file_hash(p)} for p in sorted(root.rglob("*")) if p.is_file()]
+
+
+def _fingerprint_fixture(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
+                                     separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def _transport_call(call_id, weights=WEIGHTS, model_ref=CHECKPOINT):
     return {
         "call_id": call_id, "status": "completed",
         "messages": [{"role": "user", "content": f"q{call_id}"}],
         "response": {"message": {"role": "assistant", "content": f"a{call_id}"}, "usage": {},
-                     "binding": {"checkpoint_path": CHECKPOINT, "weights": WEIGHTS},
+                     "binding": {"checkpoint_path": model_ref, "weights": weights},
                      "finish_reason": "stop", "request_id": f"r{call_id}",
-                     "model_ref_requested": CHECKPOINT, "model_ref_response": CHECKPOINT},
+                     "model_ref_requested": model_ref, "model_ref_response": model_ref},
         "seed": 42, "temperature": 0.7, "tools": [], "max_tokens": 2048,
         "chat_template_kwargs": {}, "usage_complete": True, "unknown_usage_calls": 0,
     }
@@ -761,7 +777,8 @@ def _transport_call(call_id):
 
 def _trajectory(task_id, *, success, calls, round_n, state_hash, branch, manifest_hash,
                 task_source_hash, error=None, execution_error_type="candidate_error",
-                infrastructure_error=False, tests_total=11, collection_stage="parent_pre_update"):
+                infrastructure_error=False, tests_total=11, collection_stage="parent_pre_update",
+                scope=None, checkpoint_manifest=WEIGHTS, model_ref=CHECKPOINT):
     called = calls > 0
     verification = {
         "status": "completed", "verifier_id": VERIFIER_ID, "success": bool(success),
@@ -769,6 +786,7 @@ def _trajectory(task_id, *, success, calls, round_n, state_hash, branch, manifes
         "tests_completed": tests_total if called else None,
         "tests_total": tests_total if called else None,
     }
+    scope = scope or {}
     return {
         "task_id": task_id, "question_id": task_id, "source": "deepcoder_taco",
         "domain": "code", "split": "evolve_train", "rollout_id": 0,
@@ -777,12 +795,17 @@ def _trajectory(task_id, *, success, calls, round_n, state_hash, branch, manifes
         "collection_stage": collection_stage, "round_id": round_n,
         "infrastructure_error": infrastructure_error, "infrastructure_failure": infrastructure_error,
         "verification": verification, "valid_answer": called,
-        "model_call_count": calls, "transport_calls": [_transport_call(i) for i in range(calls)],
+        "model_call_count": calls,
+        "transport_calls": [_transport_call(i, checkpoint_manifest, model_ref) for i in range(calls)],
         "execution_error_type": execution_error_type,
         "error_type": "parse_failure" if not called else ("candidate_error" if not success else None),
         "error": error, "terminal_reward": 1.0 if success else 0.0,
-        "branch_id": branch, "trajectory_id": _sha(f"{task_id}:{branch}:{round_n}"),
-        "model_ref": CHECKPOINT, "checkpoint_manifest": WEIGHTS,
+        "branch_id": branch,
+        "trajectory_id": _fingerprint_fixture([scope, task_id, 0]),
+        "harness_hash": scope.get("harness_sha256"), "harness_sha256": scope.get("harness_sha256"),
+        "parent_policy_hash": _fingerprint_fixture(checkpoint_manifest),
+        "success_verifier_version": scope.get("protocol_hash"),
+        "model_ref": model_ref, "checkpoint_manifest": checkpoint_manifest,
     }
 
 
@@ -811,42 +834,44 @@ def _performance(rows, round_n, manifest_hash):
     }
 
 
-def _call_receipt(task_id, state_hash, round_n, transport_call, manifest_hash,
-                  task_source_hash, collection_stage):
+def _call_receipt(task_id, state_hash, transport_call, scope, task_record, task_source_hash):
     request = {k: v for k, v in transport_call.items() if k != "response"}
     return {
         "binding": {"task": task_id, "task_source_hash": task_source_hash,
                     "state_hash": state_hash, "rollout": 0, "probe": False,
-                    "round_scope": _round_scope(round_n, task_id, manifest_hash, collection_stage)},
+                    "round_scope": scope, "task_record": task_record},
         "call_id": transport_call["call_id"], "status": "completed",
         "request_sha256": _value_hash(request), "request": request,
         "response": transport_call["response"],
     }
 
 
-def _write_side(side_dir, cache_root, rows, state_hash, round_n, manifest_hash):
+def _write_side(side_dir, cache_root, rows, state_hash, round_n, manifest_hash, scope, manifest):
     side_dir.mkdir(parents=True, exist_ok=True)
     (side_dir / "train_trajectories.jsonl").write_text(
         "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     (side_dir / "performance.json").write_text(
         json.dumps(_performance(rows, round_n, manifest_hash)), encoding="utf-8")
+    members = {t["task_id"]: t for t in manifest["tasks"]}
     cache = cache_root / state_hash / "train_rollouts"
     cache.mkdir(parents=True, exist_ok=True)
     for r in rows:
+        task_record = members[r["task_id"]]["content_hash"]
         (cache / (r["trajectory_id"] + ".json")).write_text(json.dumps({
             "binding": {"task": r["task_id"], "task_source_hash": r["task_source_hash"],
                         "state_hash": state_hash, "rollout": 0, "probe": False,
-                        "round_scope": _round_scope(round_n, r["task_id"], manifest_hash, r["collection_stage"])},
+                        "round_scope": scope, "task_record": task_record},
             "row": {"task_id": r["task_id"], "state_hash": state_hash, "rollout_id": 0,
-                    "model_call_count": r["model_call_count"], "checkpoint_manifest": WEIGHTS},
+                    "model_call_count": r["model_call_count"], "checkpoint_manifest": r["checkpoint_manifest"],
+                    "verification": r["verification"], "valid_answer": r["valid_answer"]},
         }), encoding="utf-8")
         if r["model_call_count"]:
             calls_dir = cache / (r["trajectory_id"] + ".calls")
             calls_dir.mkdir(parents=True, exist_ok=True)
             for tc in r["transport_calls"]:
                 (calls_dir / f"{tc['call_id']:04d}.json").write_text(json.dumps(
-                    _call_receipt(r["task_id"], state_hash, round_n, tc, manifest_hash,
-                                  r["task_source_hash"], r["collection_stage"])), encoding="utf-8")
+                    _call_receipt(r["task_id"], state_hash, tc, scope, task_record,
+                                  r["task_source_hash"])), encoding="utf-8")
 
 
 def _task_state(generation, harness_path):
@@ -916,16 +941,27 @@ def _write_job(run, identifier, operation, *, status="completed", returncode=0,
 
 def _write_round(run, n, *, parent_success, candidate_success,
                  zero_call_parent, zero_call_candidate,
-                 parent_generation, candidate_generation, manifest_hash, task_source_hash,
+                 parent_generation, candidate_generation, manifest, protocol_hash,
                  component="HARNESS", decision="accept_candidate",
                  errors_parent=None, errors_candidate=None, infrastructure_error_ids=()):
     errors_parent = errors_parent or {}
     errors_candidate = errors_candidate or {}
+    manifest_hash = manifest["manifest_hash"]
+    task_source_hash = manifest["tasks"][0]["record_sha256"]
     round_dir = run / f"round_{n}"
-    parent_state_hash = _sha(f"parent-state-{n}")
-    candidate_state_hash = _sha(f"candidate-state-{n}")
+    attempt = round_dir / "attempts/attempt_1"
+    parent_harness = _harness_file(run, parent_generation)
+    candidate_harness = attempt / "build/candidate_bundle.json"
+    candidate_harness.parent.mkdir(parents=True, exist_ok=True)
+    candidate_harness.write_text(json.dumps({"harness_generation": candidate_generation}), encoding="utf-8")
+    parent_state = _task_state(parent_generation, parent_harness)
+    candidate_state = _task_state(candidate_generation, candidate_harness)
+    parent_scope = _make_scope(n, manifest_hash, "parent_pre_update", parent_state, protocol_hash)
+    candidate_scope = _make_scope(n, manifest_hash, "child_post_update", candidate_state, protocol_hash)
+    parent_state_hash = _fingerprint_fixture(parent_scope)
+    candidate_state_hash = _fingerprint_fixture(candidate_scope)
 
-    def make_rows(success_set, zero_set, branch, state_hash, errors, collection_stage):
+    def make_rows(success_set, zero_set, branch, state_hash, errors, collection_stage, scope):
         rows = []
         for tid in TASK_IDS:
             calls = 0 if tid in zero_set else 7
@@ -934,14 +970,13 @@ def _write_round(run, n, *, parent_success, candidate_success,
                 state_hash=state_hash, branch=branch, manifest_hash=manifest_hash,
                 task_source_hash=task_source_hash, error=errors.get(tid),
                 infrastructure_error=tid in infrastructure_error_ids,
-                collection_stage=collection_stage))
+                collection_stage=collection_stage, scope=scope))
         return rows
 
-    parent_rows = make_rows(parent_success, zero_call_parent, "parent", parent_state_hash, errors_parent, "parent_pre_update")
-    candidate_rows = make_rows(candidate_success, zero_call_candidate, "candidate", candidate_state_hash, errors_candidate, "child_post_update")
-    _write_side(round_dir / "parent", round_dir / "rollout_cache", parent_rows, parent_state_hash, n, manifest_hash)
-    attempt = round_dir / "attempts/attempt_1"
-    _write_side(attempt / "candidate", attempt / "rollout_cache", candidate_rows, candidate_state_hash, n, manifest_hash)
+    parent_rows = make_rows(parent_success, zero_call_parent, "parent", parent_state_hash, errors_parent, "parent_pre_update", parent_scope)
+    candidate_rows = make_rows(candidate_success, zero_call_candidate, "candidate", candidate_state_hash, errors_candidate, "child_post_update", candidate_scope)
+    _write_side(round_dir / "parent", round_dir / "rollout_cache", parent_rows, parent_state_hash, n, manifest_hash, parent_scope, manifest)
+    _write_side(attempt / "candidate", attempt / "rollout_cache", candidate_rows, candidate_state_hash, n, manifest_hash, candidate_scope, manifest)
 
     before = len(parent_success) / 16
     after = len(candidate_success) / 16
@@ -988,11 +1023,21 @@ def _write_round(run, n, *, parent_success, candidate_success,
     (snap / "task/parent_state.json").write_text(json.dumps(parent_state), encoding="utf-8")
     (snap / "task/candidate_state.json").write_text(json.dumps(candidate_state), encoding="utf-8")
     (snap / "task/task_state_snapshot.json").write_text(json.dumps(selected_state), encoding="utf-8")
-    files_sha256 = {
-        "task/parent_state.json": _sha(json.dumps(parent_state)),
-        "task/candidate_state.json": _sha(json.dumps(candidate_state)),
-        "task/task_state_snapshot.json": _sha(json.dumps(selected_state)),
-    }
+    checkpoint_reference = {"model_ref": selected_state["model_ref"],
+                            "checkpoint_path": selected_state["checkpoint_path"],
+                            "checkpoint_manifest": selected_state["checkpoint_manifest"],
+                            "weights_copied": False}
+    (snap / "task/checkpoint_reference.json").write_text(json.dumps(checkpoint_reference), encoding="utf-8")
+    (snap / "meta_contents.jsonl").write_text(json.dumps({"id": f"meta_{n+1:03d}"}) + "\n", encoding="utf-8")
+    meta_entry = {"id": f"meta_{n+1:03d}", "sha256": file_hash(snap / "meta_contents.jsonl"),
+                  "path": str(snap / "meta_contents.jsonl")}
+    context_reference = {"sha256": _sha(f"context-{n}")}
+    versions_record = {"versions_root": str(snap), "index_path": str(snap / "versions.json"),
+                       "combinations": {}, "meta": meta_entry,
+                       "references": {"context_reference": context_reference}}
+    (snap / "versions.json").write_text(json.dumps(versions_record), encoding="utf-8")
+    files_sha256 = {p.relative_to(snap).as_posix(): file_hash(p)
+                    for p in snap.rglob("*") if p.is_file() and p.name != "snapshot_receipt.json"}
     (snap / "snapshot_receipt.json").write_text(json.dumps({
         "status": "snapshotted", "destination": str(snap),
         "combinations": {
@@ -1004,8 +1049,9 @@ def _write_round(run, n, *, parent_success, candidate_success,
                          "source_state": str(run / "active_task.json")},
         },
         "files_sha256": files_sha256,
-        "meta": {"id": f"meta_{n+1:03d}", "sha256": _sha(f"meta-{n}")},
-        "references": {"context_reference": {"sha256": _sha(f"context-{n}")}},
+        "meta": meta_entry,
+        "references": {"context_reference": context_reference},
+        "context_reference": context_reference,
     }), encoding="utf-8")
 
     parent_perf_path = str(round_dir / "parent/performance.json")
@@ -1043,14 +1089,19 @@ def _cleanup_receipt(run, output_root, config_path, *, status="completed", attem
                      free_verified=True, owners_exited=True):
     directory = run / "meta_session/supervision" / attempt / "external-cleanup" / "obs1"
     directory.mkdir(parents=True, exist_ok=True)
-    gpu_obs = {"time": "2026-11-18T00:00:00Z", "command": "nvidia-smi", "result": 0,
+    gpu_obs = {"time": "2026-11-18T00:00:00Z", "command": "nvidia-smi", "result": 0, "command_result": 0,
                "stdout_hash": _sha("gpu"), "expected_uuids": ["GPU-0", "GPU-1", "GPU-2", "GPU-3"],
-               "per_gpu": [{"gpu": g, "memory_free": 80000} for g in range(4)],
+               "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000} for g in range(4)],
                "compute_apps": compute_apps if compute_apps is not None else [],
                "free_verified": free_verified, "namespace_notes": ""}
     (directory / "gpu_observation.json").write_text(json.dumps(gpu_obs), encoding="utf-8")
     registry_path = str(output_root / "services/four_gpu_services.json")
+    registry_after_hash = file_hash(Path(registry_path)) if Path(registry_path).is_file() else _sha("reg-after")
     exit_state = "exited" if owners_exited else "alive"
+
+    def owner(pid):
+        return {"state": exit_state, "identity": {"pid": pid, "start_ticks": "1", "pgid": pid}}
+
     receipt = {
         "schema_version": 1, "kind": "rsiflow_external_cleanup", "observation_id": "obs1",
         "status": status, "started_at_utc": "2026-11-18T00:00:00Z", "observed_at_utc": "2026-11-18T00:01:00Z",
@@ -1070,10 +1121,10 @@ def _cleanup_receipt(run, output_root, config_path, *, status="completed", attem
                         "reconcile_status": "complete", "all_previous_attempts_accounted_for": True},
         "protocol": {"state_path": "state.json", "state_hash": _sha("state"),
                      "current_stage": "COMPLETE", "finish_allowed": True},
-        "owners": {"launcher": {"state": exit_state}, "app_server": {"state": exit_state},
-                   "jobs": [{"state": exit_state}], "training_phases": [],
-                   "inference_services": [{"state": exit_state}]},
-        "registry": {"path": registry_path, "before_hash": _sha("reg-before"), "after_hash": _sha("reg-after"),
+        "owners": {"launcher": owner(14852), "app_server": owner(14896),
+                   "jobs": [owner(10001)], "training_phases": [],
+                   "inference_services": [owner(20000 + g) for g in range(4)]},
+        "registry": {"path": registry_path, "before_hash": _sha("reg-before"), "after_hash": registry_after_hash,
                      "phase": registry_phase, "checkpoint": CHECKPOINT, "weights": WEIGHTS,
                      "stop_action_skipped_or_executed": "executed", "command_result": 0},
         "gpu_observations": [gpu_obs], "ports_observation": {"status": "closed"},
@@ -1110,6 +1161,7 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
     zero_call = set(TASK_IDS[9:16])
     generation = 0
     specs = {}
+    protocol_hash = file_hash(release / "protocol.json")
     _turn_receipt(run, "bootstrap", 0, {"status": "completed"})
     _turn_receipt(run, "snapshot_task_meta", 0, {"status": "snapshotted"})
     _write_job(run, "bootstrap_0", "bootstrap")
@@ -1120,7 +1172,7 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
             run, n, parent_success=parent_success, candidate_success=candidate_success,
             zero_call_parent=zero_call, zero_call_candidate=zero_call,
             parent_generation=parent_generation, candidate_generation=candidate_generation,
-            manifest_hash=manifests[n]["manifest_hash"], task_source_hash=record_hashes[n],
+            manifest=manifests[n], protocol_hash=protocol_hash,
             component="HARNESS", decision=decision)
         generation = specs[n]["selected_generation"]
 
@@ -1129,13 +1181,29 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
     a0 = run / "snapshots/A0"
     (a0 / "task").mkdir(parents=True, exist_ok=True)
     a0_harness = _harness_file(run, 0)
-    (a0 / "task/task_state_snapshot.json").write_text(json.dumps(_task_state(0, a0_harness)), encoding="utf-8")
+    a0_state = _task_state(0, a0_harness)
+    for rel in ("task/parent_state.json", "task/candidate_state.json", "task/task_state_snapshot.json"):
+        (a0 / rel).write_text(json.dumps(a0_state), encoding="utf-8")
+    (a0 / "task/checkpoint_reference.json").write_text(json.dumps({
+        "model_ref": a0_state["model_ref"], "checkpoint_path": a0_state["checkpoint_path"],
+        "checkpoint_manifest": a0_state["checkpoint_manifest"], "weights_copied": False}), encoding="utf-8")
+    (a0 / "meta_contents.jsonl").write_text(json.dumps({"id": "meta_001"}) + "\n", encoding="utf-8")
+    a0_meta = {"id": "meta_001", "sha256": file_hash(a0 / "meta_contents.jsonl"),
+               "path": str(a0 / "meta_contents.jsonl")}
+    a0_context = {"sha256": _sha("context-0")}
+    (a0 / "versions.json").write_text(json.dumps({
+        "versions_root": str(a0), "index_path": str(a0 / "versions.json"),
+        "combinations": {}, "meta": a0_meta, "references": {"context_reference": a0_context}}), encoding="utf-8")
+    a0_files = {p.relative_to(a0).as_posix(): file_hash(p)
+                for p in a0.rglob("*") if p.is_file() and p.name != "snapshot_receipt.json"}
     (a0 / "snapshot_receipt.json").write_text(json.dumps({
         "status": "snapshotted", "destination": str(a0),
-        "combinations": {"selected": {"state_path": str(a0 / "task/task_state_snapshot.json"),
-                                      "source_state": str(run / "active_task.json")}},
-        "files_sha256": {"task/task_state_snapshot.json": file_hash(a0 / "task/task_state_snapshot.json")},
-        "meta": {"id": "meta_001", "sha256": _sha("meta-0")},
+        "combinations": {role: {"state_path": str(a0 / rel), "source_state": str(run / "active_task.json")}
+                         for role, rel in (("parent", "task/parent_state.json"),
+                                           ("candidate", "task/candidate_state.json"),
+                                           ("selected", "task/task_state_snapshot.json"))},
+        "files_sha256": a0_files, "meta": a0_meta,
+        "references": {"context_reference": a0_context}, "context_reference": a0_context,
     }), encoding="utf-8")
 
     meta = run / "meta"
@@ -1154,11 +1222,24 @@ def _build_run(tmp_path, *, complete=False, with_config=True, with_cleanup=True)
          if complete else "Current stage: **B3**\nFinish allowed: **no**\nFinal stage: **B1**\n"),
         encoding="utf-8")
     stage_ids = ["A0"] + [f"B{n}" for n in range(1, rounds + 1)]
+    b_milestones = ["parent_rollout", "meta_evidence", "decision_recorded", "candidate_built",
+                    "candidate_rollout", "scores_compared", "selection_recorded", "skills_appended",
+                    "context_updated", "task_meta_snapshot"]
+    a0_milestones = ["bootstrap", "task_meta_snapshot", "empty_skills_initialized"]
+
+    def _stage(sid):
+        done = complete or sid in ("A0", "B1", "B2")
+        required_m = a0_milestones if sid == "A0" else b_milestones
+        return {"id": sid, "status": "complete" if done else "pending",
+                "remaining_milestones": [] if done else required_m,
+                "required_milestones": required_m,
+                "completed_milestones": required_m if done else [],
+                "evidence": {m: f"evidence/{sid}/{m}.json" for m in required_m} if done else {}}
+
     (session / "workflow_state.json").write_text(json.dumps({
         "current_stage": "COMPLETE" if complete else "B3",
         "finish_allowed": complete, "final_stage": f"B{rounds}",
-        "stages": [{"id": sid, "status": "complete" if complete else ("complete" if sid in ("A0", "B1", "B2") else "pending"),
-                    "remaining_milestones": []} for sid in stage_ids],
+        "stages": [_stage(sid) for sid in stage_ids],
     }), encoding="utf-8")
     if complete:
         _turn_receipt(run, "finish_experiment", 5, {"status": "complete", "remaining": {}})
@@ -1413,6 +1494,68 @@ def test_f2_per_task_offsetting_rejected(tmp_path):
     assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
 
 
+def _first_parent_call(run):
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    return cache, next(cache.glob("*.calls/*.json"))
+
+
+def test_if2_persisted_outcome_mismatch_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    rollout_json = next(cache.glob("*.json"))
+    receipt = json.loads(rollout_json.read_text())
+    receipt["row"]["verification"] = {"status": "completed", "success": True, "full_verifier": True}
+    rollout_json.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_if2_wrong_task_record_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache, call_file = _first_parent_call(run)
+    rollout_json = next(cache.glob("*.json"))
+    receipt = json.loads(rollout_json.read_text())
+    receipt["binding"]["task_record"] = "0" * 64
+    rollout_json.write_text(json.dumps(receipt), encoding="utf-8")
+    call = json.loads(call_file.read_text())
+    call["binding"]["task_record"] = "0" * 64
+    call_file.write_text(json.dumps(call), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_if2_wrong_scope_harness_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    for receipt_file in list(cache.glob("*.json")) + list(cache.glob("*.calls/*.json")):
+        receipt = json.loads(receipt_file.read_text())
+        receipt["binding"]["round_scope"]["harness_sha256"] = "0" * 64
+        receipt_file.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_if2_wrong_scope_protocol_hash_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache = next((run / "round_1/rollout_cache").glob("*/train_rollouts"))
+    for receipt_file in list(cache.glob("*.json")) + list(cache.glob("*.calls/*.json")):
+        receipt = json.loads(receipt_file.read_text())
+        receipt["binding"]["round_scope"]["protocol_hash"] = "0" * 64
+        receipt_file.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
+def test_if2_wrong_response_checkpoint_path_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    cache, call_file = _first_parent_call(run)
+    call = json.loads(call_file.read_text())
+    call["response"]["binding"]["checkpoint_path"] = "/models/Unrelated"
+    call_file.write_text(json.dumps(call), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["calls"]["cross_check_ok"] is False
+
+
 # --- F3: full Task identity chain / snapshot seal --------------------------
 
 def test_f3_same_generation_different_harness_rejected(tmp_path):
@@ -1505,6 +1648,50 @@ def test_f3_missing_skills_context_a0_block(tmp_path):
     shutil.rmtree(run2 / "snapshots/A0")
     result2 = _summarize(run2, ctx2)
     assert any("A0" in b for b in _blockers(result2))
+
+
+def test_if3_required_state_removed_from_seal_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    receipt_path = run / "snapshots/round_1_attempt_1/snapshot_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    del receipt["files_sha256"]["task/parent_state.json"]
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert _rounds(result)[1]["products_complete"] is False
+
+
+def test_if3_a0_same_generation_different_task_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    # A0 keeps generation 0 but a different harness content -> B1 parent chain breaks
+    a0_state_path = run / "snapshots/A0/task/task_state_snapshot.json"
+    a0_state = json.loads(a0_state_path.read_text())
+    other = run / "harness" / "a0_unrelated.json"
+    other.write_text(json.dumps({"harness_generation": "unrelated"}), encoding="utf-8")
+    a0_state["harness_path"] = str(other)
+    a0_state_path.write_text(json.dumps(a0_state), encoding="utf-8")
+    receipt_path = run / "snapshots/A0/snapshot_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["files_sha256"]["task/task_state_snapshot.json"] = file_hash(a0_state_path)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert result["protocol_complete"] is False
+    assert any("active chain" in b for b in _blockers(result))
+
+
+def test_if3_artifacts_relocation_allowed_content_change_rejected(tmp_path):
+    module = _load_summarizer()
+    harness = tmp_path / "h.json"
+    harness.write_text(json.dumps({"harness": 1}), encoding="utf-8")
+    manifest = [{"path": "submission.py", "bytes": 10, "sha256": "a" * 64}]
+    base = {"generation": 1, "model_ref": CHECKPOINT, "checkpoint_path": CHECKPOINT,
+            "checkpoint_manifest": WEIGHTS, "harness_path": str(harness),
+            "artifacts": {"directory": "/source/dir", "manifest": manifest}}
+    relocated = json.loads(json.dumps(base))
+    relocated["artifacts"]["directory"] = "/versions/relocated/dir"  # same content manifest
+    assert module._identity_equal(base, relocated) is True
+    changed = json.loads(json.dumps(base))
+    changed["artifacts"]["manifest"] = [{"path": "submission.py", "bytes": 10, "sha256": "b" * 64}]
+    assert module._identity_equal(base, changed) is False
 
 
 # --- F4: real job inventory / ordered turns / workflow milestones ----------
@@ -1645,6 +1832,10 @@ def test_f5_completed_cleanup_binding_valid_completes(tmp_path):
 
 # --- F6: production MODEL/SFT schema ---------------------------------------
 
+TRAINED_CHECKPOINT = "/models/Qwen3-4B-trained"
+TRAINED_WEIGHTS = [{"path": "model-00001-of-00001.safetensors", "bytes": 200, "sha256": "t" * 64}]
+
+
 def _add_model_round(run, ctx, n=2, *, mutate=None):
     attempt = run / f"round_{n}/attempts/attempt_1"
     decision_path = attempt / "decision.json"
@@ -1652,13 +1843,18 @@ def _add_model_round(run, ctx, n=2, *, mutate=None):
     decision["component"] = "MODEL"
     decision_path.write_text(json.dumps(decision), encoding="utf-8")
     parent_state = json.loads((attempt / "before/parent_task.json").read_text())
+    manifest = ctx["manifests"][n]
+    manifest_hash = manifest["manifest_hash"]
+    task_source_hash = manifest["tasks"][0]["record_sha256"]
+    protocol_hash = file_hash(ctx["release"] / "protocol.json")
     out = attempt / "candidate"
     model_update = out / "model_update"
     model_update.mkdir(parents=True, exist_ok=True)
     child = _task_state(parent_state["generation"] + 1, attempt / "build/candidate_bundle.json")
-    child["checkpoint_path"] = "/models/Qwen3-4B-trained"
-    child["model_ref"] = "/models/Qwen3-4B-trained"
-    selection_report = {"positive_samples": 4, "input": 4, "unique": 4}
+    child["checkpoint_path"] = TRAINED_CHECKPOINT
+    child["model_ref"] = TRAINED_CHECKPOINT
+    child["checkpoint_manifest"] = TRAINED_WEIGHTS
+    selection_report = {"input_rows": 4, "unique_rows": 4, "duplicates": 0, "deduplication_applied": True}
     metrics = {
         "world_size": 4,
         "rank_records": [{"rank": r, "local_rank": r, "sampled_indices": [r], "optimizer_steps": 1,
@@ -1667,25 +1863,61 @@ def _add_model_round(run, ctx, n=2, *, mutate=None):
         "changed_lora_tensors": 7, "lora_delta_l2": 0.1,
         "merged_probe_name": "q_proj", "merged_probe_changed_elements": 100,
         "optimizer_steps": 1, "selection": selection_report,
-        "positive_trajectories": 4, "checkpoint_path": "/models/Qwen3-4B-trained",
-        "serving_status": "ready",
+        "positive_trajectories": 4, "sampled_training_examples": 4, "sampled_row_indices": [0, 1, 2, 3],
+        "checkpoint_path": TRAINED_CHECKPOINT, "serving_status": "ready",
     }
-    gpu = {"status": "completed", "restored_checkpoint": "/models/Qwen3-4B-trained",
+    gpu = {"status": "completed", "restored_checkpoint": TRAINED_CHECKPOINT,
            "replica_gpus": [0, 1, 2, 3], "gpus": [0, 1, 2, 3]}
-    trained = {"model_ref": "/models/Qwen3-4B-trained", "checkpoint_path": "/models/Qwen3-4B-trained",
+    trained = {"model_ref": TRAINED_CHECKPOINT, "checkpoint_path": TRAINED_CHECKPOINT,
                "training_metrics": str(model_update / "training_metrics.json"),
                "training_method": "positive_sft_lora", "training_steps": 1, "training_summary": "fixture"}
+    verified = {"checkpoint_path": TRAINED_CHECKPOINT, "model_ref": TRAINED_CHECKPOINT,
+                "weights": TRAINED_WEIGHTS, "served_binding": {"checkpoint_path": TRAINED_CHECKPOINT, "weights": TRAINED_WEIGHTS},
+                "checkpoint_before": {"path": parent_state["checkpoint_path"], "weights": parent_state["checkpoint_manifest"]},
+                "training_method": "positive_sft_lora", "training_steps": 1}
+    before = {"path": parent_state["checkpoint_path"], "weights": parent_state["checkpoint_manifest"]}
     if mutate:
         mutate(metrics, gpu, child, trained)
+    # rebuild the evaluated candidate side so the trained child IS the rolled-out Task
+    candidate_scope = _make_scope(n, manifest_hash, "child_post_update", child, protocol_hash)
+    candidate_state_hash = _fingerprint_fixture(candidate_scope)
+    candidate_success = set(TASK_IDS[3:7])
+    zero_call = set(TASK_IDS[9:16])
+    candidate_rows = []
+    for tid in TASK_IDS:
+        calls = 0 if tid in zero_call else 7
+        candidate_rows.append(_trajectory(
+            tid, success=tid in candidate_success, calls=calls, round_n=n,
+            state_hash=candidate_state_hash, branch="candidate", manifest_hash=manifest_hash,
+            task_source_hash=task_source_hash, collection_stage="child_post_update",
+            scope=candidate_scope, checkpoint_manifest=child["checkpoint_manifest"],
+            model_ref=child["model_ref"]))
+    import shutil
+    shutil.rmtree(attempt / "rollout_cache", ignore_errors=True)
+    _write_side(out, attempt / "rollout_cache", candidate_rows, candidate_state_hash, n,
+                manifest_hash, candidate_scope, manifest)
+    (attempt / "build/candidate_state.json").write_text(json.dumps(child), encoding="utf-8")
     (out / "candidate_state.json").write_text(json.dumps(child), encoding="utf-8")
+    # refresh snapshot candidate state + seal to the trained child
+    snap = run / "snapshots" / f"round_{n}_attempt_1"
+    (snap / "task/candidate_state.json").write_text(json.dumps(child), encoding="utf-8")
+    receipt_path = snap / "snapshot_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["files_sha256"]["task/candidate_state.json"] = file_hash(snap / "task/candidate_state.json")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
     (model_update / "training_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
     (model_update / "gpu_phase_receipt.json").write_text(json.dumps(gpu), encoding="utf-8")
     (model_update / "checkpoint_trained.json").write_text(json.dumps(trained), encoding="utf-8")
+    (model_update / "checkpoint_verified.json").write_text(json.dumps(verified), encoding="utf-8")
+    (model_update / "checkpoint_before.json").write_text(json.dumps(before), encoding="utf-8")
+    (model_update / "sft_selection.json").write_text(json.dumps(selection_report), encoding="utf-8")
+    (model_update / "sft_positive.jsonl").write_text(
+        "".join(json.dumps({"task_id": tid, "rollout_id": 0}) + "\n" for tid in TASK_IDS[3:7]), encoding="utf-8")
     _transport_receipt(run, f"sft_{n}", {
         "operation": "sft", "status": "completed",
         "candidate_state_path": str(out / "candidate_state.json"),
         "training_metrics_path": str(model_update / "training_metrics.json"),
-        "checkpoint_path": "/models/Qwen3-4B-trained", "positive_samples": 4,
+        "checkpoint_path": TRAINED_CHECKPOINT, "positive_samples": 4,
     })
     _turn_receipt(run, "sft", n, {"status": "completed"})
     return metrics
@@ -1765,6 +1997,162 @@ def test_f6_not_selected_without_model_round(tmp_path):
     assert result["model_sft"]["status"] == "not_selected"
 
 
+# --- I-F4: job identity / terminal whitelist / milestone evidence -----------
+
+def test_if4_wrong_job_id_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    job_path = run / "meta_session/jobs/run_parent_1/job.json"
+    job = json.loads(job_path.read_text())
+    job["job_id"] = "unrelated_id"
+    job_path.write_text(json.dumps(job), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert result["run_complete"] is False
+    assert any("job_id" in b for b in result["jobs"]["invalid"])
+
+
+def test_if4_unknown_exploration_status_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _write_job(run, "explore_unknown", "run_command", status="UNRECOGNIZED_NONTERMINAL")
+    result = _summarize(run, ctx)
+    assert result["run_complete"] is False
+    assert any("unknown_status" in b for b in result["jobs"]["invalid"])
+
+
+def test_if4_failed_b5_snapshot_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    turns = run / "meta_session/turns"
+    for turn_dir in turns.iterdir():
+        command = _read_json_or_none(turn_dir / "command.json")
+        if command and command.get("request", {}).get("operation") == "snapshot_task_meta" \
+                and command.get("request", {}).get("round_number") == 5:
+            receipt_path = turn_dir / "receipt.json"
+            receipt = json.loads(receipt_path.read_text())
+            receipt["status"] = "tool_error"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert result["run_complete"] is False
+    assert any("B5 snapshot" in b for b in _blockers(result))
+
+
+def _read_json_or_none(path):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+# --- I-F5: cleanup binding / owner inventory / historical supervision -------
+
+def test_if5_wrong_config_hash_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    cleanup = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"])
+    receipt = json.loads(cleanup.read_text())
+    receipt["binding"]["config_hash"] = "0" * 64
+    cleanup.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _load_summarizer().summarize(run, config_path=ctx["config_path"], cleanup_receipt_path=cleanup)
+    assert result["run_complete"] is False
+    assert "external_cleanup_config_hash" in result["external_cleanup"]["blockers"]
+
+
+def test_if5_old_attempt_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    cleanup = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"], attempt="0001")
+    receipt = json.loads(cleanup.read_text())
+    receipt["binding"]["supervision_attempt"] = "0000"
+    cleanup.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _load_summarizer().summarize(run, config_path=ctx["config_path"], cleanup_receipt_path=cleanup)
+    assert result["run_complete"] is False
+    assert "external_cleanup_not_current_attempt" in result["external_cleanup"]["blockers"]
+
+
+def test_if5_missing_owner_inventory_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    cleanup = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"])
+    receipt = json.loads(cleanup.read_text())
+    receipt["owners"]["jobs"] = []
+    cleanup.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _load_summarizer().summarize(run, config_path=ctx["config_path"], cleanup_receipt_path=cleanup)
+    assert result["run_complete"] is False
+    assert "external_cleanup_jobs_inventory_missing" in result["external_cleanup"]["blockers"]
+
+
+def test_if5_historical_143_latest_0_passes(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True, with_cleanup=False)
+    supervision = run / "meta_session/supervision"
+    old = supervision / "0001"
+    (old / "exit").write_text("143", encoding="utf-8")  # historical terminal failure, reconciled
+    latest = supervision / "0002"
+    latest.mkdir(parents=True)
+    (latest / "identity.json").write_text(json.dumps({
+        "pid": 14853, "pgid": 14853, "start_ticks": "200", "run_dir": str(run), "attempt_dir": str(latest)}), encoding="utf-8")
+    (latest / "reconcile.json").write_text(json.dumps({
+        "status": "complete", "term_targets": [], "kill_targets": [], "remaining": []}), encoding="utf-8")
+    (latest / "exit").write_text("0", encoding="utf-8")
+    cleanup = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"], attempt="0002")
+    result = _load_summarizer().summarize(run, config_path=ctx["config_path"], cleanup_receipt_path=cleanup)
+    assert result["supervision"]["all_attempts_accounted_for"] is True
+    assert result["launcher_exited"] is True
+    assert result["run_complete"] is True
+    assert (old / "exit").read_text() == "143"  # historical exit preserved
+
+
+# --- I-F6: SFT child binding / ranks / sampling / selection / verified ------
+
+def test_if6_cross_run_child_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _add_model_round(run, ctx, 2)
+    # replace the actual built/evaluated candidate with an unrelated base-checkpoint child
+    build_path = run / "round_2/attempts/attempt_1/build/candidate_state.json"
+    unrelated = _task_state(2, run / "round_2/attempts/attempt_1/build/candidate_bundle.json")
+    build_path.write_text(json.dumps(unrelated), encoding="utf-8")
+    result = _summarize(run, ctx)
+    assert result["model_sft"]["status"] != "completed"
+    assert result["run_complete"] is False
+
+
+def test_if6_duplicate_ranks_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+
+    def mutate(metrics, gpu, child, trained):
+        metrics["rank_records"] = [{"rank": r, "local_rank": r, "sampled_indices": [r], "optimizer_steps": 1}
+                                   for r in (0, 1, 2, 3, 0)]
+
+    _add_model_round(run, ctx, 2, mutate=mutate)
+    result = _summarize(run, ctx)
+    assert result["model_sft"]["status"] != "completed"
+
+
+def test_if6_empty_sampling_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+
+    def mutate(metrics, gpu, child, trained):
+        metrics["sampled_row_indices"] = []
+        metrics["sampled_training_examples"] = 0
+
+    _add_model_round(run, ctx, 2, mutate=mutate)
+    result = _summarize(run, ctx)
+    assert result["model_sft"]["status"] != "completed"
+
+
+def test_if6_empty_selection_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+
+    def mutate(metrics, gpu, child, trained):
+        metrics["selection"] = {}
+
+    _add_model_round(run, ctx, 2, mutate=mutate)
+    result = _summarize(run, ctx)
+    assert result["model_sft"]["status"] != "completed"
+
+
+def test_if6_missing_verified_rejected(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _add_model_round(run, ctx, 2)
+    (run / "round_2/attempts/attempt_1/candidate/model_update/checkpoint_verified.json").unlink()
+    result = _summarize(run, ctx)
+    assert result["model_sft"]["status"] != "completed"
+
+
 # --- I8 errno layering (retained) + real single-run observed facts ----------
 
 def test_i8_error_layering_fixture(tmp_path):
@@ -1793,13 +2181,11 @@ def test_i8_realistic_zero_call_overlap(tmp_path):
     run, _, ctx = _build_run(tmp_path)
     shutil.rmtree(run / "round_1")
     manifests = ctx["manifests"]
-    release, _, record_hashes = _build_release(tmp_path / "rel2", 2)
     _write_round(
         run, 1, parent_success=set(TASK_IDS[:3]), candidate_success=set(TASK_IDS[3:7]),
         zero_call_parent=set(TASK_IDS[3:16]), zero_call_candidate=set(TASK_IDS[:3]) | set(TASK_IDS[7:16]),
         parent_generation=0, candidate_generation=1,
-        manifest_hash=manifests[1]["manifest_hash"],
-        task_source_hash=file_hash(release / "B1/deepcoder_taco.jsonl"),
+        manifest=manifests[1], protocol_hash=file_hash(ctx["release"] / "protocol.json"),
         component="HARNESS", decision="accept_candidate")
     r1 = _rounds(_summarize(run, ctx))[1]
     assert r1["products_complete"] is True

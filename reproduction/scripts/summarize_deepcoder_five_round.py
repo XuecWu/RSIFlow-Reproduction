@@ -102,6 +102,23 @@ def _value_hash(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
+def _fingerprint(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
+                                     separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def _artifact_manifest(directory):
+    if directory is None or not Path(directory).exists():
+        return []
+    root = Path(directory)
+    manifest = []
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            manifest.append({"path": path.relative_to(root).as_posix(),
+                             "bytes": path.stat().st_size, "sha256": _sha256(path)})
+    return manifest
+
+
 def _success(row: dict) -> bool:
     return (row.get("verification") or {}).get("success") is True
 
@@ -270,14 +287,20 @@ def _frozen_cohort_valid(rows, manifest, round_n) -> list[str]:
     return reasons
 
 
-def _side_calls(rows, cache_root, round_n, state) -> dict:
+def _side_calls(rows, cache_root, round_n, state, manifest=None, protocol_hash=None) -> dict:
     """Reconcile real Qwen calls per task against side-scoped persisted receipts.
 
-    Uses the production canonical request hash (value_hash of the transport call minus
-    its response). Each call aligns transport<->persisted request/response by call_id,
-    verifies model requested/response and checkpoint/weights against the Task state,
-    and binds the rollout receipt row/scope. Extra/duplicate/malformed calls block.
+    Recomputes state_hash = fingerprint(round_scope) and binds the full rollout
+    receipt row/scope to the trusted Task state and frozen manifest member: scope
+    harness/checkpoint/artifacts/protocol/manifest, binding.task_record == member
+    content_hash, response.binding.checkpoint_path/weights == Task. Each call aligns
+    transport<->persisted request payload/response by call_id with the production
+    canonical request hash. Persisted outcome must match the trajectory outcome.
+    Extra/duplicate/malformed calls block.
     """
+    members = {t["task_id"]: t for t in (manifest or {}).get("tasks", [])}
+    state_harness_hash = _sha256(state.get("harness_path")) if state and state.get("harness_path") else None
+    state_artifacts = _artifact_manifest((state or {}).get("artifacts", {}).get("directory")) if state else None
     receipts = {}
     extra_bad = 0
     for cache_json in cache_root.glob("*/train_rollouts/*.json"):
@@ -308,17 +331,39 @@ def _side_calls(rows, cache_root, round_n, state) -> dict:
             binding = receipt.get("binding") or {}
             scope = binding.get("round_scope") or {}
             row_receipt = receipt.get("row") or {}
+            # state_hash must be the production fingerprint of the round scope, and
+            # bind the cache directory, the receipt and the trajectory row together.
+            scope_hash = _fingerprint(scope)
+            if (scope_hash != state_hash or binding.get("state_hash") != state_hash
+                    or cache_json.parent.parent.name != state_hash):
+                valid = False
             if (scope.get("role") != r.get("source_role")
                     or scope.get("round_id") != round_n
                     or scope.get("manifest_hash") != r.get("manifest_hash")
                     or scope.get("collection_stage") != r.get("collection_stage")
                     or binding.get("task_source_hash") != r.get("task_source_hash")):
                 valid = False
+            member = members.get(tid)
+            if member is not None and binding.get("task_record") != member.get("content_hash"):
+                valid = False
+            if state is not None:
+                if (scope.get("harness_sha256") != state_harness_hash
+                        or scope.get("checkpoint_manifest") != checkpoint_manifest
+                        or scope.get("artifacts") != state_artifacts
+                        or scope.get("model_ref") not in (None, model_ref)):
+                    valid = False
+                if protocol_hash is not None and scope.get("protocol_hash") != protocol_hash:
+                    valid = False
             receipt_count = row_receipt.get("model_call_count")
             if receipt_count is None:
                 receipt_count = len(row_receipt.get("model_calls") or [])
             if (row_receipt.get("task_id") != tid or row_receipt.get("state_hash") != state_hash
                     or receipt_count != calls):
+                valid = False
+            # persisted outcome/verifier must match the trajectory row (not a shrunk row)
+            if row_receipt.get("verification") != r.get("verification"):
+                valid = False
+            if row_receipt.get("valid_answer") != r.get("valid_answer"):
                 valid = False
             if checkpoint_manifest is not None and row_receipt.get("checkpoint_manifest") not in (None, checkpoint_manifest):
                 valid = False
@@ -359,6 +404,8 @@ def _side_calls(rows, cache_root, round_n, state) -> dict:
                             or response.get("model_ref_requested") != response.get("model_ref_response")
                             or (model_ref is not None and response.get("model_ref_response") != model_ref)
                             or (checkpoint_manifest is not None and resp_binding.get("weights") != checkpoint_manifest)
+                            or (state is not None and state.get("checkpoint_path") is not None
+                                and resp_binding.get("checkpoint_path") != state.get("checkpoint_path"))
                             or cbinding.get("task") != tid
                             or cbinding.get("state_hash") != state_hash
                             or cbinding.get("rollout") != rollout):
@@ -467,7 +514,9 @@ def _receipt_for_round(receipts, round_n, path_keys) -> dict | None:
 def _task_identity(state) -> dict:
     if not isinstance(state, dict):
         return {}
-    identity = {k: state.get(k) for k in TASK_IDENTITY_FIELDS}
+    identity = {k: state.get(k) for k in TASK_IDENTITY_FIELDS if k != "artifacts"}
+    # Artifacts identity is the content manifest, not the (relocatable) directory.
+    identity["artifacts_manifest"] = (state.get("artifacts") or {}).get("manifest")
     if "harness_sha256" in state:
         identity["harness_sha256"] = state["harness_sha256"]
     else:
@@ -481,10 +530,19 @@ def _identity_equal(a, b) -> bool:
     if not ia or not ib:
         return False
     for k in TASK_IDENTITY_FIELDS:
-        if ia.get(k) != ib.get(k):
+        if k == "artifacts":
+            if ia.get("artifacts_manifest") != ib.get("artifacts_manifest"):
+                return False
+        elif ia.get(k) != ib.get(k):
             return False
     # harness content identity allows path relocation but requires equal bytes hash
     return ia.get("harness_sha256") == ib.get("harness_sha256") and ia.get("harness_sha256") is not None
+
+
+SNAPSHOT_REQUIRED_FILES = (
+    "task/parent_state.json", "task/candidate_state.json", "task/task_state_snapshot.json",
+    "task/checkpoint_reference.json", "versions.json",
+)
 
 
 def _snapshot_valid(receipt_path, attempt_dir) -> tuple[bool, dict]:
@@ -496,34 +554,45 @@ def _snapshot_valid(receipt_path, attempt_dir) -> tuple[bool, dict]:
     if not {"parent", "candidate", "selected"} <= set(combinations):
         return False, info
     files_sha256 = receipt.get("files_sha256") or {}
-    if not files_sha256:
+    # the seal must cover every required state/reference file, not an arbitrary subset
+    if not set(SNAPSHOT_REQUIRED_FILES) <= set(files_sha256):
         return False, info
     snap_dir = receipt_path.parent
     for rel, expected in files_sha256.items():
         actual = _sha256(snap_dir / rel)
         if actual is None or actual != expected:
             return False, info
+    meta = receipt.get("meta") or {}
+    if not meta.get("sha256") or not meta.get("path"):
+        return False, info
+    context_reference = receipt.get("context_reference") or (receipt.get("references") or {}).get("context_reference")
+    if not isinstance(context_reference, dict) or not context_reference.get("sha256"):
+        return False, info
     for role in ("parent", "candidate", "selected"):
         state_path = combinations[role].get("state_path")
         state = _read_json(state_path) if state_path else None
         if not isinstance(state, dict):
             return False, info
-        # selected state must reside within the sealed snapshot directory
-        if role == "selected":
-            try:
-                Path(state_path).resolve().relative_to(snap_dir.resolve())
-            except ValueError:
-                return False, info
+        # every required state must reside within the sealed snapshot directory
+        try:
+            Path(state_path).resolve().relative_to(snap_dir.resolve())
+        except ValueError:
+            return False, info
         info[role] = state
     return True, info
 
 
 def _model_round_evidence(run_dir, number, parent_state):
     attempt = run_dir / f"round_{number}/attempts/attempt_1"
-    sft = _receipt_for_round(_find_transport_receipts(run_dir, "sft"), number,
-                             ("candidate_state_path", "training_metrics_path"))
-    if not isinstance(sft, dict):
+    # unique successful SFT receipt bound to THIS attempt's output
+    sft_receipts = [r for r in _find_transport_receipts(run_dir, "sft")
+                    if isinstance(r.get("training_metrics_path"), str)
+                    and str(attempt) in r.get("training_metrics_path", "")]
+    if not sft_receipts:
         return False, "selected_pending"
+    if len(sft_receipts) != 1:
+        return False, "selected_failed"
+    sft = sft_receipts[0]
     if sft.get("status") not in SUCCESS_JOB_STATUS:
         return False, "selected_failed"
     metrics_path = sft.get("training_metrics_path")
@@ -535,31 +604,55 @@ def _model_round_evidence(run_dir, number, parent_state):
         return False, "selected_pending"
     model_update = Path(metrics_path).parent
     rank_records = metrics.get("rank_records") or []
-    ranks = {r.get("rank") for r in rank_records if isinstance(r, dict)}
+    ranks = [r.get("rank") for r in rank_records if isinstance(r, dict)]
     loss = metrics.get("training_loss")
     epoch = metrics.get("num_train_epochs_completed")
     finite_loss = isinstance(loss, (int, float)) and not isinstance(loss, bool) and math.isfinite(loss)
+    selection = metrics.get("selection") or {}
     complete = (
-        metrics.get("world_size") == 4 and ranks == {0, 1, 2, 3}
-        and all(isinstance(r.get("sampled_indices"), list) and r.get("optimizer_steps", 0) > 0 for r in rank_records)
+        metrics.get("world_size") == 4 and len(ranks) == 4 and set(ranks) == {0, 1, 2, 3}
+        and all(isinstance(r.get("sampled_indices"), list) and r.get("sampled_indices")
+                and r.get("optimizer_steps", 0) > 0 for r in rank_records)
         and isinstance(epoch, (int, float)) and epoch == 1
         and metrics.get("optimizer_steps", 0) > 0 and finite_loss
         and metrics.get("changed_lora_tensors", 0) > 0 and metrics.get("lora_delta_l2", 0) > 0
         and metrics.get("merged_probe_changed_elements", 0) > 0
         and metrics.get("positive_trajectories", 0) > 0
-        and isinstance(metrics.get("selection"), dict)
+        and metrics.get("sampled_training_examples", 0) > 0
+        and bool(metrics.get("sampled_row_indices"))
+        and isinstance(selection, dict) and selection.get("input_rows", 0) > 0
+        and selection.get("unique_rows", 0) > 0
         and metrics.get("checkpoint_path")
     )
     if not complete:
+        return False, "selected_failed"
+    # positive provenance files must exist and be non-empty
+    sft_selection = _read_json(model_update / "sft_selection.json")
+    if not isinstance(sft_selection, dict) or sft_selection.get("unique_rows", 0) <= 0:
+        return False, "selected_failed"
+    sft_positive = _read_jsonl(model_update / "sft_positive.jsonl")
+    if not sft_positive:
         return False, "selected_failed"
     gpu_phase = _read_json(model_update / "gpu_phase_receipt.json")
     if not isinstance(gpu_phase, dict) or gpu_phase.get("status") != "completed":
         return False, "selected_failed"
     if gpu_phase.get("replica_gpus") != [0, 1, 2, 3]:
         return False, "selected_failed"
-    trained = _read_json(model_update / "checkpoint_trained.json") or _read_json(model_update / "checkpoint.json")
+    trained = _read_json(model_update / "checkpoint_trained.json")
+    verified = _read_json(model_update / "checkpoint_verified.json")
+    before = _read_json(model_update / "checkpoint_before.json")
     if not isinstance(trained, dict) or trained.get("training_method") != "positive_sft_lora":
         return False, "selected_failed"
+    if not isinstance(verified, dict) or not verified.get("weights") or not verified.get("served_binding"):
+        return False, "selected_failed"
+    if not isinstance(before, dict):
+        return False, "selected_failed"
+    # checkpoint_before must bind the current parent; verified/trained the trained child
+    if parent_state:
+        if before.get("path") != parent_state.get("checkpoint_path"):
+            return False, "selected_failed"
+        if before.get("weights") != parent_state.get("checkpoint_manifest"):
+            return False, "selected_failed"
     child = _read_json(candidate_state_path) if candidate_state_path else None
     if not isinstance(child, dict):
         return False, "selected_pending"
@@ -568,7 +661,19 @@ def _model_round_evidence(run_dir, number, parent_state):
         return False, "selected_failed"
     if child.get("checkpoint_path") != metrics.get("checkpoint_path"):
         return False, "selected_failed"
+    if verified.get("checkpoint_path") != child.get("checkpoint_path"):
+        return False, "selected_failed"
+    if verified.get("weights") != child.get("checkpoint_manifest"):
+        return False, "selected_failed"
     if gpu_phase.get("restored_checkpoint") != metrics.get("checkpoint_path"):
+        return False, "selected_failed"
+    # the trained child must be the actual built/evaluated candidate of this attempt
+    build_child = _read_json(attempt / "build/candidate_state.json")
+    if not _identity_equal(child, build_child):
+        return False, "selected_failed"
+    candidate_rows = _read_jsonl(attempt / "candidate/train_trajectories.jsonl")
+    if candidate_rows and any(r.get("checkpoint_manifest") != child.get("checkpoint_manifest")
+                              or r.get("model_ref") != child.get("model_ref") for r in candidate_rows):
         return False, "selected_failed"
     return True, "completed"
 
@@ -590,7 +695,7 @@ def _model_sft(rounds, run_dir, round_parent_states) -> dict:
     return {"status": status, "rounds": completed, "pending_rounds": pending, "failed_rounds": failed}
 
 
-def _round_summary(run_dir, number, trusted_manifest) -> dict | None:
+def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dict | None:
     round_dir = run_dir / f"round_{number}"
     if not round_dir.is_dir():
         return None
@@ -624,8 +729,10 @@ def _round_summary(run_dir, number, trusted_manifest) -> dict | None:
     else:
         blockers.append("trusted config/release missing: frozen cohort membership unverified")
 
-    parent_calls = _side_calls(parent_rows, round_dir / "rollout_cache", number, parent_state)
-    candidate_calls = _side_calls(candidate_rows, attempt / "rollout_cache", number, candidate_state)
+    parent_calls = _side_calls(parent_rows, round_dir / "rollout_cache", number, parent_state,
+                               trusted_manifest, protocol_hash)
+    candidate_calls = _side_calls(candidate_rows, attempt / "rollout_cache", number, candidate_state,
+                                  trusted_manifest, protocol_hash)
     parent["persisted_receipts"] = parent_calls["persisted_receipts"]
     candidate["persisted_receipts"] = candidate_calls["persisted_receipts"]
     cross_check_ok = parent_calls["cross_check_ok"] and candidate_calls["cross_check_ok"]
@@ -788,9 +895,18 @@ def _workflow_milestones(run_dir) -> dict:
     workflow = _read_json(run_dir / "meta_session/workflow_state.json") or {}
     stages = {s.get("id"): s for s in workflow.get("stages", []) if isinstance(s, dict)}
     required = ["A0"] + [f"B{n}" for n in range(1, EXPECTED_ROUNDS + 1)]
-    incomplete = [sid for sid in required
-                  if stages.get(sid, {}).get("status") != "complete"
-                  or stages.get(sid, {}).get("remaining_milestones")]
+    incomplete = []
+    for sid in required:
+        stage = stages.get(sid, {})
+        required_milestones = stage.get("required_milestones")
+        completed_milestones = stage.get("completed_milestones")
+        if (stage.get("status") != "complete"
+                or stage.get("remaining_milestones") != []
+                or not isinstance(required_milestones, list) or not required_milestones
+                or not isinstance(completed_milestones, list)
+                or not set(required_milestones) <= set(completed_milestones)
+                or not stage.get("evidence")):
+            incomplete.append(sid)
     return {"current_stage": workflow.get("current_stage"),
             "finish_allowed": workflow.get("finish_allowed"),
             "final_stage": workflow.get("final_stage"),
@@ -823,15 +939,22 @@ def _finish_valid(run_dir) -> tuple[bool, list[str]]:
     finish = finish_turns[-1]
     if finish["status"] != "complete":
         reasons.append("finish_experiment status not complete")
-    if finish["remaining"]:
-        reasons.append("finish_experiment remaining not empty")
-    # finish must come after the B5 snapshot turn
-    b5_snapshot_idx = max((i for i, t in enumerate(turns)
-                           if t["operation"] == "snapshot_task_meta" and t["round_number"] == EXPECTED_ROUNDS),
-                          default=-1)
-    finish_idx = turns.index(finish)
-    if b5_snapshot_idx < 0 or finish_idx <= b5_snapshot_idx:
-        reasons.append("finish_experiment not ordered after B5 snapshot")
+    finish_receipt = _read_json(run_dir / "meta_session/turns" / finish["name"] / "receipt.json") or {}
+    if "remaining" not in finish_receipt or finish_receipt.get("remaining") != {}:
+        reasons.append("finish_experiment remaining not explicit empty schema")
+    # a successful, sealed B5 snapshot must precede the finish
+    b5_snapshots = [t for t in turns
+                    if t["operation"] == "snapshot_task_meta" and t["round_number"] == EXPECTED_ROUNDS]
+    successful_b5 = [t for t in b5_snapshots if t["status"] == "snapshotted"]
+    if not successful_b5:
+        reasons.append("no successful B5 snapshot turn")
+    else:
+        b5_snapshot_idx = turns.index(successful_b5[-1])
+        finish_idx = turns.index(finish)
+        if finish_idx <= b5_snapshot_idx:
+            reasons.append("finish_experiment not ordered after B5 snapshot")
+        if not (run_dir / "snapshots" / f"round_{EXPECTED_ROUNDS}_attempt_1/snapshot_receipt.json").is_file():
+            reasons.append("B5 snapshot seal missing")
     return not reasons, reasons
 
 
@@ -839,6 +962,7 @@ def _jobs_validation(run_dir) -> dict:
     jobs_dir = run_dir / "meta_session/jobs"
     total = 0
     missing, invalid, required_failed = [], [], []
+    known_terminal = SUCCESS_JOB_STATUS | TERMINAL_FAILED_JOB_STATUS
     if not jobs_dir.is_dir() or not any(jobs_dir.iterdir()):
         return {"total": 0, "missing_final_receipts": ["<no job inventory>"],
                 "invalid": [], "required_failed": []}
@@ -850,12 +974,13 @@ def _jobs_validation(run_dir) -> dict:
             invalid.append(job_dir.name + ":job.json")
             continue
         total += 1
-        job_id = job.get("job_id") or job_dir.name
+        job_id = job.get("job_id")
         request = job.get("request") or {}
         operation = request.get("operation")
         result_path = job.get("result_path")
         turn_dir = job.get("turn_dir")
-        # result must live under this run's controller_transport
+        if job_id != job_dir.name:
+            invalid.append(job_dir.name + ":job_id")
         try:
             Path(result_path).resolve().relative_to((run_dir / "controller_transport").resolve())
             path_ok = True
@@ -863,16 +988,24 @@ def _jobs_validation(run_dir) -> dict:
             path_ok = False
         result = _read_json(result_path) if result_path else None
         if not isinstance(result, dict):
-            missing.append(job_id)
+            missing.append(job_id or job_dir.name)
             continue
         if not path_ok or result.get("operation") != operation:
-            invalid.append(job_id + ":binding")
+            invalid.append(job_id + ":result_binding")
+        turn_command = _read_json(Path(turn_dir) / "command.json") if turn_dir else None
         turn_receipt = _read_json(Path(turn_dir) / "receipt.json") if turn_dir else None
-        if not isinstance(turn_receipt, dict):
-            invalid.append(job_id + ":turn")
+        turn_request = (turn_command or {}).get("request") or {}
+        if (not isinstance(turn_receipt, dict) or turn_request.get("operation") != operation
+                or turn_receipt.get("operation") not in (None, operation)):
+            invalid.append(job_id + ":turn_binding")
+        if (request.get("round_number") is not None
+                and turn_request.get("round_number") not in (None, request.get("round_number"))):
+            invalid.append(job_id + ":round_binding")
         status = result.get("status")
-        if status in NON_TERMINAL_JOB_STATUS or status is None:
+        if status is None or status in NON_TERMINAL_JOB_STATUS:
             invalid.append(job_id + ":non-terminal")
+        elif status not in known_terminal:
+            invalid.append(job_id + ":unknown_status")
         if operation in REQUIRED_JOB_OPERATIONS:
             ok = status in SUCCESS_JOB_STATUS
             if status == "exited":
@@ -904,7 +1037,10 @@ def _supervision(run_dir) -> dict:
             exit_value = None
         identity_ok = isinstance(identity, dict) and identity.get("run_dir") == str(run_dir)
         reconcile_ok = isinstance(reconcile, dict) and reconcile.get("status") == "complete" and not reconcile.get("remaining")
-        if not (identity_ok and reconcile_ok and exit_value == "0"):
+        # A historical attempt is accounted for when identity-bound, terminal (any exit
+        # value, e.g. 143) and reconciled; only the latest must have succeeded (exit 0).
+        terminal = exit_value is not None and exit_value != ""
+        if not (identity_ok and reconcile_ok and terminal):
             all_accounted = False
         if attempt is attempts[-1]:
             latest_reconcile = reconcile_ok
@@ -939,7 +1075,7 @@ def _service_registry(run_dir, active, output_root) -> dict:
     return {"ok": ok, "reason": reason, "path": str(registry_path), "sha256": _sha256(registry_path)}
 
 
-def _external_cleanup(run_dir, cleanup_receipt_path, config, output_root, supervision) -> dict:
+def _external_cleanup(run_dir, cleanup_receipt_path, config, output_root, supervision, active) -> dict:
     result = {"status": "missing", "ok": False, "blockers": ["external_cleanup_missing"],
               "path": str(cleanup_receipt_path) if cleanup_receipt_path else None, "sha256": None}
     if not cleanup_receipt_path:
@@ -963,33 +1099,65 @@ def _external_cleanup(run_dir, cleanup_receipt_path, config, output_root, superv
         blockers.append("external_cleanup_run_binding")
     if binding.get("output_root") != str(output_root):
         blockers.append("external_cleanup_output_binding")
-    if config is not None and binding.get("config_path") != str(config.get("_config_path")):
-        blockers.append("external_cleanup_config_binding")
-    if binding.get("supervision_attempt") not in supervision.get("attempts", []):
-        blockers.append("external_cleanup_supervision_binding")
+    if config is not None:
+        if binding.get("config_path") != str(config.get("_config_path")):
+            blockers.append("external_cleanup_config_binding")
+        if binding.get("config_hash") != _sha256(config.get("_config_path")):
+            blockers.append("external_cleanup_config_hash")
+    for field in ("base_config_hash", "effective_config_hash", "launch_receipt_hash", "thread_id"):
+        if not binding.get(field):
+            blockers.append(f"external_cleanup_missing_{field}")
+    attempts = supervision.get("attempts", [])
+    if not attempts or binding.get("supervision_attempt") != attempts[-1]:
+        blockers.append("external_cleanup_not_current_attempt")
     registry = receipt.get("registry") or {}
-    expected_registry = str(Path(output_root) / "services/four_gpu_services.json")
-    if registry.get("path") != expected_registry:
+    registry_path = Path(output_root) / "services/four_gpu_services.json"
+    if registry.get("path") != str(registry_path):
         blockers.append("external_cleanup_registry_binding")
     if registry.get("phase") != "services_stopped":
         blockers.append("external_cleanup_registry_not_stopped")
+    if registry.get("after_hash") != _sha256(registry_path):
+        blockers.append("external_cleanup_registry_after_hash")
+    if active.get("checkpoint_path") and registry.get("checkpoint") != active.get("checkpoint_path"):
+        blockers.append("external_cleanup_registry_checkpoint")
+    if not registry.get("weights"):
+        blockers.append("external_cleanup_registry_weights")
     sup = receipt.get("supervision") or {}
     if not sup.get("all_previous_attempts_accounted_for"):
         blockers.append("external_cleanup_supervision_unaccounted")
     owners = receipt.get("owners") or {}
+
+    def owner_exited_with_identity(owner):
+        identity = (owner or {}).get("identity") or {}
+        return ((owner or {}).get("state") == "exited"
+                and identity.get("pid") is not None and identity.get("start_ticks") is not None)
+
     for group in ("launcher", "app_server"):
-        if (owners.get(group) or {}).get("state") != "exited":
+        if not owner_exited_with_identity(owners.get(group)):
             blockers.append(f"external_cleanup_{group}_not_exited")
-    for group in ("jobs", "training_phases", "inference_services"):
-        for owner in owners.get(group, []) or []:
-            if owner.get("state") != "exited":
-                blockers.append(f"external_cleanup_{group}_not_exited")
-                break
+    for group in ("jobs", "inference_services"):
+        inventory = owners.get(group)
+        if not isinstance(inventory, list) or not inventory:
+            blockers.append(f"external_cleanup_{group}_inventory_missing")
+        elif not all(owner_exited_with_identity(o) for o in inventory):
+            blockers.append(f"external_cleanup_{group}_not_exited")
+    for owner in owners.get("training_phases", []) or []:
+        if not owner_exited_with_identity(owner):
+            blockers.append("external_cleanup_training_phases_not_exited")
+            break
     gpu_observations = receipt.get("gpu_observations") or []
     if not gpu_observations:
         blockers.append("external_cleanup_no_gpu_observation")
     else:
         latest = gpu_observations[-1]
+        if not latest.get("time"):
+            blockers.append("external_cleanup_gpu_no_time")
+        if len(latest.get("expected_uuids") or []) != 4:
+            blockers.append("external_cleanup_gpu_uuids")
+        if len(latest.get("per_gpu") or []) != 4:
+            blockers.append("external_cleanup_gpu_readings")
+        if latest.get("command_result") != 0:
+            blockers.append("external_cleanup_gpu_command_result")
         if latest.get("compute_apps"):
             blockers.append("external_cleanup_gpu_compute_apps")
         if not latest.get("free_verified"):
@@ -1008,9 +1176,9 @@ def _external_cleanup(run_dir, cleanup_receipt_path, config, output_root, superv
     return result
 
 
-def _active_chain(rounds, active) -> list[str]:
+def _active_chain(rounds, active, a0_identity=None) -> list[str]:
     reasons = []
-    previous_identity = None
+    previous_identity = a0_identity
     last_identity = None
     for summary in rounds:
         parent_identity = _task_identity(summary.get("parent_state"))
@@ -1059,7 +1227,9 @@ def summarize(run_dir, config_path=None, cleanup_receipt_path=None) -> dict:
         output_root = run_dir.parent.parent
 
     trusted_manifests = {}
+    protocol_hash = None
     if release_dir and not trusted_blockers:
+        protocol_hash = _sha256(Path(release_dir) / "protocol.json")
         for n in range(1, EXPECTED_ROUNDS + 1):
             if (run_dir / f"round_{n}").is_dir():
                 try:
@@ -1068,7 +1238,7 @@ def summarize(run_dir, config_path=None, cleanup_receipt_path=None) -> dict:
                     trusted_blockers.append(f"B{n} frozen manifest invalid: {exc}")
                     trusted_manifests[n] = None
 
-    rounds = [s for s in (_round_summary(run_dir, n, trusted_manifests.get(n))
+    rounds = [s for s in (_round_summary(run_dir, n, trusted_manifests.get(n), protocol_hash)
                           for n in range(1, EXPECTED_ROUNDS + 1)) if s]
     completed_rounds = sum(1 for s in rounds if s["terminal"] and s["products_complete"])
     present = {s["round"] for s in rounds}
@@ -1080,13 +1250,15 @@ def summarize(run_dir, config_path=None, cleanup_receipt_path=None) -> dict:
     active = _read_json(run_dir / "active_task.json") or {}
     supervision = _supervision(run_dir)
     registry = _service_registry(run_dir, active, output_root)
-    cleanup = _external_cleanup(run_dir, cleanup_receipt_path, config, output_root, supervision)
+    cleanup = _external_cleanup(run_dir, cleanup_receipt_path, config, output_root, supervision, active)
     skills_present = (run_dir / "meta/skills.jsonl").is_file()
     context_present = (run_dir / "meta/context.json").is_file()
     a0_receipt = run_dir / "snapshots/A0/snapshot_receipt.json"
     a0_present = a0_receipt.is_file()
-    a0_state = _read_json(run_dir / "snapshots/A0/task/task_state_snapshot.json")
-    chain_reasons = _active_chain(rounds, active)
+    a0_ok, a0_states = _snapshot_valid(a0_receipt, run_dir / "snapshots/A0")
+    a0_selected = a0_states.get("selected") if a0_ok else None
+    a0_identity = _task_identity(a0_selected) if a0_ok else None
+    chain_reasons = _active_chain(rounds, active, a0_identity)
     round_parent_states = {s["round"]: s.get("parent_state") for s in rounds}
 
     protocol_blockers = list(trusted_blockers)
@@ -1097,8 +1269,8 @@ def summarize(run_dir, config_path=None, cleanup_receipt_path=None) -> dict:
         protocol_blockers.append("rounds lacking required products: " + ", ".join(f"B{n}" for n in incomplete))
     if completed_rounds != EXPECTED_ROUNDS:
         protocol_blockers.append(f"completed_rounds={completed_rounds} != expected {EXPECTED_ROUNDS}")
-    if not a0_present or not isinstance(a0_state, dict) or a0_state.get("generation") != 0:
-        protocol_blockers.append("A0 snapshot missing/invalid initial state")
+    if not a0_ok or not isinstance(a0_selected, dict) or a0_selected.get("generation") != 0:
+        protocol_blockers.append("A0 snapshot missing/invalid initial state seal")
     if not skills_present:
         protocol_blockers.append("skills ledger missing")
     if not context_present:

@@ -33,13 +33,17 @@ def _load(name):
 
 
 @pytest.fixture()
-def supervisor():
-    return _load("deepcoder_five_round_supervisor")
+def supervisor(tmp_path):
+    module = _load("deepcoder_five_round_supervisor")
+    module.GLOBAL_GPU_LIFECYCLE_LOCK = tmp_path / "gpu-lifecycle.lock"
+    return module
 
 
 @pytest.fixture()
-def reconciler():
-    return _load("reconcile_deepcoder_run")
+def reconciler(tmp_path):
+    module = _load("reconcile_deepcoder_run")
+    module.GLOBAL_GPU_LIFECYCLE_LOCK = tmp_path / "gpu-lifecycle.lock"
+    return module
 
 
 def _config(tmp_path, output_root, run_name):
@@ -194,8 +198,12 @@ def _seed_run(tmp_path, supervisor, reconciler, *, jobs_active=False, services_s
     launch = json.loads((attempt / "launch.json").read_text())
     launch["binding"]["effective_config_hash"] = supervisor._sha256(attempt / "effective.json")
     supervisor._atomic_write(attempt / "launch.json", launch)
-    launcher_pid = launch["owners"]["launcher"]["pid"]
-    app_pid = launch["owners"]["app_server"]["pid"]
+    launcher_pid = launch["supervisor"]["pid"]
+    app_pid = 9000001
+    from test_deepcoder_five_round import _fixture_launch_chain
+    identities = {"launcher": launch["supervisor"], "app_server": {"pid": app_pid, "pgid": app_pid, "start_ticks": "1"}}
+    launch["binding"]["thread_id"] = "t1"
+    _fixture_launch_chain(attempt, launch["binding"], identities, [{"gpu": g, "uuid": f"GPU-{g}"} for g in range(4)])
     (run / "meta_session/state.json").write_text(json.dumps({
         "status": "complete", "thread_id": launch["binding"]["thread_id"],
         "launcher_pid": launcher_pid, "codex_pid": app_pid, "last_turn_status": "completed",
@@ -651,29 +659,43 @@ def test_collect_post_launch_identity_binds_real_owners(tmp_path, supervisor):
     run = paths["run_dir"]
     attempt = run / "meta_session/supervision/0001"
     # spawn a real launcher whose argv binds this run, in the supervisor's PGID
-    launcher = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", str(run)],
-                                start_new_session=True)
-    app = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    pid_file = tmp_path / "app-pid"
+    launcher_code = ("import subprocess,sys,time; from pathlib import Path; "
+                     "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)',sys.argv[1]],start_new_session=True); "
+                     "Path(sys.argv[2]).write_text(str(p.pid)); time.sleep(30)")
+    launcher = subprocess.Popen([sys.executable, "-c", launcher_code, str(run), str(pid_file)], start_new_session=True)
+    assert _wait(pid_file.exists)
+    app_pid = int(pid_file.read_text())
     try:
         seal = json.loads((attempt / "launch.json").read_text())
         seal["supervisor"]["pgid"] = launcher.pid  # launcher belongs to supervisor group
         supervisor._atomic_write(attempt / "launch.json", seal)
+        common = {"run_dir": str(run), "config_path": str(config), "config_hash": supervisor._sha256(config), "supervision_attempt": "0001"}
+        gpus = [{"gpu": g, "uuid": f"GPU-fixture-{g}"} for g in range(4)]
+        supervisor._atomic_write(attempt / "prelaunch-seal.json", {"kind": "rsiflow_prelaunch_seal", "binding": common,
+                                  "host_identity": supervisor.host_identity(), "expected_gpus": gpus})
+        seal["prelaunch_hash"] = supervisor._sha256(attempt / "prelaunch-seal.json")
+        seal["binding"]["mode"] = "fresh"
+        supervisor._atomic_write(attempt / "launch.json", seal)
         prelaunch_hash = supervisor._sha256(attempt / "launch.json")
         (run / "meta_session/state.json").write_text(json.dumps({
-            "status": "running", "launcher_pid": launcher.pid, "codex_pid": app.pid, "thread_id": "real-thread-xyz"}))
-        attachment = supervisor.collect_post_launch_identity(config, "0001", timeout=10)
+            "status": "running", "launcher_pid": launcher.pid, "codex_pid": app_pid, "thread_id": "real-thread-xyz"}))
+        attachment = supervisor.collect_post_launch_identity(config, "0001", timeout=10, gpu_observer=lambda: {"gpus": gpus})
         assert attachment["thread_id"] == "real-thread-xyz"
         assert attachment["owners"]["launcher"]["pid"] == launcher.pid
-        assert attachment["owners"]["app_server"]["pid"] == app.pid
+        assert attachment["owners"]["app_server"]["pid"] == app_pid
         assert attachment["owners"]["launcher"]["pid"] != attachment["owners"]["app_server"]["pid"]
-        assert attachment["prelaunch_seal_hash"] == prelaunch_hash
+        assert attachment["launch_hash"] == prelaunch_hash
         assert attachment["run_dir"] == str(run)
         # one-time: re-collection refuses to overwrite sealed history
         with pytest.raises(RuntimeError, match="already collected"):
             supervisor.collect_post_launch_identity(config, "0001", timeout=5)
     finally:
         launcher.terminate(); launcher.wait(timeout=10)
-        app.terminate(); app.wait(timeout=10)
+        try:
+            os.kill(app_pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
 
 
 def test_collect_post_launch_refuses_old_state_and_unrelated_pid(tmp_path, supervisor):
@@ -725,22 +747,15 @@ def test_resume_refuses_complete_run(tmp_path, supervisor):
                           kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
 
 
-def test_resume_existing_incomplete_run(tmp_path, supervisor):
-    output_root = tmp_path / "out"
-    config = _config(tmp_path, output_root, "run")
-    supervisor.launch(config, "0001", command=_sleep_command(0.2), timeout="10s",
-                      kill_after="2s", skip_asset_gates=True)
-    paths = supervisor.derive_paths(config)
-    run = paths["run_dir"]
-    assert _wait(lambda: (run / "meta_session/supervision/0001/exit").is_file())
-    (run / "meta_session/state.json").write_text(json.dumps({"status": "disconnected", "thread_id": "t1"}))
-    (run / "active_task.json").write_text(json.dumps({"generation": 1}))  # R7 product continuity
+def test_resume_existing_incomplete_run(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu, pids = _seed_run(tmp_path, supervisor, reconciler)
+    state_path = run / "meta_session/state.json"
+    state = json.loads(state_path.read_text()); state["status"] = "disconnected"
+    state_path.write_text(json.dumps(state))
     result = supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
                                kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
-    seal = result["launch_seal"]
-    assert seal["binding"]["mode"] == "resume"
-    assert seal["binding"]["resumed_from"] == "0001"
-    assert (run / "meta_session/supervision/0002").is_dir()
+    assert result["launch_seal"]["binding"]["resumed_from"] == "0001"
+    assert _wait(lambda: (run / "meta_session/supervision/0002/exit").exists())
 
 
 def test_resume_refuses_wrong_resumed_from(tmp_path, supervisor):
@@ -801,7 +816,7 @@ def test_restore_occupier_after_completed_cleanup(tmp_path, supervisor, reconcil
         ident = {"pid": 50001, "pgid": 50001, "start_ticks": "1", "gpus": [0, 1, 2, 3], "argv": ["torchrun"]}
         started.append(ident)
         return ident
-    obs_path = reconciler.restore_occupier(config, run, "0001", occupier_start_fn=fake_start,
+    obs_path = reconciler.restore_occupier(config, run, "0001", occupier_start_fn=fake_start, shared_identity_path=tmp_path / "shared.json",
                                            gpu_observer=_gpu_observer(gpu_obs))
     obs = json.loads(obs_path.read_text())
     assert obs["kind"] == "rsiflow_occupier_restore"
@@ -825,7 +840,7 @@ def test_restore_occupier_refused_on_pending_cleanup(tmp_path, supervisor, recon
         started = []
         with pytest.raises(RuntimeError, match="pending"):
             reconciler.restore_occupier(config, run, "0001",
-                                        occupier_start_fn=lambda: started.append(1) or {},
+                                        occupier_start_fn=lambda: started.append(1) or {}, shared_identity_path=tmp_path / "shared.json",
                                         gpu_observer=_gpu_observer(gpu_obs))
         assert started == []  # never started occupier on pending cleanup
     finally:
@@ -837,7 +852,7 @@ def test_restore_occupier_refused_without_cleanup(tmp_path, supervisor, reconcil
     started = []
     with pytest.raises(RuntimeError, match="no external cleanup"):
         reconciler.restore_occupier(config, run, "0001",
-                                    occupier_start_fn=lambda: started.append(1) or {},
+                                    occupier_start_fn=lambda: started.append(1) or {}, shared_identity_path=tmp_path / "shared.json",
                                     gpu_observer=_gpu_observer(gpu_obs))
     assert started == []
 
@@ -846,30 +861,44 @@ def _occupier_script(tmp_path, ranks=4):
     # controlled stand-in for run.sh: spawns `ranks` child ranks in its PGID, then sleeps
     script = tmp_path / "occupier.sh"
     code = ("import subprocess, sys, time\n"
+            "if '--rank' in sys.argv:\n"
+            "    time.sleep(60); sys.exit(0)\n"
             f"for _ in range({ranks}):\n"
-            "    subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            "    subprocess.Popen([sys.executable, __file__, '--rank'])\n"
             "time.sleep(60)\n")
     py = tmp_path / "occupier_run.py"
     py.write_text(code)
     return [sys.executable, str(py)]
 
 
-def _restore_gpu_observer():
+def _restore_gpu_observer(command):
     # stateful: first call (restore free-check) => idle; later (start load-check) => 4 ranks
     state = {"n": 0}
     def observe():
         from datetime import timedelta
         n = state["n"]; state["n"] += 1
-        apps = [] if n == 0 else [{"pid": 90000 + i, "uuid": f"GPU-{i}"} for i in range(4)]
+        members = []
+        for entry in Path('/proc').iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                argv = (entry / 'cmdline').read_bytes().split(b'\0')
+                if str(command[1]).encode() in argv and b'--rank' in argv:
+                    members.append(int(entry.name))
+            except FileNotFoundError:
+                continue
+        apps = [] if n == 0 else [{"pid": pid, "uuid": f"GPU-{i}"} for i, pid in enumerate(sorted(members))]
         raw = "".join(f"{a['pid']}, {a['uuid']}\n" for a in apps)
+        used, util = (100, 0) if n == 0 else (2500, 20)
+        gpu_raw = "".join(f"{g}, GPU-{g}, A800, 81920, 78000, {used}, {util}\n" for g in range(4))
         import hashlib as _hl
         return {"time": (datetime.now(timezone.utc) + timedelta(seconds=n)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "command": ["nvidia-smi", "--query"], "command_result": 0,
                 "expected_uuids": [f"GPU-{g}" for g in range(4)],
-                "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 80000, "memory_total": 81920,
-                             "memory_used": 100, "utilization": 0} for g in range(4)],
+                "per_gpu": [{"gpu": g, "uuid": f"GPU-{g}", "memory_free": 78000, "memory_total": 81920,
+                             "memory_used": used, "utilization": util} for g in range(4)],
                 "compute_apps": apps, "free_verified": (n == 0),
-                "raw_stdout": "raw", "stdout_hash": _hl.sha256(b"raw").hexdigest(),
+                "raw_stdout": gpu_raw, "stdout_hash": _hl.sha256(gpu_raw.encode()).hexdigest(),
                 "apps_raw_stdout": raw, "apps_stdout_hash": _hl.sha256(raw.encode()).hexdigest()}
     return observe
 
@@ -882,7 +911,7 @@ def test_f8_restore_real_helper_exec_identity_and_shared_identity(tmp_path, supe
     command = _occupier_script(tmp_path, ranks=4)
     try:
         obs_path = reconciler.restore_occupier(
-            config, run, "0001", gpu_observer=_restore_gpu_observer(),
+            config, run, "0001", gpu_observer=_restore_gpu_observer(command),
             occupier_command=command, shared_identity_path=shared_identity, exec_timeout=15)
         obs = json.loads(obs_path.read_text())
         assert obs["kind"] == "rsiflow_occupier_restore"
@@ -894,21 +923,8 @@ def test_f8_restore_real_helper_exec_identity_and_shared_identity(tmp_path, supe
         shared = json.loads(shared_identity.read_text())
         assert shared["pid"] == ident["pid"] and shared["owner"] == "dev4-rsiflow-idle-occupier"
     finally:
-        # cleanup the controlled occupier group
-        import signal as _sig
-        for entry in Path("/proc").iterdir():
-            if entry.name.isdigit():
-                try:
-                    fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
-                except (OSError, ValueError, IndexError):
-                    continue
-        # terminate any lingering controlled ranks spawned by the test script
-        for child in __import__("subprocess").run(["pgrep", "-f", "occupier_run.py"],
-                                                 capture_output=True, text=True).stdout.split():
-            try:
-                os.kill(int(child), _sig.SIGTERM)
-            except (ProcessLookupError, ValueError):
-                pass
+        if shared_identity.exists():
+            reconciler._terminate_owned_group(json.loads(shared_identity.read_text()))
 
 
 def test_f8_restore_failure_rollback_no_four_ranks(tmp_path, supervisor, reconciler):
@@ -919,7 +935,7 @@ def test_f8_restore_failure_rollback_no_four_ranks(tmp_path, supervisor, reconci
     command = _occupier_script(tmp_path, ranks=1)  # only 1 rank => never settles to 4
     with pytest.raises(RuntimeError, match="four-rank"):
         reconciler.restore_occupier(
-            config, run, "0001", gpu_observer=_restore_gpu_observer(),
+            config, run, "0001", gpu_observer=_restore_gpu_observer(command),
             occupier_command=command, shared_identity_path=shared_identity, exec_timeout=2)
     assert not shared_identity.exists()  # shared identity not updated on failure
 
@@ -1045,7 +1061,10 @@ def _seed_sft_resume_run(tmp_path, supervisor, reconciler, *, training_sealed=Tr
     status = "completed" if training_sealed else "training_dispatched"
     (model_update / "gpu_phase_receipt.json").write_text(json.dumps({
         "status": status, "training_pid": 40001, "training_identity": {"pid": 40001, "pgid": 40001, "start_ticks": "150"},
-        "training_request_dir": str(model_update), "replica_gpus": [0, 1, 2, 3]}))
+        "training_request_dir": str(model_update), "training_run_dir": str(run),
+        "training_argv": ["python", "train.py", "--request-dir", str(model_update)],
+        "command": ["python", "train.py", "--request-dir", str(model_update)],
+        "replica_gpus": [0, 1, 2, 3]}))
     if training_sealed:
         (model_update / "checkpoint_trained.json").write_text(json.dumps({
             "checkpoint_path": "/models/trained", "training_method": "positive_sft_lora", "training_steps": 3}))
@@ -1144,3 +1163,202 @@ def test_r7_production_sft_dispatch_spy_not_called_on_resume(tmp_path, superviso
     assert result["launch_seal"]["binding"]["thread_id"] == "t1"
     assert (run / "meta_session/supervision/0001/resumed-thread-seal.json").is_file()
     assert (run / "meta_session/supervision/0001/exit").read_text() == "143"
+# Fix4: exercise the real phase entry; only GPU/process effects are replaced.
+@pytest.mark.parametrize('identity', [None, {'pid': 123, 'pgid': 123},
+                                      {'pid': 124, 'pgid': 123, 'start_ticks': '7'}])
+def test_fix4_phase_missing_identity_never_serves_or_publishes(tmp_path, monkeypatch, identity):
+    import contextlib
+    from types import SimpleNamespace
+    monkeypatch.syspath_prepend(str(ROOT / 'RSIFlow/runtime/scripts'))
+    import train_four_gpu_phase as phase
+    directory = tmp_path / 'runs/run/round_1/attempts/attempt_1/candidate/model_update'
+    directory.mkdir(parents=True)
+    (directory / 'training_request.json').write_text('{}')
+    (directory / 'checkpoint_trained.json').write_text(json.dumps({
+        'checkpoint_path': str(tmp_path / 'child'), 'training_metrics': str(directory / 'metrics.json'),
+        'training_summary': 'trained'}))
+    (directory / 'metrics.json').write_text(json.dumps({'world_size': 4, 'rank_records': [{'rank': i} for i in range(4)]}))
+    monkeypatch.setattr(sys, 'argv', ['phase', '--request-dir', str(directory), '--config', 'unused'])
+    monkeypatch.setattr(phase.signal, 'signal', lambda *a: None)
+    monkeypatch.setattr(phase, 'load_config', lambda _: SimpleNamespace(
+        output_root=str(tmp_path), gpu_execution='phased_four', trainer_python=sys.executable,
+        task_base_url='http://127.0.0.1', training_timeout_seconds=10))
+    monkeypatch.setattr(phase, 'resolve_training_base', lambda _: tmp_path / 'base')
+    monkeypatch.setattr(phase, 'read_positive_rows', lambda *a: [])
+    monkeypatch.setattr(phase, 'exclusive_lock', lambda *a: contextlib.nullcontext())
+    monkeypatch.setattr(phase, 'training_gpu_lease', lambda *a: contextlib.nullcontext())
+    monkeypatch.setattr(phase, 'stop_services', lambda *a: None)
+    monkeypatch.setattr(phase.subprocess, 'Popen', lambda *a, **k: SimpleNamespace(pid=123, wait=lambda **k: 0))
+    monkeypatch.setattr(phase, 'process_identity', lambda _: identity)
+    monkeypatch.setattr(phase, '_wait_group_exited', lambda *a, **k: True)
+    served = []
+    monkeypatch.setattr(phase, 'start_services', lambda *a: served.append(a) or [{'gpu': i} for i in range(4)])
+    with pytest.raises(RuntimeError, match='identity'):
+        phase.main()
+    assert served == []
+    assert not (directory / 'checkpoint.json').exists()
+    receipt = json.loads((directory / 'gpu_phase_receipt.json').read_text())
+    assert receipt['training_pid'] == 123
+    assert receipt['status'] == 'training_failed_requires_audit'
+
+
+def test_fix4_status_permission_is_unknown(tmp_path, supervisor, monkeypatch):
+    config = _config(tmp_path, tmp_path / 'out', 'run')
+    attempt = supervisor.derive_paths(config)['run_dir'] / 'meta_session/supervision/0001'
+    attempt.mkdir(parents=True)
+    (attempt / 'identity.json').write_text(json.dumps({'pid': 123, 'start_ticks': '7'}))
+    monkeypatch.setattr(supervisor, '_proc_stat', lambda _: (_ for _ in ()).throw(PermissionError()))
+    result = supervisor.status(config, '0001')
+    assert result['alive'] is None
+    assert result['owner_state'] == 'unknown'
+
+
+def test_fix4_restore_rejects_resource_flags_without_evidence(tmp_path, reconciler):
+    config = tmp_path / 'config.json'; config.write_text('{}')
+    receipt = {'kind': 'rsiflow_external_cleanup', 'status': 'completed', 'blockers': [], 'errors': [],
+               'binding': {'run_dir': str(tmp_path / 'run'), 'supervision_attempt': '0002',
+                           'config_hash': reconciler._sha256(config)},
+               'evidence_files_sha256': {str(config): reconciler._sha256(config)},
+               'owners': {'launcher': {'state': 'exited'}, 'app_server': {'state': 'exited'}},
+               'registry': {'phase': 'services_stopped'}, 'gpu_observations': [{}, {}],
+               'ports_observation': {'status': 'closed'}}
+    with pytest.raises((ValueError, RuntimeError)):
+        reconciler._verify_cleanup_evidence(receipt, tmp_path / 'receipt.json', config, tmp_path / 'run', '0002')
+
+
+def test_fix4_job_wrong_turn_blocks_service_stop(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu, _ = _seed_run(tmp_path, supervisor, reconciler, services_stopped=False)
+    command = run / 'meta_session/turns/run_parent_1/command.json'
+    command.write_text(json.dumps({'request': {'operation': 'foreign'}}))
+    stopped = []
+    receipt = reconciler.cleanup_run(config, run, '0001', gpu_observer=_gpu_observer(gpu),
+                                     stop_services_fn=lambda c: stopped.append(c), skip_asset_gates=True)
+    assert not stopped
+    assert json.loads(receipt.read_text())['status'] != 'completed'
+
+
+@pytest.mark.parametrize('field,value', [('gpus', []), ('host', None), ('ports', []), ('provider', 'wrong')])
+def test_fix4_prelaunch_rejects_unusable_field_evidence(tmp_path, supervisor, field, value):
+    evidence = _prelaunch_evidence(tmp_path)
+    for stage in ('stage1', 'stage2'):
+        path = Path(evidence['preflight_receipts'][stage]['path'])
+        record = json.loads(path.read_text()); record[field] = value
+        path.write_text(json.dumps(record))
+        evidence['preflight_receipts'][stage]['sha256'] = supervisor._sha256(path)
+    path = Path(evidence['preflight_receipts']['stage2']['path'])
+    record = json.loads(path.read_text()); record['stage1_receipt_hash'] = evidence['preflight_receipts']['stage1']['sha256']
+    path.write_text(json.dumps(record)); evidence['preflight_receipts']['stage2']['sha256'] = supervisor._sha256(path)
+    with pytest.raises(RuntimeError):
+        supervisor.verify_prelaunch_seal(evidence, expected_commit='a'*40,
+                                        expected_backend='linux_bwrap_seccomp_v1', attempt_dir=tmp_path / 'attempt')
+
+
+def test_fix4_restore_receipt_write_failure_reconciles_started_owner(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu, _ = _seed_run(tmp_path, supervisor, reconciler)
+    reconciler.cleanup_run(config, run, '0001', gpu_observer=_gpu_observer(gpu), skip_asset_gates=True)
+    command = _occupier_script(tmp_path)
+    shared = tmp_path / 'shared-identity.json'
+    written_identity = []
+    real_write = reconciler._atomic_write
+    def write(path, value):
+        if Path(path) == shared:
+            written_identity.append(value)
+        if Path(path).name == 'restore.json':
+            raise OSError('controlled receipt disk failure')
+        real_write(path, value)
+    monkeypatch.setattr(reconciler, '_atomic_write', write)
+    with pytest.raises(OSError, match='disk failure'):
+        reconciler.restore_occupier(config, run, '0001', gpu_observer=_restore_gpu_observer(command),
+                                    occupier_command=command, shared_identity_path=shared)
+    assert written_identity
+    assert not shared.exists()
+    assert reconciler._observe_owner(written_identity[-1], run)['state'] == 'exited'
+
+
+def test_fix4_restore_directory_failure_reconciles_started_owner(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu, _ = _seed_run(tmp_path, supervisor, reconciler)
+    reconciler.cleanup_run(config, run, '0001', gpu_observer=_gpu_observer(gpu), skip_asset_gates=True)
+    command = _occupier_script(tmp_path)
+    shared = tmp_path / 'directory-failure-identity.json'
+    started = []
+    real_start = reconciler._start_occupier_process
+    def start(*a, **k):
+        identity = real_start(*a, **k); started.append(identity); return identity
+    real_mkdir = Path.mkdir
+    def mkdir(path, *a, **k):
+        if path.name.startswith('restore-'):
+            raise OSError('controlled observation mkdir failure')
+        return real_mkdir(path, *a, **k)
+    monkeypatch.setattr(reconciler, '_start_occupier_process', start)
+    monkeypatch.setattr(Path, 'mkdir', mkdir)
+    try:
+        with pytest.raises(OSError, match='mkdir failure'):
+            reconciler.restore_occupier(config, run, '0001', gpu_observer=_restore_gpu_observer(command),
+                                        occupier_command=command, shared_identity_path=shared)
+        assert started and reconciler._observe_owner(started[0], run)['state'] == 'exited'
+        assert not shared.exists()
+    finally:
+        for identity in started:
+            reconciler._terminate_owned_group(identity)
+
+
+def test_fix4_provider_response_requires_transport_binding(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu, _ = _seed_run(tmp_path, supervisor, reconciler)
+    stage = {'gpus': [{'gpu': g, 'uuid': f'GPU-{g}'} for g in range(4)],
+             'ports': [8271, 8272, 8273, 8274], 'config_hash': supervisor._sha256(config)}
+    for key, value in {'provider_response': {'status': 'completed', 'model': 'gpt-6-astra', 'output': ['READY']},
+                       'gpu_observation': gpu,
+                       'ports_observation': {'status': 'closed', 'closed_ports': stage['ports']}}.items():
+        path = tmp_path / (key + '.json'); path.write_text(json.dumps(value))
+        stage[key] = {'path': str(path), 'sha256': supervisor._sha256(path)}
+    with pytest.raises(RuntimeError, match='provider'):
+        supervisor._validate_stage_measurements(stage, require_idle=True)
+
+
+def test_fix4_resume_rejects_thread_changed_from_runtime_seal(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu, _ = _seed_run(tmp_path, supervisor, reconciler)
+    state_path = run / 'meta_session/state.json'
+    state = json.loads(state_path.read_text()); state.update(status='disconnected', thread_id='different-thread')
+    state_path.write_text(json.dumps(state))
+    attempt = run / 'meta_session/supervision/0002'
+    try:
+        with pytest.raises((ValueError, RuntimeError), match='thread'):
+            supervisor.launch(config, '0002', command=_sleep_command(.05), skip_asset_gates=True,
+                              mode='resume', resumed_from='0001')
+    finally:
+        if attempt.exists():
+            assert _wait(lambda: (attempt / 'exit').exists())
+
+
+def test_fix4_initial_identity_failure_blocks_duplicate_restore(tmp_path, reconciler, monkeypatch):
+    command = _occupier_script(tmp_path)
+    shared = tmp_path / 'initial-identity.json'
+    pending = shared.with_suffix('.pending.json')
+    processes = []
+    real_popen = subprocess.Popen
+    real_record = reconciler._process_record
+    def popen(*a, **k):
+        process = real_popen(*a, **k); processes.append(process); return process
+    calls = []
+    def record(pid):
+        calls.append(pid)
+        if len(calls) == 1:
+            raise PermissionError('controlled initial identity unreadable')
+        return real_record(pid)
+    monkeypatch.setattr(reconciler.subprocess if hasattr(reconciler, 'subprocess') else subprocess, 'Popen', popen)
+    monkeypatch.setattr(reconciler, '_process_record', record)
+    try:
+        with pytest.raises(PermissionError):
+            reconciler._start_occupier_process(command, shared_identity_path=shared,
+                                               gpu_observer=lambda: pytest.fail('GPU must not be queried'))
+        assert pending.is_file()
+        assert json.loads(pending.read_text())['spawned_pid'] == processes[0].pid
+        with pytest.raises((RuntimeError, FileExistsError)):
+            reconciler._start_occupier_process(command, shared_identity_path=shared,
+                                               gpu_observer=lambda: pytest.fail('must refuse duplicate'))
+        assert len(processes) == 1
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                reconciler._terminate_owned_group(real_record(process.pid))
+                process.wait(timeout=10)

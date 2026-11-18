@@ -954,8 +954,8 @@ def _write_side(side_dir, cache_root, rows, state_hash, round_n, manifest_hash, 
     side_dir.mkdir(parents=True, exist_ok=True)
     (side_dir / "train_trajectories.jsonl").write_text(
         "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    (side_dir / "performance.json").write_text(
-        json.dumps(_performance(rows, round_n, manifest_hash)), encoding="utf-8")
+    from rsiflow.task_meta.storage import save_json
+    save_json(side_dir / "performance.json", _performance(rows, round_n, manifest_hash))
     members = {t["task_id"]: t for t in manifest["tasks"]}
     cache = cache_root / state_hash / "train_rollouts"
     cache.mkdir(parents=True, exist_ok=True)
@@ -1260,6 +1260,35 @@ def _fixture_journal(run, config_path, complete):
     ExperimentProgress(run / "meta_session", rounds=5).rebuild()
 
 
+def _fixture_launch_chain(attempt, binding, identities, expected_gpus, *, seal=lambda p: None):
+    """Synthetic immutable evidence, using the same schema as the real collector.
+    Process observation remains the responsibility of the caller's test boundary.
+    """
+    import sys
+    scripts = ROOT.parent / "reproduction/scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    from deepcoder_five_round_supervisor import host_identity
+    h = host_identity()
+    binding = {**binding, "backend": "linux_bwrap_seccomp_v1", "mode": "fresh"}
+    common = {k: binding[k] for k in ("config_path", "config_hash", "run_dir", "supervision_attempt")}
+    def write(name, value):
+        path = attempt / name
+        path.write_text(json.dumps(value))
+        seal(path)
+        return file_hash(path)
+    pre = write("prelaunch-seal.json", {"kind": "rsiflow_prelaunch_seal", "binding": common,
+                "host_identity": h, "expected_gpus": expected_gpus})
+    launch_hash = write("launch.json", {"kind": "rsiflow_launch", "binding": binding,
+                  "prelaunch_hash": pre,
+                  "supervisor": {"pid": identities["launcher"]["pgid"], "pgid": identities["launcher"]["pgid"], "start_ticks": "100"}})
+    runtime_hash = write("post-launch-identity.json", {"kind": "rsiflow_post_launch_identity", **common,
+                        "launch_hash": launch_hash, "host_identity": h, "thread_id": binding["thread_id"],
+                        "owners": identities, "expected_gpus": expected_gpus})
+    write("launch-final.json", {"kind": "rsiflow_launch_final", **common, "runtime_hash": runtime_hash})
+    return binding, h
+
+
 def _cleanup_receipt(run, output_root, config_path, *, status="completed", attempt="0001",
                      run_binding=None, registry_phase="services_stopped", compute_apps=None,
                      free_verified=True, owners_exited=True):
@@ -1294,8 +1323,7 @@ def _cleanup_receipt(run, output_root, config_path, *, status="completed", attem
     identities = {"launcher": {"pid": 14871, "pgid": 14852, "start_ticks": "100"},
                   "app_server": {"pid": 14896, "pgid": 14896, "start_ticks": "101"}}
     launch_path = run / "meta_session/supervision" / attempt / "launch.json"
-    write(launch_path, {"kind": "rsiflow_launch", "binding": binding, "owners": identities,
-                        "expected_gpus": expected_gpus})
+    binding, observed_host = _fixture_launch_chain(launch_path.parent, binding, identities, expected_gpus, seal=seal)
     binding = {**binding, "launch_receipt_path": str(launch_path), "launch_receipt_hash": file_hash(launch_path)}
     history = []
     for sup in sorted((run / "meta_session/supervision").iterdir()):
@@ -1353,7 +1381,7 @@ def _cleanup_receipt(run, output_root, config_path, *, status="completed", attem
     ports_path, ports_hash = write(directory / "ports_observation.json", {"status": "closed", "closed_ports": [8271, 8272, 8273, 8274]})
     receipt = {"schema_version": 1, "kind": "rsiflow_external_cleanup", "status": status,
                "started_at_utc": "2026-11-18T00:00:00Z", "observed_at_utc": "2026-11-18T00:02:00Z",
-               "binding": binding, "supervision": {"all_previous_attempts_accounted_for": True, "attempts": history},
+               "binding": binding, "host_identity": observed_host, "supervision": {"all_previous_attempts_accounted_for": True, "attempts": history},
                "registry": {"path": str(registry_path), "after_hash": file_hash(registry_path),
                             "phase": registry_phase, "checkpoint": active["checkpoint_path"], "weights": active["checkpoint_manifest"]},
                "owners": owners, "gpu_observations": gpu_observations,
@@ -2083,7 +2111,11 @@ def _add_model_round(run, ctx, n=2, *, mutate=None):
         "checkpoint_path": trained_checkpoint, "serving_status": "ready",
     }
     gpu = {"status": "completed", "training_pid": 17000, "restored_checkpoint": trained_checkpoint,
-           "replica_gpus": [0, 1, 2, 3], "gpus": [0, 1, 2, 3]}
+           "replica_gpus": [0, 1, 2, 3], "gpus": [0, 1, 2, 3],
+           "training_identity": {"pid": 17000, "pgid": 17000, "start_ticks": "150"},
+           "training_run_dir": str(run), "training_request_dir": str(model_update),
+           "command": ["python", "train.py", "--request-dir", str(model_update)],
+           "training_argv": ["python", "train.py", "--request-dir", str(model_update)]}
     trained = {"model_ref": trained_checkpoint, "checkpoint_path": trained_checkpoint,
                "training_metrics": str(model_update / "training_metrics.json"),
                "training_method": "positive_sft_lora", "training_steps": 1, "training_summary": "fixture"}
@@ -2809,3 +2841,207 @@ def test_fix4_unaccounted_persisted_calls_block_completion(tmp_path):
     (directory / "foreign.json").write_text(json.dumps(foreign))
     shutil.copytree(call_path.parent, directory / "foreign.calls")
     assert not _rounds(_summarize(run, ctx))[1]["products_complete"]
+
+
+def test_fix4_cleanup_rejects_gpu_raw_reading_disagreement(tmp_path):
+    import hashlib
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    path = ctx['cleanup_path']
+    receipt = json.loads(path.read_text())
+    obs = receipt['gpu_observations'][0]
+    obs['raw_stdout'] = obs['raw_stdout'].replace('100, 0', '70000, 99')
+    obs['stdout_hash'] = hashlib.sha256(obs['raw_stdout'].encode()).hexdigest()
+    evidence_path = Path(obs['evidence_path'])
+    evidence_path.write_text(json.dumps({k: v for k, v in obs.items() if k not in {'evidence_path', 'evidence_sha256'}}))
+    obs['evidence_sha256'] = file_hash(evidence_path)
+    receipt['evidence_files_sha256'][str(evidence_path)] = file_hash(evidence_path)
+    path.write_text(json.dumps(receipt))
+    result = _summarize(run, ctx)
+    assert result['protocol_complete'] is True
+    assert result['external_cleanup']['ok'] is False
+    assert any('raw_reading' in b for b in result['external_cleanup']['blockers'])
+
+
+def test_fix4_cleanup_requires_runtime_attachment(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    attachment = run / 'meta_session/supervision/0001/post-launch-identity.json'
+    if attachment.exists():
+        attachment.unlink()
+    result = _summarize(run, ctx)
+    assert result['protocol_complete'] is True
+    assert result['external_cleanup']['ok'] is False
+
+
+def test_fix4_cleanup_rejects_unbound_job_turn(tmp_path):
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    # The protocol separately rejects the altered job. Resource cleanup must reject it too.
+    jobpath = next((run / 'meta_session/jobs').glob('*/job.json'))
+    job = json.loads(jobpath.read_text())
+    turn = Path(job['turn_dir']) / 'command.json'
+    command = json.loads(turn.read_text()); command['request'] = {'operation': 'foreign'}
+    turn.write_text(json.dumps(command))
+    result = _summarize(run, ctx)
+    assert result['external_cleanup']['ok'] is False
+
+
+def _fix4_resume_worker(run_path, config_path, replay_path):
+    """Child-process test transport; production controller/TaskAdapter execute MODEL reuse.
+
+    Only model generation and later unrelated component operations use prerecorded
+    offline products. The SFT spy lives in this process, where dispatch would occur.
+    """
+    import os
+    import subprocess
+    import sys
+    import time
+    from types import SimpleNamespace
+    from controller_tools import ControllerTools
+    import persistent_meta
+    import rsiflow.task_meta.gpu_phases as gpu_phases
+    run = Path(run_path)
+    replay = json.loads(Path(replay_path).read_text())
+    calls = []
+    def forbidden_sft(self, arguments):
+        calls.append(arguments)
+        raise AssertionError('SFT re-dispatched after completed training')
+    TaskAdapter.sft = forbidden_sft
+    gpu_phases.ensure_services = lambda *args: None
+    adapter = TaskAdapter(ROOT, run / 'controller_receipts')
+    reused = []
+    def model_executor(config, state, number, stage, output):
+        assert number == 2 and stage == 'candidate'
+        weight = Path(state.checkpoint_path) / 'model.safetensors'
+        assert weight.is_file() and weight.stat().st_size > 0
+        reused.append(str(weight))
+        return SimpleNamespace(execute=lambda task, directory: SimpleNamespace(
+            performance=json.loads((output / 'performance.json').read_text()), cost={},
+            trajectories=[json.loads(line) for line in (output / 'train_trajectories.jsonl').read_text().splitlines()]))
+    adapter._executor = model_executor
+    controller = ControllerTools(ROOT, run / 'controller_receipts', adapter=adapter)
+    pending = {json.dumps(item['request'], sort_keys=True): item for item in replay}
+    class Executor:
+        def execute(self, request):
+            if request['operation'] == 'sft':
+                return controller.execute(request)
+            item = pending[json.dumps(request, sort_keys=True)]
+            if request['operation'] == 'run_candidate' and request['round_number'] == 2:
+                result = controller.execute(request)
+                assert result['status'] == 'completed', result
+                # Refresh the actual transport result, not a fabricated success flag.
+                Path(item['result_path']).write_text(json.dumps(result))
+                return result
+            return item['receipt']
+    loop = PersistentMeta(project=run.parent.parent.parent / 'project', run=run,
+                          codex_home=run / 'meta_session/codex_home', executor=Executor(),
+                          meta_config={'model': 'offline', 'provider': 'offline'}, rounds=5)
+    def inline_job(request, turn_dir):
+        item = pending[json.dumps(request, sort_keys=True)]
+        result = loop.tools.executor.execute(request)
+        if item.get('job_path'):
+            path = Path(item['job_path']); job = item['job']
+            path.parent.mkdir(parents=True, exist_ok=True)
+            for label in ('stdout', 'stderr'):
+                log = Path(job['result_path']).parent / (label + '.log'); log.touch()
+                job[label + '_path'] = str(log)
+            job['created_at'] = 1.0
+            job['turn_dir'] = str(turn_dir); path.write_text(json.dumps(job))
+        return {'status': 'completed', 'result': result}
+    loop.tools.jobs.start = inline_job
+    class Server:
+        def __init__(self, **kwargs):
+            self.process = None
+        def start(self):
+            self.process = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(90)', str(run)], start_new_session=True)
+        def request(self, method, params):
+            assert method == 'thread/resume'
+            assert params['threadId'] == 'thread-1'
+            return {'thread': {'id': params['threadId']}}
+        def turn(self, thread_id, prompt, environments):
+            deadline = time.monotonic() + 30
+            while not (run / 'release-test-transport').exists():
+                if time.monotonic() > deadline:
+                    raise RuntimeError('collector did not release test transport')
+                time.sleep(.02)
+            for item in replay:
+                request = item['request']
+                if request['operation'] == 'finish_experiment':
+                    loop.tools('finish_experiment', {'summary': 'completed fixture protocol'})
+                else:
+                    loop.tools('experiment', {'request': request})
+            assert loop.tools.finished, loop.progress.rebuild()
+            assert calls == [] and len(reused) == 1
+            (run / 'resume-spy.json').write_text(json.dumps({'calls': calls, 'reused': reused}))
+            return {'id': 'resume-turn', 'status': 'completed'}
+        def close(self):
+            if self.process:
+                self.process.terminate(); self.process.wait(timeout=10)
+    persistent_meta.CodexAppServer = Server
+    loop.run_experiment('Continue from the recorded completed SFT; do not repeat it.')
+
+
+def test_fix4_same_run_model_resume_collector_writer_consumer(tmp_path, monkeypatch):
+    import shutil
+    import sys
+    from test_five_round_lifecycle import _load, _wait, _gpu_observer
+    sup, writer = _load('deepcoder_five_round_supervisor'), _load('reconcile_deepcoder_run')
+    sup.GLOBAL_GPU_LIFECYCLE_LOCK = writer.GLOBAL_GPU_LIFECYCLE_LOCK = tmp_path / 'lifecycle.lock'
+    run, _, ctx = _build_run(tmp_path, complete=True)
+    _add_model_round(run, ctx, 2)
+    model = run / 'round_2/attempts/attempt_1/candidate/model_update'
+    weights = model / 'checkpoint/model.safetensors'
+    assert weights.is_file() and weights.stat().st_size > 0
+    original = {str(p): p.read_bytes() for p in model.rglob('*') if p.is_file()}
+    turns = sorted((run / 'meta_session/turns').iterdir())
+    cutoff = next(i for i, t in enumerate(turns) if json.loads((t/'command.json').read_text())['request'].get('operation') == 'sft')
+    replay = []
+    for turn in turns[cutoff + 1:]:
+        request = json.loads((turn/'command.json').read_text())['request']
+        item = {'request': request, 'receipt': json.loads((turn/'receipt.json').read_text())}
+        for jobpath in (run/'meta_session/jobs').glob('*/job.json'):
+            job = json.loads(jobpath.read_text())
+            if job['turn_dir'] == str(turn):
+                item.update(job_path=str(jobpath), result_path=job['result_path'], job=job)
+                jobpath.unlink(); jobpath.parent.rmdir()
+        replay.append(item)
+        shutil.rmtree(turn)
+    for jobpath in (run/'meta_session/jobs').glob('*/job.json'):
+        job = json.loads(jobpath.read_text())
+        for label in ('stdout', 'stderr'):
+            log = Path(job['result_path']).parent / (label + '.log')
+            log.write_text('')
+            job[label + '_path'] = str(log)
+        job['created_at'] = 1.0
+        jobpath.write_text(json.dumps(job))
+    replay_path = tmp_path / 'replay.json'; replay_path.write_text(json.dumps(replay))
+    session = run / 'meta_session'
+    state = json.loads((session/'state.json').read_text())
+    state.update(status='disconnected', sandbox_backend='legacy_host', capability_revision='native_coding_v1')
+    (session/'state.json').write_text(json.dumps(state))
+    old = session/'supervision/0001'
+    (old/'exit').write_text('143')
+    prelaunch = json.loads((old/'prelaunch-seal.json').read_text())
+    prelaunch['binding']['supervision_attempt'] = '0002'
+    code = "from test_deepcoder_five_round import _fix4_resume_worker; import sys; _fix4_resume_worker(*sys.argv[1:])"
+    monkeypatch.setenv('PYTHONPATH', ':'.join([str(ROOT/'tests'), str(ROOT), str(ROOT/'runtime')]))
+    sup.launch(ctx['config_path'], '0002', command=[sys.executable, '-B', '-c', code, str(run), str(ctx['config_path']), str(replay_path)],
+               timeout='60s', kill_after='2s', skip_asset_gates=True, mode='resume', resumed_from='0001', prelaunch_evidence=prelaunch)
+    attempt = session/'supervision/0002'
+    try:
+        sup.collect_post_launch_identity(ctx['config_path'], '0002', timeout=20, expected_thread='thread-1',
+                                        gpu_observer=lambda: {'gpus': prelaunch['expected_gpus']})
+    finally:
+        (run/'release-test-transport').write_text('continue')
+    assert _wait(lambda: (attempt/'exit').is_file(), timeout=60)
+    assert (attempt/'exit').read_text().strip() == '0', (attempt/'launcher.log').read_text()
+    assert json.loads((run/'resume-spy.json').read_text())['calls'] == []
+    assert all(Path(p).read_bytes() == data for p, data in original.items())
+    assert (old/'exit').read_text() == '143'
+    # Controlled GPU measurement only. Owner observations use real /proc for worker/app.
+    previous = json.loads(ctx['cleanup_path'].read_text())
+    observation = previous['gpu_observations'][0]
+    gpu = {k: v for k, v in observation.items() if k not in {'evidence_path','evidence_sha256'}}
+    cleanup = writer.cleanup_run(ctx['config_path'], run, '0002', gpu_observer=_gpu_observer(gpu))
+    receipt = json.loads(cleanup.read_text())
+    assert receipt['status'] == 'completed', receipt['blockers']
+    result = _load_summarizer().summarize(run, config_path=ctx['config_path'], cleanup_receipt_path=cleanup)
+    assert result['protocol_complete'] and result['run_complete'], result['run_complete_blockers']

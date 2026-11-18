@@ -9,7 +9,7 @@
 
 > 本 runbook 是操作合同，不是已执行记录。所有真实启动/停止/cleanup 必须由有运行授权的主 agent 在 dev4 实际测量后执行；离线测试只验证参数迁移与拒绝门，不冒充现场。旧单轮 canary 路径**绝不**作为五轮可执行目标。
 
-> **实现状态（fix round 1，M1 同步）**：已实现并经离线受控进程测试——supervisor 预 Popen 资产/规范化门 + ACK-before-execute 握手 + failed-start 收容（H2）、fresh/resume 模式与 complete-only-cleanup/未封口拒绝（H7）、启动后真实 launcher/app-server/thread 身份附件 `collect_post_launch_identity`（H1）；reconcile 成员 PermissionError/解析→unknown+read_errors、leader PGID 核验、双快照（H3）、训练真实 identity 来自 dispatch receipt（缺则 requires_audit，禁 ticks=1）、stop_services 传规范化 PipelineConfig 且全 gates 通过才信号（H5）、launch evidence 只读永不覆盖、真实起止时间/pid namespace/registry before-after/两次独立 GPU 观测/ports bind-close/动作异常记录（H6）、lifecycle flock + occupier restore 仅 completed 后启动（H8）。**仍待真实 dev4 测量/后续**：真实 GPU UUID/四卡负载现场采集、生产 SFT 中断恢复完整演练（成功 result/candidate 存在不重训 + 未封口 requires_audit 贯通 writer+consumer）、真实 occupier stop/start 关联回执。这些不以离线注入冒充现场事实。
+> **fix4 实现状态**：启动证据使用单向不可变链；源文件/registry 保存采集时快照；运行身份、GPU raw/parsed、job/phase provenance 与 restore 资源校验均 fail closed。同一 run 的 143→0002、生产 PersistentMeta/ControllerTools/TaskAdapter 与 writer→consumer 联合测试见 fix4 报告。以下命令供授权后的 dev4 实际执行；实现和离线测试不等于已进行现场 preflight 或五轮。
 
 ## 0. 唯一五轮目标元组（从 config 自然派生，禁止任意 --run-dir 覆盖）
 
@@ -53,26 +53,32 @@ REGISTRY="$OUTPUT_ROOT/services/four_gpu_services.json"
 阶段一（occupier 仍运行）与阶段二（停 occupier 后）各产出一份 receipt，阶段二必须引用阶段一 hash；supervisor 真实模式 Popen 前逐项核验 reviewed commit/五份 manifest+payload+READY/seed Harness/model weights/Codex/bwrap install+manifest+launcher/Task5 MODEL 证据/两阶段 receipt paths+hashes/实际 backend，缺/错即实验命令未执行。生成与传入：
 
 ```bash
-# 阶段一 receipt（occupier 仍运行时的现场快照：资产 hashes + provider/四卡/端口/namespace）
-"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" status \
-  --config "$CONFIG" --supervision 0001 >/dev/null  # 仅示意；阶段一 receipt 由现场预检脚本产出
-# 现场预检产出 stage1.json（含 reviewed_commit、各资产 path+sha256、四卡 UUID/显存、端口 bind-close、namespace inode）
-# 停 occupier 后产出 stage2.json，必须含 stage1_receipt_hash=sha256(stage1.json)
-# 汇总成 prelaunch evidence JSON（required_assets/assets/preflight_receipts/reviewed_commit/backend）：
-"$PYTHON" - "$CONFIG" "$STAGE1" "$STAGE2" "$PRELAUNCH_SEAL" <<'PY'
-import hashlib, json, sys
-from pathlib import Path
-config, stage1, stage2, out = map(Path, sys.argv[1:5])
-h = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
-# required_assets 逐项由现场预检填入 path+sha256（五份 manifest/payload/READY/harness/weights/codex/bwrap*/task5）
-assets = json.loads(Path(sys.argv[5]).read_text()) if len(sys.argv) > 5 else {}
-evidence = {"reviewed_commit": "<git rev-parse HEAD>", "backend": "linux_bwrap_seccomp_v1",
-            "required_assets": list(assets), "assets": assets,
-            "preflight_receipts": {"stage1": {"path": str(stage1), "sha256": h(stage1)},
-                                   "stage2": {"path": str(stage2), "sha256": h(stage2)}}}
-out.write_text(json.dumps(evidence, indent=2))
-PY
-# 传入 supervisor（真实模式 --preflight-seal 必填；reviewed commit 由 git rev-parse HEAD 自动核验）
+# dev4 bash；先设置 §0 元组。下面路径均为新的审计目录，不能使用真实 run 目录。
+set -euo pipefail
+export RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1
+AUDIT_DIR="$ROOT/reproduction/logs/five-round-launch-preflight-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir "$AUDIT_DIR"
+# 仅在有 API 探针授权时执行；凭据已通过安全环境注入。输出不记录 Authorization/key。
+PROVIDER_RESPONSE="$AUDIT_DIR/provider-probe.json"
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" probe-provider \
+  --config "$CONFIG" --output "$PROVIDER_RESPONSE"
+OCCUPIER_IDENTITY=/data/wuxuecheng/z-occupier-ready/runtime/dev4/identity.json
+STAGE1="$AUDIT_DIR/stage1.json"
+STAGE2="$AUDIT_DIR/stage2.json"
+PRELAUNCH_SEAL="$AUDIT_DIR/prelaunch-input.json"
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" observe-preflight \
+  --config "$CONFIG" --phase stage1 --provider-report "$PROVIDER_RESPONSE" \
+  --occupier-identity "$OCCUPIER_IDENTITY" --output "$STAGE1"
+# 只在有交接授权时执行。实际 identity-checked 收容在全局资源锁内，写真实 before/after 回执。
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" handoff \
+  --stage1 "$STAGE1" --output "$AUDIT_DIR/handoff.json"
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" observe-preflight \
+  --config "$CONFIG" --phase stage2 --provider-report "$PROVIDER_RESPONSE" \
+  --occupier-identity "$OCCUPIER_IDENTITY" --stage1 "$STAGE1" \
+  --stop-receipt "$AUDIT_DIR/handoff.json" --output "$STAGE2"
+# 从可信 config/provenance 推导全部资产路径、读取实际 HEAD，不接受调用者缩减资产集合。
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" preflight-input \
+  --config "$CONFIG" --stage1 "$STAGE1" --stage2 "$STAGE2" --output "$PRELAUNCH_SEAL"
 ```
 
 ## 3. occupier 安全交接（阶段二，仅在阶段一通过后）
@@ -99,7 +105,7 @@ export RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1
 
 - supervisor 用 `Popen(start_new_session=True)` + 父子 handshake（child 先原子写 identity 再跑前台命令），避免 nohup/exec race；child 复用 `timeout --foreground --signal=TERM --kill-after=5m 4h` 算法 + 有界 identity-rechecked PGID TERM/KILL reconcile。
 - attempt 目录 exclusive（拒绝复用旧 exit/reconcile/identity/stop-requested）；identity PID=PGID/start_ticks/argv 原子写入并绑定 run/attempt。
-- 生成 `launch.json`（`kind=rsiflow_launch`，binding 含 config/base/effective hashes、run/output/attempt/thread、owners launcher/app_server、expected_gpus）。
+- 生成不可变 `prelaunch-seal.json` → `launch.json` → `post-launch-identity.json` → `launch-final.json`；每个后继只引用前驱 hash，writer/consumer 必须消费完整链，缺 runtime 不回退占位 owner/thread/GPU。
 - 不向 launcher 传 `--detach`/`--prepare-data`；不另写 foreground 备选或 `timeout ... --detach`。
 - **4h 是每个 launcher supervision 预算，不是 jobs/DDP/services 硬边界**；有效 training timeout=604800s（7天）、max_wall_seconds=2592000s（30天）另列。到期不代表实验停止，durable work 按 §6 独立调和。
 
@@ -160,7 +166,7 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
 
 只有本 attempt **真实资源 cleanup receipt completed** 且 GPU/owner 再检查通过后恢复 occupier；恢复另写 observation，关联 cleanup hash，记录新 PID/PGID/start_ticks/精确 argv，原子更新 identity，再验证四 rank/GPU 负载。资源 unknown/job pending → receipt 保持 pending，occupier 保持未恢复并明确交接持续看护 owner，绝不重复启动。occupier 恢复后 GPU 被授权占用不使历史空卡 cleanup 无效，但**绝不拿 occupier 恢复后的读数填“无 compute apps”**。
 
-已实现入口 `reconcile_deepcoder_run.py` 的 `restore_occupier` + 真实 start helper `_start_occupier_process`：解析本 attempt 最新 cleanup receipt，`status!=completed`/binding 不符/缺完整 owner/registry/GPU/ports inventory/GPU 非空 → 抛错（CLI 非 0 退出，`set -e` 阻断），**绝不启动 occupier**；completed 且空卡再确认后经同一全局 GPU lifecycle flock 调用真实 start helper（默认 `/data/wuxuecheng/z-occupier-ready/run.sh`，GPU0-3，NPROC=4），处理 exec/self-daemon 时序，采集唯一真实 PID/PGID/start_ticks/精确 argv，原子更新共享 `runtime/dev4/identity.json`，核验四 rank GPU 负载，失败回滚（killpg），写 `rsiflow_occupier_restore` observation 关联 cleanup hash。handoff/start/cleanup/restore 全程共用全局锁 `/tmp/rsiflow-gpu-lifecycle.lock`（`flock` 排他，锁冲突拒绝）。**不得直接 nohup 绕过 helper/锁。**
+已实现入口 `reconcile_deepcoder_run.py` 的 `restore_occupier` + 真实 start helper `_start_occupier_process`：解析本 attempt 最新 cleanup receipt，`status!=completed`/binding 不符/缺完整 owner/registry/GPU/ports inventory/GPU 非空 → 抛错（CLI 非 0 退出，`set -e` 阻断），**绝不启动 occupier**；completed 且空卡再确认后经同一全局 GPU lifecycle flock 调用真实 start helper（默认 `/data/wuxuecheng/z-occupier-ready/run.sh`，GPU0-3，NPROC=4），处理 exec/self-daemon 时序，采集唯一真实 PID/PGID/start_ticks/精确 argv，原子更新共享 `runtime/dev4/identity.json`，核验四 rank GPU 负载，失败按保存的 PID/PGID/start_ticks 逐成员有界调和，写 `rsiflow_occupier_restore` observation 关联 cleanup hash。handoff/start/cleanup/restore 全程共用全局锁 `/tmp/rsiflow-gpu-lifecycle.lock`（`flock` 排他，锁冲突拒绝）。**不得直接 nohup 绕过 helper/锁。**
 
 ```bash
 # cleanup completed 且空卡再确认后，经 helper + 全局锁恢复（CLI 接线到真实 start helper）：
@@ -168,7 +174,7 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
   --config "$CONFIG" --run-dir "$RUN_DIR" --supervision 0001
 # helper 内部：Popen run.sh(start_new_session, CUDA_VISIBLE_DEVICES=0,1,2,3 NPROC=4) →
 # 有界等待 exec/self-daemon  settle 为四 rank 组 → 复核 PID=PGID/start_ticks/argv →
-# 原子写共享 identity.json → 实测四卡负载 → 写关联 cleanup 的 restore receipt；失败 killpg 回滚。
+# 原子写共享 identity.json → 实测四卡负载 → 写关联 cleanup 的 restore receipt；失败逐 identity 有界调和。
 ```
 
 ## 9. 完成判定与报告

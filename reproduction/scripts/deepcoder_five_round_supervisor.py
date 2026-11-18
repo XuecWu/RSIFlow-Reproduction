@@ -27,6 +27,7 @@ from pathlib import Path
 
 DEFAULT_TIMEOUT = "4h"
 DEFAULT_KILL_AFTER = "5m"
+GLOBAL_GPU_LIFECYCLE_LOCK = Path("/tmp/rsiflow-gpu-lifecycle.lock")
 
 # F2: the required prelaunch asset set is fixed by code, never shrunk by caller input.
 REQUIRED_PRELAUNCH_ASSETS = (
@@ -58,9 +59,114 @@ def _atomic_write(path: Path, value: dict):
 def _sha256(path):
     import hashlib
     try:
-        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        with Path(path).open("rb") as stream:
+            return hashlib.file_digest(stream, "sha256").hexdigest()
     except OSError:
         return None
+
+
+def host_identity():
+    """Identify the observing host AND namespaces, without calling a GPU/API."""
+    return {"host": os.uname().nodename,
+            "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+            "pid_namespace": os.readlink("/proc/self/ns/pid"),
+            "mount_namespace": os.readlink("/proc/self/ns/mnt")}
+
+
+def write_once(path, value):
+    """Publish evidence without replacing an existing inode, including symlinks."""
+    import tempfile
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".evidence-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(value, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def validate_identity(identity):
+    if (not isinstance(identity, dict) or type(identity.get("pid")) is not int
+            or identity["pid"] <= 0 or type(identity.get("pgid")) is not int
+            or identity["pgid"] <= 0 or not str(identity.get("start_ticks", "")).isdigit()):
+        raise ValueError("owner_identity_invalid")
+    return identity
+
+
+def validate_gpu_inventory(gpus):
+    if (not isinstance(gpus, list) or len(gpus) != 4
+            or any(not isinstance(g, dict) for g in gpus)
+            or {g.get("gpu") for g in gpus} != {0, 1, 2, 3}
+            or any(not isinstance(g.get("uuid"), str) or not g["uuid"] for g in gpus)
+            or len({g["uuid"] for g in gpus}) != 4):
+        raise ValueError("gpu_inventory_invalid")
+    return sorted(gpus, key=lambda g: g["gpu"])
+
+
+def load_launch_chain(attempt, config_path, run, *, observer_host=None, read_json=None, digest=None):
+    """Read the final -> runtime -> launch -> prelaunch DAG; no optional fallback.
+
+    read_json/digest allow the offline consumer to read immutable source snapshots.
+    Neither hook changes the schema or any required verification.
+    """
+    attempt, config_path, run = Path(attempt), Path(config_path).resolve(), Path(run).resolve()
+    read_json, digest = read_json or _read_json, digest or _sha256
+    def read(name, kind):
+        path = attempt / name
+        value = read_json(path)
+        if path.is_symlink() or not isinstance(value, dict) or value.get("kind") != kind:
+            raise ValueError("launch_chain_missing_or_invalid:" + name)
+        return value
+    final = read("launch-final.json", "rsiflow_launch_final")
+    runtime = read("post-launch-identity.json", "rsiflow_post_launch_identity")
+    launch = read("launch.json", "rsiflow_launch")
+    prelaunch = read("prelaunch-seal.json", "rsiflow_prelaunch_seal")
+    for name, expected in (("post-launch-identity.json", final.get("runtime_hash")),
+                           ("launch.json", runtime.get("launch_hash")),
+                           ("prelaunch-seal.json", launch.get("prelaunch_hash"))):
+        if not expected or digest(attempt / name) != expected:
+            raise ValueError("launch_chain_hash:" + name)
+    binding = launch.get("binding") or {}
+    for value in (final, runtime, binding, prelaunch.get("binding") or {}):
+        if (value.get("run_dir") != str(run) or value.get("supervision_attempt") != attempt.name
+                or value.get("config_path") != str(config_path)
+                or value.get("config_hash") != digest(config_path)):
+            raise ValueError("launch_chain_binding")
+    host = prelaunch.get("host_identity")
+    if not isinstance(host, dict) or any(not host.get(k) for k in ("host", "boot_id", "pid_namespace", "mount_namespace")):
+        raise ValueError("launch_host_missing")
+    if runtime.get("host_identity") != host or (observer_host is not None and observer_host != host):
+        raise ValueError("launch_host_mismatch")
+    if binding.get("backend") != "linux_bwrap_seccomp_v1":
+        raise ValueError("launch_backend")
+    thread = runtime.get("thread_id")
+    if not isinstance(thread, str) or not thread or thread == "five-round-thread":
+        raise ValueError("runtime_thread_missing")
+    if binding.get("mode") == "resume" and binding.get("thread_id") != thread:
+        raise ValueError("resume_thread_mismatch")
+    owners = runtime.get("owners") or {}
+    for key in ("launcher", "app_server"):
+        validate_identity(owners.get(key))
+    if owners["launcher"]["pid"] == owners["app_server"]["pid"]:
+        raise ValueError("runtime_owners_not_distinct")
+    gpu_inventory = validate_gpu_inventory(runtime.get("expected_gpus"))
+    if gpu_inventory != validate_gpu_inventory(prelaunch.get("expected_gpus")):
+        raise ValueError("runtime_gpu_binding")
+    if not launch.get("supervisor") or owners["launcher"]["pgid"] != launch["supervisor"].get("pgid"):
+        raise ValueError("runtime_launcher_group")
+    return {"binding": {**binding, "thread_id": thread}, "owners": owners,
+            "expected_gpus": gpu_inventory, "host_identity": host,
+            "paths": [attempt / n for n in ("launch-final.json", "post-launch-identity.json", "launch.json", "prelaunch-seal.json")]}
 
 
 def derive_paths(config_path) -> dict:
@@ -254,6 +360,27 @@ def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool
                 raise RuntimeError(f"resume requires_audit: training phase {phase.parent.name} unsealed")
             if not (phase.parent / "checkpoint_trained.json").is_file():
                 raise RuntimeError(f"resume requires_audit: training phase {phase.parent.name} no trained checkpoint")
+        from reconcile_deepcoder_run import _observe_owner
+        from summarize_deepcoder_five_round import _jobs_validation, _validate_phase_owner
+        prior_chain = load_launch_chain(prior_attempts[-1], paths["config_path"], run_dir,
+                                        observer_host=host_identity())
+        if state["thread_id"] != prior_chain["binding"]["thread_id"]:
+            raise RuntimeError("resume thread differs from sealed runtime")
+        for owner in prior_chain["owners"].values():
+            if _observe_owner(owner, run_dir)["state"] != "exited":
+                raise RuntimeError("resume owner not exited")
+        job_check = _jobs_validation(run_dir)
+        if job_check["invalid"] or job_check["missing_final_receipts"]:
+            raise RuntimeError("resume job binding requires_audit")
+        for jobpath in (run_dir / "meta_session/jobs").glob("*/job.json"):
+            job = _read_json(jobpath)
+            owner = {"pid": job["pid"], "pgid": job["pid"], "start_ticks": str(job["process_start"])}
+            if _observe_owner(owner, run_dir)["state"] != "exited":
+                raise RuntimeError("resume job still active/unknown")
+        for phase in run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"):
+            owner = _validate_phase_owner(_read_json(phase), phase, run_dir)
+            if _observe_owner(owner, run_dir)["state"] != "exited":
+                raise RuntimeError("resume training group still active/unknown")
         # F1: seal the prior thread before Popen so the new state is verified against it
         # (no placeholder fallback). The resumed launch binds the real prior thread_id.
         prior_thread = state.get("thread_id")
@@ -330,20 +457,41 @@ def collect_post_launch_identity(config_path, supervision: str, *, timeout=30.0,
             raise RuntimeError("launcher argv does not bind this run; identity refused")
     except FileNotFoundError:
         raise RuntimeError("launcher process not readable; identity refused")
+    app_argv = Path(f"/proc/{state['codex_pid']}/cmdline").read_bytes()
+    if str(run_dir).encode() not in app_argv:
+        raise RuntimeError("app-server argv does not bind run")
+    ancestor = state["codex_pid"]
+    for _ in range(32):
+        if ancestor == state["launcher_pid"]:
+            break
+        ancestor = int(_proc_stat(ancestor)[1])
+        if ancestor <= 1:
+            raise RuntimeError("app-server is not a launcher descendant")
+    else:
+        raise RuntimeError("app-server ancestry unproven")
     # R1: real GPU UUIDs (injected offline; real nvidia-smi in production).
-    gpu = (gpu_observer or _default_gpu_observer)() if gpu_observer else None
-    expected_gpus = gpu.get("expected_uuids") if gpu else seal.get("expected_gpus")
+    gpu = (gpu_observer or _default_gpu_observer)()
+    expected_gpus = validate_gpu_inventory(gpu.get("gpus"))
     attachment = {
         "kind": "rsiflow_post_launch_identity", "supervision_attempt": supervision,
         "run_dir": str(run_dir), "config_path": str(paths["config_path"]),
-        "prelaunch_seal_path": str(attempt_dir / "launch.json"),
-        "prelaunch_seal_hash": prelaunch_hash,
+        "launch_hash": prelaunch_hash, "config_hash": _sha256(paths["config_path"]),
+        "host_identity": host_identity(),
         "thread_id": state["thread_id"], "state_status": state.get("status"),
         "owners": {"launcher": launcher, "app_server": app_server},
         "expected_gpus": expected_gpus,
         "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    _atomic_write(attachment_path, attachment)
+    validate_identity(launcher)
+    validate_identity(app_server)
+    write_once(attachment_path, attachment)
+    final = {"kind": "rsiflow_launch_final", "run_dir": str(run_dir),
+             "supervision_attempt": supervision, "config_path": str(paths["config_path"]),
+             "config_hash": _sha256(paths["config_path"]), "runtime_hash": _sha256(attachment_path)}
+    final_path = attempt_dir / "launch-final.json"
+    load_launch_chain(attempt_dir, paths["config_path"], run_dir, observer_host=host_identity(),
+                      read_json=lambda p: final if Path(p) == final_path else _read_json(p))
+    write_once(final_path, final)
     return attachment
 
 
@@ -351,8 +499,9 @@ def _default_gpu_observer():
     import subprocess
     cmd = ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader,nounits"]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
-    uuids = [line.split(",")[1].strip() for line in result.stdout.strip().splitlines() if line.strip()]
-    return {"expected_uuids": uuids}
+    gpus = [{"gpu": int(line.split(",")[0]), "uuid": line.split(",")[1].strip()}
+            for line in result.stdout.splitlines() if line.strip()]
+    return {"gpus": validate_gpu_inventory(gpus)}
 
 
 def record_post_launch_pending(config_path, supervision: str, *, reason: str) -> dict:
@@ -371,6 +520,196 @@ def record_post_launch_pending(config_path, supervision: str, *, reason: str) ->
     }
     _atomic_write(attempt_dir / "identity-pending.json", record)
     return record
+
+
+def _field_evidence(value, key):
+    entry = value.get(key) or {}
+    source = Path(entry.get("path", "/missing"))
+    if source.is_symlink() or not entry.get("sha256") or _sha256(source) != entry["sha256"]:
+        raise RuntimeError("field evidence missing/changed: " + key)
+    payload = _read_json(source)
+    if not isinstance(payload, dict):
+        raise RuntimeError("field evidence invalid: " + key)
+    return payload
+
+
+def _validate_stage_measurements(value, *, require_idle):
+    from summarize_deepcoder_five_round import validate_gpu_measurement
+    probe = _field_evidence(value, "provider_response")
+    provider = probe.get("response") or {}
+    if (probe.get("kind") != "rsiflow_provider_probe" or probe.get("http_status") != 200
+            or probe.get("endpoint") != "http://token.acerobotics.com/v1/responses"
+            or probe.get("config_hash") != value.get("config_hash")
+            or probe.get("host_identity") != host_identity()
+            or not isinstance(probe.get("observed_at"), (float, int))
+            or not 0 <= time.time() - probe["observed_at"] <= 1800
+            or provider.get("status") != "completed" or provider.get("model") != "gpt-6-astra"
+            or not provider.get("output")):
+        raise RuntimeError("provider completion evidence invalid")
+    gpu = _field_evidence(value, "gpu_observation")
+    validate_gpu_measurement(gpu, value["gpus"], require_idle=require_idle)
+    ports = _field_evidence(value, "ports_observation")
+    if ports.get("status") != "closed" or ports.get("closed_ports") != value["ports"]:
+        raise RuntimeError("field port observation binding")
+
+
+def validate_field_receipts(stages, receipts, config_path, run_dir):
+    evidence = _field_evidence
+    for stage in ("stage1", "stage2"):
+        _validate_stage_measurements(stages[stage], require_idle=stage == "stage2")
+    owner = evidence(stages["stage1"], "occupier_identity")
+    validate_identity(owner)
+    if owner.get("owner") != "dev4-rsiflow-idle-occupier" or owner.get("gpus") != [0, 1, 2, 3]:
+        raise RuntimeError("occupier identity invalid")
+    stop = evidence(stages["stage2"], "occupier_stop")
+    if (stop.get("kind") != "rsiflow_occupier_handoff" or stop.get("identity") != owner
+            or stop.get("stage1_hash") != receipts["stage1"]["sha256"]
+            or stop.get("host_identity") != host_identity()
+            or stop.get("after", {}).get("state") != "exited"
+            or stop.get("after", {}).get("group_members") != []
+            or stop.get("after", {}).get("read_errors") != []):
+        raise RuntimeError("occupier handoff evidence invalid")
+    gpu = evidence(stages["stage2"], "gpu_observation")
+    if gpu.get("compute_apps") != [] or gpu.get("free_verified") is not True:
+        raise RuntimeError("handoff GPU still occupied")
+
+
+def probe_provider(config_path, output):
+    """Operator-only fresh HTTP probe. Credentials never enter the evidence file."""
+    from urllib.request import Request, urlopen
+    config_path = Path(config_path).resolve()
+    config = _normalize_effective(derive_paths(config_path), derive_paths(config_path)["run_dir"])
+    meta = config.meta
+    if meta.model != "gpt-6-astra" or meta.base_url.rstrip("/") != "http://token.acerobotics.com/v1":
+        raise RuntimeError("unregistered provider/model")
+    key = os.environ[meta.api_key_env]
+    endpoint = meta.base_url.rstrip("/") + "/responses"
+    payload = json.dumps({"model": meta.model, "input": "Reply with READY.", "max_output_tokens": 128}).encode()
+    request = Request(endpoint, data=payload, headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    with urlopen(request, timeout=120) as response:
+        status, body = response.status, json.loads(response.read())
+    value = {"kind": "rsiflow_provider_probe", "http_status": status, "response": body,
+             "endpoint": endpoint, "config_hash": _sha256(config_path),
+             "host_identity": host_identity(), "observed_at": time.time()}
+    if status != 200 or body.get("status") != "completed" or body.get("model") != meta.model or not body.get("output"):
+        raise RuntimeError("provider probe not completed")
+    write_once(output, value)
+    return value
+
+
+def observe_preflight(config_path, phase, provider_report, occupier_identity, output,
+                      *, stage1=None, stop_receipt=None):
+    """Executed by the operator on dev4, never by offline tests or the consumer."""
+    from reconcile_deepcoder_run import _default_gpu_observer, _default_ports_observer, _observe_owner
+    config_path, output = Path(config_path).resolve(), Path(output).resolve()
+    paths = derive_paths(config_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    def ref(path):
+        path = Path(path).resolve()
+        return {"path": str(path), "sha256": _sha256(path)}
+    gpu = _default_gpu_observer()
+    ports = _default_ports_observer()
+    gpu_path, ports_path = output.with_suffix(".gpu.json"), output.with_suffix(".ports.json")
+    write_once(gpu_path, gpu); write_once(ports_path, ports)
+    identity = _read_json(occupier_identity) or {}
+    validate_identity(identity)
+    if phase == "stage1" and _observe_owner(identity, paths["run_dir"])["state"] != "alive":
+        raise RuntimeError("occupier not observed alive")
+    identity_snapshot = output.with_suffix(".occupier.json")
+    write_once(identity_snapshot, identity)
+    value = {"stage": phase, "status": "success", "run_dir": str(paths["run_dir"]),
+             "config_path": str(config_path),
+             "config_hash": _sha256(config_path), **host_identity(),
+             "backend": os.environ.get("RSIFLOW_SANDBOX_BACKEND"), "gpus": [{"gpu": g["gpu"], "uuid": g["uuid"]} for g in gpu["per_gpu"]],
+             "provider": "gpt-6-astra", "ports": paths["config"]["ports"],
+             "provider_response": ref(provider_report), "gpu_observation": ref(gpu_path),
+             "ports_observation": ref(ports_path), "occupier_identity": ref(identity_snapshot),
+             "occupier_running": phase == "stage1", "occupier_stopped": phase == "stage2"}
+    _validate_stage_measurements(value, require_idle=phase == "stage2")
+    if phase == "stage2":
+        if not stage1 or not stop_receipt:
+            raise RuntimeError("stage2 requires actual stage1/handoff receipts")
+        value.update(stage1_receipt_hash=_sha256(stage1), occupier_stop=ref(stop_receipt))
+        validate_field_receipts({"stage1": _read_json(stage1), "stage2": value},
+                                 {"stage1": ref(stage1)}, config_path, paths["run_dir"])
+    write_once(output, value)
+    return value
+
+
+def handoff_occupier(stage1_path, output):
+    import fcntl
+    from reconcile_deepcoder_run import _observe_owner, _terminate_owned_group, _process_record
+    with GLOBAL_GPU_LIFECYCLE_LOCK.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        stage1 = _read_json(stage1_path) or {}
+        if any(stage1.get(k) != v for k, v in host_identity().items()):
+            raise RuntimeError("handoff host binding")
+        if stage1.get("status") != "success" or _sha256(stage1.get("config_path", "/missing")) != stage1.get("config_hash"):
+            raise RuntimeError("handoff stage1/config invalid")
+        _validate_stage_measurements(stage1, require_idle=False)
+        ref = stage1.get("occupier_identity") or {}
+        if not ref.get("sha256") or _sha256(ref.get("path")) != ref["sha256"]:
+            raise RuntimeError("handoff identity hash")
+        identity = _read_json(ref["path"])
+        actual = _process_record(identity["pid"])
+        if (identity.get("owner") != "dev4-rsiflow-idle-occupier"
+                or any(actual[k] != identity[k] for k in ("pid", "pgid", "start_ticks"))
+                or not any("train.py" in arg for arg in actual["argv"])):
+            raise RuntimeError("handoff owner identity/argv")
+        before = _observe_owner(identity, stage1["run_dir"])
+        after = _terminate_owned_group(identity)
+        value = {"kind": "rsiflow_occupier_handoff", "stage1_hash": _sha256(stage1_path),
+                 "identity": identity, "before": before, "after": after, "host_identity": host_identity()}
+        write_once(output, value)
+        return value
+
+
+def trusted_prelaunch_assets(config_path):
+    """Derive asset paths from launcher/runtime configuration and pinned provenance."""
+    paths = derive_paths(config_path)
+    root = Path(__file__).resolve().parents[2]
+    project = root / "RSIFlow"
+    config = paths["config"]
+    base_path = (project / config.get("runtime_source", "runtime") / config["base_config"]).resolve()
+    base = _read_json(base_path)
+    effective = _normalize_effective(paths, paths["run_dir"])
+    assets = {"config": paths["config_path"], "base": base_path, "READY": paths["ready"],
+              "protocol": paths["release"] / "protocol.json",
+              "seed_harness": project / base["seed_harness"],
+              "codex_binary": Path(effective.meta.codex_executable),
+              "codex_provenance": Path(effective.meta.provenance_file),
+              "bwrap_install": root / "assets/isolation/install-receipt.json",
+              "bwrap_binary": root / "assets/isolation/bin/bwrap",
+              "bwrap_manifest": root / "RSIFlow/configs/bwrap_isolation.json",
+              "bwrap_launcher": root / "RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py",
+              "task5_model_evidence": root / ".superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-5-real-review-codex.md"}
+    from rsiflow.task_meta.storage import checkpoint_manifest
+    from rsiflow.task_meta.rsiflow_manifest import load_manifest
+    from deepcoder_five_round_preflight import _validate_release
+    _validate_release(config_path, paths["release"])
+    load_manifest(assets["seed_harness"])
+    for number in range(1, 6):
+        assets[f"manifest_B{number}"] = paths["release"] / f"B{number}/manifest.json"
+        assets[f"payload_B{number}"] = paths["release"] / f"B{number}/deepcoder_taco.jsonl"
+    for item in checkpoint_manifest(effective.task_checkpoint):
+        assets["weights:" + item["path"]] = Path(effective.task_checkpoint) / item["path"]
+    provenance = _read_json(assets["codex_provenance"]) or {}
+    if (provenance.get("commit") != effective.meta.codex_commit
+            or provenance.get("binary_sha256") != effective.meta.codex_binary_sha256
+            or _sha256(assets["codex_binary"]) != effective.meta.codex_binary_sha256):
+        raise RuntimeError("Codex pinned provenance mismatch")
+    install = _read_json(assets["bwrap_install"]) or {}
+    for name, key in (("bwrap_binary", "destination_sha256"), ("bwrap_manifest", "manifest_sha256"), ("bwrap_launcher", "launcher_sha256")):
+        if _sha256(assets[name]) != install.get(key):
+            raise RuntimeError("bwrap pinned install mismatch")
+    output = {}
+    for name, source in assets.items():
+        source = source.resolve()
+        digest = _sha256(source)
+        if not digest:
+            raise RuntimeError("prelaunch asset missing: " + name)
+        output[name] = {"path": str(source), "sha256": digest}
+    return output
 
 
 def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backend, attempt_dir,
@@ -392,10 +731,14 @@ def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backe
         raise RuntimeError("prelaunch backend mismatch; experiment not executed")
     # F2: required assets fixed by code; input required_assets cannot remove any.
     assets = prelaunch_evidence.get("assets") or {}
-    for name in REQUIRED_PRELAUNCH_ASSETS:
+    trusted = trusted_prelaunch_assets(config_path) if config_path is not None else None
+    required = tuple(trusted) if trusted is not None else REQUIRED_PRELAUNCH_ASSETS
+    for name in required:
         entry = assets.get(name)
         if not isinstance(entry, dict) or not entry.get("path") or not entry.get("sha256"):
             raise RuntimeError(f"prelaunch asset {name} missing; experiment not executed")
+        if trusted is not None and entry != trusted[name]:
+            raise RuntimeError(f"prelaunch asset {name} not the configured provenance")
         if not Path(entry["path"]).is_file():
             raise RuntimeError(f"prelaunch asset {name} path absent; experiment not executed")
         if _sha256(entry["path"]) != entry["sha256"]:
@@ -422,6 +765,15 @@ def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backe
             raise RuntimeError(f"prelaunch {stage} run_dir mismatch; experiment not executed")
         if config_path is not None and value.get("config_hash") != _sha256(config_path):
             raise RuntimeError(f"prelaunch {stage} config_hash mismatch; experiment not executed")
+        if (any(not isinstance(value.get(k), str) or not value[k].strip()
+                for k in ("host", "boot_id", "pid_namespace"))
+                or value.get("provider") != "gpt-6-astra"
+                or value.get("ports") != [8271, 8272, 8273, 8274]):
+            raise RuntimeError("prelaunch invalid host/provider/ports evidence")
+        try:
+            validate_gpu_inventory(value.get("gpus"))
+        except ValueError as exc:
+            raise RuntimeError("prelaunch invalid GPU evidence") from exc
         if value.get("backend") != expected_backend:
             raise RuntimeError(f"prelaunch {stage} backend mismatch; experiment not executed")
     # stage2 (post-occupier) must reference the sealed stage1 receipt and confirm handoff.
@@ -431,19 +783,52 @@ def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backe
         raise RuntimeError("prelaunch stage2 occupier not stopped; experiment not executed")
     if stage_values["stage1"].get("occupier_running") is not True:
         raise RuntimeError("prelaunch stage1 occupier not running; experiment not executed")
+    for field in ("run_dir", "config_hash", "host", "boot_id", "pid_namespace", "gpus", "provider", "ports"):
+        if stage_values["stage1"][field] != stage_values["stage2"][field]:
+            raise RuntimeError("prelaunch stage continuity: " + field)
+    if config_path is not None:
+        validate_field_receipts(stage_values, receipts, config_path, run_dir)
+        observed_host = host_identity()
+        if any(stage_values["stage2"].get(k) != v for k, v in observed_host.items()):
+            raise RuntimeError("prelaunch actual host/namespace mismatch")
+        if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != expected_backend:
+            raise RuntimeError("prelaunch actual sandbox backend mismatch")
     seal = {"kind": "rsiflow_prelaunch_seal", "reviewed_commit": expected_commit,
-            "backend": expected_backend, "required_assets": list(REQUIRED_PRELAUNCH_ASSETS),
-            "assets": {name: assets[name] for name in REQUIRED_PRELAUNCH_ASSETS},
+            "backend": expected_backend, "required_assets": list(required),
+            "assets": {name: assets[name] for name in required},
+            "binding": {"config_path": str(config_path), "config_hash": _sha256(config_path) if config_path else None,
+                        "run_dir": str(run_dir), "supervision_attempt": Path(attempt_dir).name},
+            "host_identity": host_identity(), "expected_gpus": stage_values["stage2"]["gpus"],
             "preflight_receipts": receipts,
             "sealed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    _atomic_write(seal_path, seal)
+    write_once(seal_path, seal)
     return seal
 
 
-def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
+def launch(config_path, supervision: str, **kwargs):
+    """Serialize launch with handoff/cleanup/restore; wrapper inherits the lock."""
+    import fcntl
+    GLOBAL_GPU_LIFECYCLE_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with GLOBAL_GPU_LIFECYCLE_LOCK.open("a+") as handle:
+        deadline = time.monotonic() + 1.0
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                # exit/reconcile are durable before the wrapper closes its last fd.
+                # A short bounded wait covers that ordering; no work runs unlocked.
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("GPU lifecycle owner not accounted: still active") from exc
+                time.sleep(0.02)
+        # Closing this descriptor leaves the child's duplicate locked until it exits.
+        return _launch_locked(config_path, supervision, _lock_fd=handle.fileno(), **kwargs)
+
+
+def _launch_locked(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
            kill_after=DEFAULT_KILL_AFTER, run_dir=None, skip_asset_gates=False,
-           handshake_timeout=30.0, thread_id="five-round-thread", expected_gpus=None,
-           mode="fresh", resumed_from=None, prelaunch_evidence=None, expected_commit=None) -> dict:
+           handshake_timeout=30.0, thread_id=None, expected_gpus=None,
+           mode="fresh", resumed_from=None, prelaunch_evidence=None, expected_commit=None, _lock_fd=None) -> dict:
     if run_dir is not None:
         raise ValueError("arbitrary run_dir override is refused; paths derive from config")
     paths = derive_paths(config_path)
@@ -464,8 +849,24 @@ def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
                               run_dir=run_dir_resolved, config_path=paths["config_path"])
         _atomic_write(effective_path, effective_obj.model_dump())
         effective_hash = _sha256(effective_path)
+        # Handoff and launch can be separate invocations. Recheck the actual live
+        # boundary while holding the launch lock, immediately before Popen.
+        from reconcile_deepcoder_run import _default_gpu_observer as observe_gpu, _default_ports_observer
+        from summarize_deepcoder_five_round import validate_gpu_measurement
+        prelaunch = _read_json(attempt_dir / "prelaunch-seal.json")
+        for sample in range(2):
+            if sample:
+                time.sleep(1.0)
+            validate_gpu_measurement(observe_gpu(), prelaunch["expected_gpus"])
+        if _default_ports_observer().get("status") != "closed":
+            raise RuntimeError("launch ports occupied after handoff")
     else:
         attempt_dir.mkdir(parents=True)
+        if prelaunch_evidence is not None:
+            write_once(attempt_dir / "prelaunch-seal.json", prelaunch_evidence)
+        effective_obj = _normalize_effective(paths, run_dir_resolved)
+        write_once(effective_path, effective_obj.model_dump())
+        effective_hash = _sha256(effective_path)
     (attempt_dir / "kind").write_text("detached\n")
     attempt_resolved = attempt_dir.resolve()
     # F1: resume binds the real prior thread (sealed before Popen), never a placeholder.
@@ -484,18 +885,19 @@ def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
     if resumed_from:
         binding["resumed_from"] = resumed_from
         binding["prelaunch_seal_hash"] = _sha256(attempt_dir / "prelaunch-seal.json") if (attempt_dir / "prelaunch-seal.json").is_file() else None
-    # Pre-Popen launch seal (owners filled with the supervision leader; real production
-    # launcher/app-server identities are bound by collect_post_launch_identity after ACK).
+    # Supervisor identity is separate from the actual launcher/app-server identities.
+    # Only the runtime attachment supplies the latter; never publish placeholders.
     seal = {
         "kind": "rsiflow_launch", "binding": binding,
-        "owners": {"launcher": None, "app_server": None},
-        "expected_gpus": expected_gpus or [{"gpu": g, "uuid": f"GPU-{g}"} for g in range(4)],
+        "prelaunch_hash": _sha256(attempt_dir / "prelaunch-seal.json"),
+        "expected_gpus": expected_gpus or [],
         "timeout": timeout, "kill_after": kill_after,
     }
     _atomic_write(attempt_dir / "launch.json", seal)
     argv = [sys.executable, "-c", _WRAPPER, str(attempt_resolved), str(run_dir_resolved),
             timeout, kill_after, str(handshake_timeout), *command]
     proc = subprocess.Popen(argv, start_new_session=True,
+                            pass_fds=() if _lock_fd is None else (_lock_fd,),
                             stdin=subprocess.DEVNULL,
                             stdout=open(attempt_dir / "launcher.log", "ab"),
                             stderr=subprocess.STDOUT)
@@ -524,7 +926,6 @@ def launch(config_path, supervision: str, *, command, timeout=DEFAULT_TIMEOUT,
         raise
     # ACK: only now may the child execute the experiment.
     launcher_identity = {"pid": identity["pid"], "pgid": identity["pgid"], "start_ticks": identity["start_ticks"]}
-    seal["owners"] = {"launcher": launcher_identity, "app_server": dict(launcher_identity)}
     seal["supervisor"] = launcher_identity
     _atomic_write(attempt_dir / "launch.json", seal)
     _atomic_write(attempt_dir / "ack", {"acked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
@@ -546,11 +947,14 @@ def status(config_path, supervision: str) -> dict:
         try:
             stat = _proc_stat(identity["pid"])
             alive = stat[19] == identity.get("start_ticks") and stat[0] != "Z"
-        except (FileNotFoundError, PermissionError):
+        except FileNotFoundError:
             alive = False
+        except (PermissionError, ValueError, IndexError, OSError):
+            alive = None
     state = _read_json(paths["run_dir"] / "meta_session/state.json") or {}
     return {"attempt": supervision, "identity": identity, "exit": exit_value,
             "reconcile_status": reconcile.get("status"), "alive": alive,
+            "owner_state": "unknown" if alive is None else "alive" if alive else "exited",
             "protocol_status": state.get("status"), "stop_requested": (attempt_dir / "stop-requested").is_file()}
 
 
@@ -598,7 +1002,44 @@ def main(argv=None) -> int:
             # directly with skip_asset_gates=True under controlled temporary processes.
         if name == "stop":
             p.add_argument("--grace", type=float, default=90.0)
+    probe = sub.add_parser("probe-provider")
+    probe.add_argument("--config", required=True)
+    probe.add_argument("--output", required=True)
+    observe = sub.add_parser("observe-preflight")
+    observe.add_argument("--config", required=True)
+    observe.add_argument("--phase", choices=["stage1", "stage2"], required=True)
+    observe.add_argument("--provider-report", required=True)
+    observe.add_argument("--occupier-identity", required=True)
+    observe.add_argument("--stage1")
+    observe.add_argument("--stop-receipt")
+    observe.add_argument("--output", required=True)
+    handoff = sub.add_parser("handoff")
+    handoff.add_argument("--stage1", required=True)
+    handoff.add_argument("--output", required=True)
+    package = sub.add_parser("preflight-input")
+    package.add_argument("--config", required=True)
+    package.add_argument("--stage1", required=True)
+    package.add_argument("--stage2", required=True)
+    package.add_argument("--output", required=True)
     args = parser.parse_args(argv)
+    if args.mode == "probe-provider":
+        probe_provider(args.config, args.output)
+        return 0
+    if args.mode == "observe-preflight":
+        observe_preflight(args.config, args.phase, args.provider_report, args.occupier_identity,
+                          args.output, stage1=args.stage1, stop_receipt=args.stop_receipt)
+        return 0
+    if args.mode == "handoff":
+        handoff_occupier(args.stage1, args.output)
+        return 0
+    if args.mode == "preflight-input":
+        root = Path(__file__).resolve().parents[2]
+        commit = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        write_once(args.output, {"reviewed_commit": commit, "backend": os.environ.get("RSIFLOW_SANDBOX_BACKEND"),
+                   "assets": trusted_prelaunch_assets(args.config), "preflight_receipts": {
+                       name: {"path": str(Path(path).resolve()), "sha256": _sha256(path)}
+                       for name, path in (("stage1", args.stage1), ("stage2", args.stage2))}})
+        return 0
     if args.mode == "launch":
         root = Path(args.config).resolve().parents[2]
         command = [sys.executable, "-u", str(root / "RSIFlow_4B/launch.py"),

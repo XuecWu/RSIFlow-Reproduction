@@ -29,7 +29,9 @@ def _live_group_members(pgid):
             fields = (entry / 'stat').read_text().rsplit(')', 1)[1].split()
             if int(fields[2]) == pgid and fields[0] != 'Z':
                 members.append(int(entry.name))
-        except (FileNotFoundError, PermissionError, ValueError, IndexError, OSError):
+        except FileNotFoundError:
+            continue
+        except (PermissionError, ValueError, IndexError, OSError):
             # Unreadable member => cannot prove exit; treat as still-present (fail closed).
             members.append(int(entry.name))
     return members
@@ -92,11 +94,18 @@ def main():
                 # so any identity/receipt error still tracks the started child and never bypasses
                 # containment. (Metadata only; no training parameter/optimizer/scorer change.)
                 state.update(status='training_dispatched', training_pid=child.pid, command=command,
-                             training_argv=command, training_run_dir=str(directory),
+                             training_argv=command, training_run_dir=str(runs_root / directory.relative_to(runs_root).parts[0]),
                              training_request_dir=str(directory), training_started_at=time.time())
                 save_json(receipt, state)
                 try:
-                    training_identity = process_identity(child.pid) or {'pid': child.pid, 'pgid': child.pid}
+                    training_identity = process_identity(child.pid)
+                    if (not isinstance(training_identity, dict)
+                            or training_identity.get('pid') != child.pid
+                            or training_identity.get('pgid') != child.pid
+                            or not str(training_identity.get('start_ticks', '')).isdigit()):
+                        identity_uncertain = True
+                        training_identity = {'pid': child.pid, 'pgid': child.pid,
+                                             'identity_error': 'missing_or_invalid_identity'}
                 except (PermissionError, ValueError, IndexError, OSError) as exc:
                     training_identity = {'pid': child.pid, 'pgid': child.pid, 'identity_error': type(exc).__name__}
                     identity_uncertain = True

@@ -191,3 +191,8 @@ smoke/五轮结束或失败后的 owned jobs/services/training 清理和四卡�
 - 关键结果必须有可复算 evidence path/hash，agent 自述不能替代主 agent 复核。
 - 失败、拒绝、超时和无结论同样入账；旧记录不回写美化。
 - cpolar 只暴露 `web/`，原始日志和私有轨迹始终位于公开根之外。
+
+
+### Launch-hardening fix4 证据合同
+
+启动前资产从可信 config/provenance 推导，现场两阶段观察和 occupier handoff 由实际检查生成；不得用自报 stopped/success 代替原始证据。启动按 prelaunch → launch → runtime attachment → final launch 单向不可变 hash 引用，fresh thread 来自实际 state，resume 绑定旧 thread。cleanup/restore 与启动使用同一全局资源锁；未知 owner、缺训练 identity、GPU raw/parsed 不一致、缺 runtime 链均不得认证完成。cleanup 保存采集时 source/registry bytes，历史143和 protocol/run_complete 分离保持。fix4 最终关闭与测试计数以 `task-6-launch-hardening-fix4-codex-report.md` 为准；未通过前不得把这些实现描述当作真实五轮启动授权。

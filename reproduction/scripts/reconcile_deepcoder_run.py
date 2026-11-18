@@ -18,11 +18,16 @@ import argparse
 import json
 import os
 import signal
+import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
+
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from deepcoder_five_round_supervisor import host_identity, load_launch_chain, validate_identity, write_once
 
 def _read_json(path):
     try:
@@ -257,12 +262,26 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     obs_id = "obs-" + uuid.uuid4().hex[:12]
     obs_dir = attempt_dir / "external-cleanup" / obs_id
     obs_dir.mkdir(parents=True)  # exclusive new observation; never overwrite history
-    evidence = {}
+    evidence, source_snapshots = {}, {}
 
     def seal(path):
-        path = Path(path)
-        evidence[str(path)] = _sha256(path)
-        return str(path), evidence[str(path)]
+        import hashlib
+        path = Path(path).resolve()
+        data = path.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if path.is_relative_to(obs_dir):
+            captured = path
+        else:
+            captured = obs_dir / "sources" / (hashlib.sha256(str(path).encode()).hexdigest() + "-" + digest)
+            captured.parent.mkdir(exist_ok=True)
+            if not captured.exists():
+                with captured.open("xb") as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            source_snapshots[str(path)] = {"path": str(captured), "sha256": digest}
+        evidence[str(captured)] = digest
+        return str(path), digest
 
     def write_sealed(path, value):
         _atomic_write(Path(path), value)
@@ -272,6 +291,14 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     status = "completed"
     state = _read_json(run_dir / "meta_session/state.json") or {}
     launch = _read_json(attempt_dir / "launch.json") or {}
+    try:
+        chain = load_launch_chain(attempt_dir, config_path, run_dir, observer_host=host_identity())
+        launch = {**launch, **{k: chain[k] for k in ("binding", "owners", "expected_gpus")}}
+        for source in chain["paths"]:
+            seal(source)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        blockers.append("launch_chain:" + str(exc))
+        chain = None
     identity = _read_json(attempt_dir / "identity.json")
     reconcile = _read_json(attempt_dir / "reconcile.json")
     try:
@@ -346,6 +373,7 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
         obs = {"kind": "rsiflow_owner_exit", "run_dir": str(run_dir), "identity": ident,
                "state": observation["state"], "group_members": observation["group_members"],
                "read_errors": observation["read_errors"],
+               "snapshots": observation.get("snapshots", {}),
                "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         obs_path, digest = write_sealed(obs_dir / f"{label}.json", obs)
         seal(source)
@@ -360,46 +388,32 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
         if ident.get("pid") != state.get(pid_key):
             blockers.append(f"{group}_identity_mismatch")
         owners[group] = make_owner(ident, launch_path, group)
-    # R3: job terminal whitelist + full request/result/turn/run binding (failed-terminal
-    # is distinct from protocol success; unknown status is never treated as terminal).
-    job_terminal = {"completed", "exited", "tool_error", "job_failed", "failed"}
+    from summarize_deepcoder_five_round import _jobs_validation
+    job_check = _jobs_validation(run_dir)
+    blockers.extend("job_binding:" + reason for reason in job_check["invalid"] + job_check["missing_final_receipts"])
     jobs = sorted((run_dir / "meta_session/jobs").glob("*/job.json"))
     owners["jobs"] = []
     for i, jobpath in enumerate(jobs):
         job = _read_json(jobpath) or {}
-        result = _read_json(job.get("result_path"))
-        request = _read_json(Path(job.get("result_path", "")).parent / "request.json") if job.get("result_path") else None
-        turn_dir = job.get("turn_dir")
-        turn_receipt = _read_json(Path(turn_dir) / "receipt.json") if turn_dir else None
-        turn_command = _read_json(Path(turn_dir) / "command.json") if turn_dir else None
-        if not isinstance(result, dict) or result.get("status") not in job_terminal:
-            blockers.append(f"job_{i}_no_terminal_result")
-        elif result.get("operation") != (job.get("request") or {}).get("operation"):
-            blockers.append(f"job_{i}_operation_mismatch")
-        elif not isinstance(turn_receipt, dict) or not isinstance(turn_command, dict):
-            blockers.append(f"job_{i}_turn_binding_missing")
         ident = {"pid": job.get("pid"), "pgid": job.get("pid"), "start_ticks": str(job.get("process_start"))}
         owners["jobs"].append(make_owner(ident, jobpath, f"job_{i}"))
-    # R3: training phase identity must cross-validate pid/pgid/training_pid/argv/request/run.
+        for source in (job.get("result_path"), str(Path(job.get("result_path", "/invalid")).parent / "request.json"),
+                       str(Path(job.get("turn_dir", "/invalid")) / "command.json"),
+                       str(Path(job.get("turn_dir", "/invalid")) / "receipt.json")):
+            if source and Path(source).is_file():
+                seal(source)
+    from summarize_deepcoder_five_round import _validate_phase_owner
     phases = sorted(run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))
     owners["training_phases"] = []
     for i, phase in enumerate(phases):
         value = _read_json(phase) or {}
-        ident = value.get("training_identity")
-        if not isinstance(ident, dict) or not str(ident.get("start_ticks", "")).isdigit():
-            blockers.append(f"training_{i}_requires_audit_no_identity")
-            ident = {"pid": value.get("training_pid"), "pgid": value.get("training_pid"), "start_ticks": ""}
-        else:
-            if ident.get("pid") != value.get("training_pid") or ident.get("pgid") != value.get("training_pid"):
-                blockers.append(f"training_{i}_identity_pid_mismatch")
-            if value.get("training_request_dir") and str(value["training_request_dir"]) not in str(phase):
-                blockers.append(f"training_{i}_request_run_mismatch")
-        # R7: an unsealed/dead training phase (no terminal completed status or no trained
-        # checkpoint) is requires_audit; cleanup stays pending, never certified completed.
-        if value.get("status") not in ("completed", "training_complete"):
-            blockers.append(f"training_{i}_requires_audit_unsealed")
-        elif not (phase.parent / "checkpoint_trained.json").is_file():
-            blockers.append(f"training_{i}_requires_audit_no_checkpoint")
+        try:
+            ident = _validate_phase_owner(value, phase, run_dir)
+            if not (phase.parent / "checkpoint_trained.json").is_file():
+                raise ValueError("training_checkpoint_missing")
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            blockers.append(f"training_{i}_requires_audit:{exc}")
+            ident = value.get("training_identity") or {"pid": value.get("training_pid"), "start_ticks": ""}
         owners["training_phases"].append(make_owner(ident, phase, f"training_{i}"))
 
     # R5: centralized gate BEFORE any service signal. blockers must be EMPTY and every
@@ -409,6 +423,15 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     registry = _read_json(registry_path) or {}
     active = _read_json(run_dir / "active_task.json") or {}
     registry_before_bytes = registry_path.read_bytes() if registry_path.is_file() else None
+    registry_before_snapshot = None
+    if registry_before_bytes is not None:
+        before_path = obs_dir / "registry-before.json"
+        with before_path.open("xb") as stream:
+            stream.write(registry_before_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+        seal(before_path)
+        registry_before_snapshot = str(before_path)
     registry_before_hash = _sha256(registry_path)
     registry_after_hash = registry_before_hash
     stop_action = "skipped"
@@ -440,19 +463,10 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     )
     if not launch_binding_ok:
         blockers.append("launch_binding_gate_failed")
-    # F5: trusted host/boot/namespace + prelaunch/runtime evidence binding before stop.
-    prelaunch_seal_path = attempt_dir / "prelaunch-seal.json"
-    runtime_attachment_path = attempt_dir / "post-launch-identity.json"
-    if launch_binding.get("prelaunch_seal_hash"):
-        if _sha256(prelaunch_seal_path) != launch_binding["prelaunch_seal_hash"]:
-            blockers.append("prelaunch_seal_binding_failed")
-        prelaunch_value = _read_json(prelaunch_seal_path) or {}
-        for field in ("host", "boot_id", "pid_namespace"):
-            if launch_binding.get(field) and prelaunch_value.get(field) != launch_binding.get(field):
-                blockers.append(f"trusted_{field}_binding_failed")
-    if launch_binding.get("post_launch_identity_hash"):
-        if _sha256(runtime_attachment_path) != launch_binding["post_launch_identity_hash"]:
-            blockers.append("runtime_attachment_binding_failed")
+    # load_launch_chain above is mandatory and binds the observer's actual host,
+    # boot and namespace to immutable prelaunch/runtime evidence before any signals.
+    if chain is None:
+        blockers.append("trusted_launch_chain_missing")
     # full service inventory + weights verified BEFORE stop (R5).
     services = registry.get("services", [])
     inventory_ok = ({s.get("gpu") for s in services} == {0, 1, 2, 3} and len(services) == 4)
@@ -521,6 +535,8 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
         gpu_mono.append(time.monotonic())
         try:
             gpu = observe()
+            from summarize_deepcoder_five_round import validate_gpu_measurement
+            validate_gpu_measurement(gpu, expected)
         except Exception as exc:
             errors.append(f"gpu_observation_{index}_failed:{exc}")
             blockers.append(f"gpu_observation_{index}_failed")
@@ -614,8 +630,8 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
         "blockers": blockers,
         "writer": {"script_path": str(Path(__file__).resolve()), "hash": _sha256(Path(__file__).resolve()),
                    "host": os.uname().nodename, "boot_id": _read_boot_id(),
-                   "pid_namespace": _read_pid_namespace(), "uid": os.getuid()},
-        "binding": binding,
+                   "pid_namespace": host_identity()["pid_namespace"], "uid": os.getuid()},
+        "binding": binding, "host_identity": host_identity(),
         "supervision": {"all_previous_attempts_accounted_for": all_accounted, "attempts": history},
         "protocol": {"state_path": str(run_dir / "meta_session/state.json"),
                      "state_hash": _sha256(run_dir / "meta_session/state.json"),
@@ -623,28 +639,19 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                      "current_stage": (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("current_stage"),
                      "finish_allowed": (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("finish_allowed")},
         "owners": owners,
-        "registry": {"path": str(registry_path), "before_hash": registry_before_hash,
+        "registry": {"path": str(registry_path), "before_path": registry_before_snapshot, "before_hash": registry_before_hash,
                      "after_hash": registry_after_hash, "phase": registry.get("phase"),
                      "checkpoint": registry.get("checkpoint"), "weights": active.get("checkpoint_manifest"),
                      "stop_action_skipped_or_executed": stop_action, "command_result": stop_command_result},
         "gpu_observations": gpu_observations,
         "ports_observation": {**ports, "evidence_path": ports_path, "evidence_sha256": ports_hash},
         "actions": actions, "errors": errors,
-        "evidence_files_sha256": evidence,
+        "evidence_files_sha256": evidence, "source_snapshots": source_snapshots,
         "occupier": occupier if occupier is not None else {"prior_identity_hash": None, "stop_receipt_hash": None, "restore_pending": True},
     }
     receipt_path = obs_dir / "receipt.json"
     _atomic_write(receipt_path, receipt)
     return receipt_path
-
-
-def _read_pid_namespace():
-    try:
-        self_ns = os.readlink("/proc/self/ns/pid")
-        init_ns = os.readlink("/proc/1/ns/pid")
-        return "host" if self_ns == init_ns else f"nested:{self_ns}"
-    except OSError:
-        return "unknown"
 
 
 def _default_ports_observer():
@@ -689,99 +696,143 @@ GLOBAL_GPU_LIFECYCLE_LOCK = Path("/tmp/rsiflow-gpu-lifecycle.lock")
 
 
 def _verify_cleanup_evidence(receipt, receipt_path, config_path, run_dir, supervision):
-    """R8: full kind/status/blockers/errors/binding/config-hash/evidence verification."""
-    if receipt.get("kind") != "rsiflow_external_cleanup":
-        raise RuntimeError("cleanup wrong kind; occupier restore refused")
-    if receipt.get("status") != "completed":
-        raise RuntimeError(f"cleanup {receipt.get('status')}; occupier restore refused (pending cleanup)")
-    if receipt.get("blockers"):
-        raise RuntimeError("cleanup has blockers; occupier restore refused")
-    if receipt.get("errors"):
-        raise RuntimeError("cleanup has errors; occupier restore refused")
-    binding = receipt.get("binding", {})
-    if binding.get("run_dir") != str(run_dir) or binding.get("supervision_attempt") != supervision:
-        raise RuntimeError("cleanup binding mismatch; occupier restore refused")
-    if binding.get("config_hash") != _sha256(config_path):
-        raise RuntimeError("cleanup config hash mismatch; occupier restore refused")
-    evidence = receipt.get("evidence_files_sha256") or {}
-    if not evidence:
-        raise RuntimeError("cleanup missing evidence hashes; occupier restore refused")
-    for rel, expected in evidence.items():
-        if _sha256(rel) != expected:
-            raise RuntimeError("cleanup evidence hash mismatch; occupier restore refused")
-    # F8: a non-empty hash map is NOT complete evidence. Require the full resource
-    # inventory (owners/registry/GPU/ports), reusing the consumer resource contract.
-    owners = receipt.get("owners") or {}
-    for group in ("launcher", "app_server"):
-        if not isinstance(owners.get(group), dict) or owners[group].get("state") != "exited":
-            raise RuntimeError(f"cleanup {group} owner not exited; occupier restore refused")
-    services = owners.get("inference_services") or []
-    if len(services) != 4 or {s.get("identity", {}).get("gpu") for s in services} != {0, 1, 2, 3}:
-        # services may carry gpu via identity; fall back to registry inventory below
-        pass
-    registry = receipt.get("registry") or {}
-    if registry.get("phase") != "services_stopped":
-        raise RuntimeError("cleanup registry not services_stopped; occupier restore refused")
-    gpu_obs = receipt.get("gpu_observations") or []
-    if len(gpu_obs) < 2:
-        raise RuntimeError("cleanup lacks two GPU observations; occupier restore refused")
-    if any(o.get("compute_apps") for o in gpu_obs):
-        raise RuntimeError("cleanup GPU compute apps present; occupier restore refused")
-    ports = receipt.get("ports_observation") or {}
-    if ports.get("status") != "closed":
-        raise RuntimeError("cleanup ports not closed; occupier restore refused")
+    from summarize_deepcoder_five_round import _validate_cleanup, _supervision
+    config = _read_json(config_path) or {}
+    config["_config_path"] = str(Path(config_path).resolve())
+    try:
+        if not config.get("output_root"):
+            raise ValueError("cleanup config missing output_root")
+        summary = _supervision(Path(run_dir))
+        if not summary["attempts"] or summary["attempts"][-1] != supervision:
+            raise ValueError("cleanup not current attempt")
+        _validate_cleanup(receipt, Path(receipt_path), Path(run_dir), config,
+                          Path(config["output_root"]), summary,
+                          _read_json(Path(run_dir) / "active_task.json") or {})
+        chain = load_launch_chain(Path(run_dir) / "meta_session/supervision" / supervision,
+                                  config_path, run_dir, observer_host=host_identity())
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("cleanup evidence invalid/pending: " + str(exc)) from exc
+    # Recheck all owners now, after validating the recorded inventory, inside the lock.
+    owners = receipt["owners"]
+    inventory = [owners["launcher"], owners["app_server"], *owners["jobs"],
+                 *owners["training_phases"], *owners["inference_services"]]
+    if any(_observe_owner(o["identity"], run_dir)["state"] != "exited" for o in inventory):
+        raise RuntimeError("cleanup owners no longer exited")
+    if _default_ports_observer().get("status") != "closed":
+        raise RuntimeError("cleanup ports no longer closed")
+    return chain
 
 
 DEFAULT_OCCUPIER_COMMAND = ["/data/wuxuecheng/z-occupier-ready/run.sh", "--mem-mb", "2500", "--log-interval", "20"]
 DEFAULT_OCCUPIER_IDENTITY = Path("/data/wuxuecheng/z-occupier-ready/runtime/dev4/identity.json")
 
 
+def _process_record(pid):
+    stat = _proc_stat(pid)
+    if stat[0] == "Z":
+        raise ProcessLookupError("zombie owner")
+    identity = {"pid": pid, "pgid": int(stat[2]), "start_ticks": stat[19]}
+    validate_identity(identity)
+    argv = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
+    return {**identity, "argv": [a.decode() for a in argv if a]}
+
+
+def _terminate_owned_group(identity, grace=5.0):
+    """Signal only revalidated members; never kill by name or an unverified PID."""
+    validate_identity(identity)
+    members, errors = _group_members_with_errors(identity["pgid"])
+    if errors:
+        raise RuntimeError("rollback owner observation unknown: " + repr(errors))
+    targets = []
+    for member in members:
+        record = _process_record(member["pid"])
+        if record["pgid"] != identity["pgid"] or record["start_ticks"] != member["start_ticks"]:
+            raise RuntimeError("rollback identity changed")
+        targets.append(record)
+    try:
+        leader = _process_record(identity["pid"])
+        if any(leader[k] != identity[k] for k in ("pid", "pgid", "start_ticks")):
+            raise RuntimeError("rollback leader reused")
+    except (FileNotFoundError, ProcessLookupError):
+        pass
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for record in targets:
+            try:
+                current = _process_record(record["pid"])
+                if any(current[k] != record[k] for k in ("pid", "pgid", "start_ticks")):
+                    raise RuntimeError("rollback member reused")
+                os.kill(record["pid"], sig)
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            observed = _observe_owner(identity, None)
+            if observed["state"] == "exited":
+                return observed
+            if observed["state"] == "unknown":
+                raise RuntimeError("rollback observation unknown")
+            time.sleep(0.05)
+    raise RuntimeError("rollback pending: owned group still alive")
+
+
 def _start_occupier_process(occupier_command=None, *, shared_identity_path=None,
                             gpu_observer=None, exec_timeout=30.0):
-    """F8: real occupier start helper. Handles exec/self-daemon timing (run.sh self-daemons
-    into torchrun), collects the unique real PID/PGID/start_ticks/precise argv, atomically
-    updates the shared identity, verifies four-rank GPU load, and rolls back on failure.
-    Offline tests inject a temporary controlled command + GPU observation stand-in."""
     import subprocess
     command = list(occupier_command or DEFAULT_OCCUPIER_COMMAND)
     identity_path = Path(shared_identity_path) if shared_identity_path else DEFAULT_OCCUPIER_IDENTITY
-    env = dict(os.environ, CUDA_VISIBLE_DEVICES="0,1,2,3", NPROC="4")
-    proc = subprocess.Popen(command, start_new_session=True, env=env,
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    pgid = proc.pid
+    pending_path = identity_path.with_suffix(".pending.json")
+    write_once(pending_path, {"kind": "rsiflow_occupier_start_pending", "command": command,
+                              "host_identity": host_identity()})
+    # The process identity is captured before waiting for torchrun exec/ranks.
+    log_path = identity_path.parent / "occupier.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("ab") as log:
+        proc = subprocess.Popen(command, start_new_session=True,
+                                env=dict(os.environ, CUDA_VISIBLE_DEVICES="0,1,2,3", NPROC="4"),
+                                stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+    initial = None
     try:
-        # bounded wait for the exec/self-daemon to settle into a four-rank group
+        _atomic_write(pending_path, {"kind": "rsiflow_occupier_start_pending", "spawned_pid": proc.pid,
+                                     "command": command, "host_identity": host_identity()})
+        initial = _process_record(proc.pid)
+        if initial["pgid"] != proc.pid:
+            raise RuntimeError("occupier group not owned")
         deadline = time.monotonic() + exec_timeout
-        identity = None
         while time.monotonic() < deadline:
-            members = _group_members(pgid)
-            try:
-                stat = _proc_stat(proc.pid)
-                argv = Path(f"/proc/{proc.pid}/cmdline").read_bytes().replace(b"\0", b" ").decode().strip()
-            except (FileNotFoundError, PermissionError, OSError):
-                stat, argv = None, ""
-            if stat is not None and len(members) >= 4:
-                identity = {"pid": proc.pid, "pgid": pgid, "start_ticks": stat[19],
-                            "argv": argv, "gpus": [0, 1, 2, 3], "rank_members": members}
-                break
-            time.sleep(0.2)
-        if identity is None:
-            raise RuntimeError("occupier did not settle into a four-rank group; restore failed")
-        # verify four-rank GPU load (injected offline; real nvidia-smi in production)
-        gpu = (gpu_observer or _default_gpu_observer)()
-        if len(gpu.get("compute_apps") or []) < 4:
-            raise RuntimeError("occupier four-rank GPU load not verified; restore failed")
-        # atomically update the shared occupier identity
-        identity_path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(identity_path, {**identity, "owner": "dev4-rsiflow-idle-occupier",
-                                      "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
-        return identity
+            leader = _process_record(proc.pid)
+            if any(leader[k] != initial[k] for k in ("pid", "pgid", "start_ticks")):
+                raise RuntimeError("occupier identity changed")
+            members, errors = _group_members_with_errors(proc.pid)
+            if errors:
+                raise RuntimeError("occupier group unreadable")
+            ranks = [_process_record(m["pid"]) for m in members if m["pid"] != proc.pid]
+            expected_script = "/data/wuxuecheng/z-occupier-ready/train.py" if occupier_command is None else str(Path(command[1]).resolve())
+            def runs_script(record):
+                return any((Path(arg).is_absolute() and str(Path(arg).resolve()) == expected_script)
+                           or (arg == "train.py" and occupier_command is None) for arg in record["argv"])
+            argv_ok = all(runs_script(r) for r in [leader, *ranks])
+            if len(ranks) == 4 and argv_ok:
+                gpu = (gpu_observer or _default_gpu_observer)()
+                from summarize_deepcoder_five_round import validate_gpu_measurement
+                expected_inventory = [{"gpu": g["gpu"], "uuid": g["uuid"]} for g in gpu.get("per_gpu", [])]
+                validate_gpu_measurement(gpu, expected_inventory, require_idle=False)
+                apps = gpu.get("compute_apps") or []
+                expected = set(gpu.get("expected_uuids") or [])
+                if (len(apps) == 4 and len(expected) == 4
+                        and {a["pid"] for a in apps} == {r["pid"] for r in ranks}
+                        and {a["uuid"] for a in apps} == expected
+                        and all(r["pgid"] == proc.pid for r in ranks)
+                        and all(g["memory_used"] > 0 and g["utilization"] > 0 for g in gpu["per_gpu"])):
+                    return {**leader, "gpus": [0, 1, 2, 3], "rank_members": ranks,
+                            "load_observation": gpu, "owner": "dev4-rsiflow-idle-occupier",
+                            "pending_path": str(pending_path)}
+            time.sleep(0.1)
+        raise RuntimeError("occupier four-rank GPU identity/load not verified")
     except BaseException:
-        # rollback: terminate the started occupier group on any failure
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
+        if initial is not None:
+            _terminate_owned_group(initial)
+            proc.wait(timeout=5)
+            pending_path.unlink(missing_ok=True)
         raise
 
 
@@ -795,6 +846,8 @@ def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=Non
     start helper (exec identity/shared identity/four-rank load/rollback). pending/failed/
     wrong evidence refuses (nonzero exit) and NEVER starts the occupier."""
     import fcntl
+    if occupier_start_fn is not None and shared_identity_path is None:
+        raise ValueError("injected occupier start requires an explicit identity path")
     config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
     lock_path = Path(lifecycle_lock) if lifecycle_lock else GLOBAL_GPU_LIFECYCLE_LOCK
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -823,19 +876,37 @@ def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=Non
         else:
             identity = _start_occupier_process(occupier_command, shared_identity_path=shared_identity_path,
                                                gpu_observer=gpu_observer, exec_timeout=exec_timeout)
-        restore_dir = attempt_dir / "external-cleanup" / ("restore-" + uuid.uuid4().hex[:12])
-        restore_dir.mkdir(parents=True)
-        observation = {
-            "kind": "rsiflow_occupier_restore", "run_dir": str(run_dir),
-            "supervision_attempt": supervision,
-            "cleanup_receipt_path": str(receipt_path),
-            "cleanup_receipt_hash": _sha256(receipt_path),
-            "occupier_identity": identity,
-            "gpu_observation": gpu,
-            "restored_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        }
-        observation_path = restore_dir / "restore.json"
-        _atomic_write(observation_path, observation)
+        identity_path = Path(shared_identity_path) if shared_identity_path else DEFAULT_OCCUPIER_IDENTITY
+        previous_identity = None
+        identity_written = False
+        try:
+            previous_identity = identity_path.read_bytes() if identity_path.is_file() else None
+            restore_dir = attempt_dir / "external-cleanup" / ("restore-" + uuid.uuid4().hex[:12])
+            restore_dir.mkdir(parents=True)
+            observation = {
+                "kind": "rsiflow_occupier_restore", "run_dir": str(run_dir),
+                "supervision_attempt": supervision, "cleanup_receipt_path": str(receipt_path),
+                "cleanup_receipt_hash": _sha256(receipt_path), "occupier_identity": identity,
+                "gpu_observation_before": gpu, "gpu_observation": identity.get("load_observation"),
+                "restored_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            observation_path = restore_dir / "restore.json"
+            _atomic_write(identity_path, {**identity, "updated_at": observation["restored_at"]})
+            identity_written = True
+            _atomic_write(observation_path, observation)
+            if identity.get("pending_path"):
+                Path(identity["pending_path"]).unlink(missing_ok=True)
+        except BaseException:
+            if occupier_start_fn is None:
+                _terminate_owned_group(identity)
+                if identity.get("pending_path"):
+                    Path(identity["pending_path"]).unlink(missing_ok=True)
+            if identity_written:
+                if previous_identity is None:
+                    identity_path.unlink(missing_ok=True)
+                else:
+                    _atomic_write(identity_path, json.loads(previous_identity))
+            raise
         return observation_path
     finally:
         fcntl.flock(lock_file, fcntl.LOCK_UN)

@@ -250,60 +250,61 @@ def mark_preflight_rejected(config_path, run_dir, supervision, *, lifecycle_lock
     rejection. The marker is immutable (write_once); a new resume preflight then re-verifies it
     via the shared consumer. The rejected number is never reused (next_supervision_number)."""
     import fcntl
-    from summarize_deepcoder_five_round import _REAL_ATTEMPT_FILES, PREFLIGHT_REJECTED_KIND
+    from summarize_deepcoder_five_round import PREFLIGHT_REJECTED_KIND
     config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
     if not attempt_dir.is_dir():
         raise RuntimeError("attempt directory absent; nothing to mark preflight_rejected")
     marker_path = attempt_dir / "preflight-rejected.json"
-    if marker_path.exists() or marker_path.is_symlink():
-        raise RuntimeError("preflight_rejected marker already exists; refusing to overwrite")
-    present = [n for n in _REAL_ATTEMPT_FILES if (attempt_dir / n).exists()]
-    if present:
-        raise RuntimeError("cannot mark preflight_rejected: real attempt files present: " + ",".join(present))
-    # No live process may reference this attempt dir (it never launched).
-    process_refs = 0
-    proc = Path("/proc")
-    if proc.is_dir():
-        target = str(attempt_dir.resolve())
-        for entry in proc.iterdir():
-            if not entry.name.isdigit():
-                continue
-            try:
-                cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
-            except OSError:
-                continue
-            if target in cmdline:
-                process_refs += 1
-    if process_refs:
-        raise RuntimeError("cannot mark preflight_rejected: live process references this attempt")
-    # No job/training product may be bound within this attempt dir.
-    product_refs = 0
-    for jobpath in (run_dir / "meta_session/jobs").glob("*/job.json"):
-        job = _read_json(jobpath) or {}
-        for key in ("turn_dir", "result_path"):
-            value = job.get(key)
-            if value and str(Path(value).resolve()).startswith(str(attempt_dir.resolve()) + os.sep):
-                product_refs += 1
-    for phase in run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"):
-        value = _read_json(phase) or {}
-        request_dir = value.get("training_request_dir")
-        if request_dir and str(Path(request_dir).resolve()).startswith(str(attempt_dir.resolve()) + os.sep):
-            product_refs += 1
-    if product_refs:
-        raise RuntimeError("cannot mark preflight_rejected: job/training product bound to this attempt")
     lock_path = Path(lifecycle_lock) if lifecycle_lock else GLOBAL_GPU_LIFECYCLE_LOCK
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+") as lock_file:
         _acquire_global_lock(lock_file)
         try:
+            # ALL evidence is re-verified INSIDE the lifecycle lock (non-racy): the dir must be
+            # truly empty (no entry at all before the marker), no live process may reference it,
+            # and no job/training product may be bound within it. Any known/unknown/nested entry
+            # => a real attempt, never an empty rejection.
+            if marker_path.exists() or marker_path.is_symlink():
+                raise RuntimeError("preflight_rejected marker already exists; refusing to overwrite")
+            entries = sorted(p.name for p in attempt_dir.iterdir())
+            if entries:
+                raise RuntimeError("cannot mark preflight_rejected: directory not empty: " + ",".join(entries))
+            target = str(attempt_dir.resolve())
+            process_refs = 0
+            proc = Path("/proc")
+            if proc.is_dir():
+                for entry in proc.iterdir():
+                    if not entry.name.isdigit():
+                        continue
+                    try:
+                        cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+                    except OSError:
+                        continue
+                    if target in cmdline:
+                        process_refs += 1
+            if process_refs:
+                raise RuntimeError("cannot mark preflight_rejected: live process references this attempt")
+            product_refs = 0
+            for jobpath in (run_dir / "meta_session/jobs").glob("*/job.json"):
+                job = _read_json(jobpath) or {}
+                for key in ("turn_dir", "result_path"):
+                    value = job.get(key)
+                    if value and str(Path(value).resolve()).startswith(target + os.sep):
+                        product_refs += 1
+            for phase in run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"):
+                value = _read_json(phase) or {}
+                request_dir = value.get("training_request_dir")
+                if request_dir and str(Path(request_dir).resolve()).startswith(target + os.sep):
+                    product_refs += 1
+            if product_refs:
+                raise RuntimeError("cannot mark preflight_rejected: job/training product bound to this attempt")
             marker = {"kind": PREFLIGHT_REJECTED_KIND, "run_dir": str(run_dir),
                       "supervision_attempt": supervision, "config_path": str(config_path),
                       "config_hash": _sha256(config_path), "host_identity": host_identity(),
                       "observed_at": time.time(),
                       "reason": "prelaunch seal/asset verification refused before any identity/process/product",
-                      "evidence": {"real_files_checked": list(_REAL_ATTEMPT_FILES),
-                                   "present_real_files": [], "live_process_references": process_refs,
-                                   "product_references": product_refs}}
+                      "evidence": {"entries_before_marker": [], "live_process_references": process_refs,
+                                   "product_references": product_refs, "verified_under_lifecycle_lock": True}}
             write_once(marker_path, marker)
             return marker
         finally:

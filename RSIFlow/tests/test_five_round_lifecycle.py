@@ -1848,20 +1848,20 @@ def test_preflight_rejected_with_identity_is_real_attempt(tmp_path, supervisor, 
     rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
     (rejected / "identity.json").write_text(json.dumps({"pid": 1, "pgid": 1, "start_ticks": "1"}))
     # identity present => never an empty rejection; producer refuses, classifier keeps it real
-    with pytest.raises(RuntimeError, match="real attempt files present"):
+    with pytest.raises(RuntimeError, match="directory not empty"):
         reconciler.mark_preflight_rejected(config, run, "0002")
     summarizer, cfg, active = _cleanup_consumer_args(config, run, paths)
     sup = summarizer._supervision(run)
     assert sup["attempts"] == ["0001", "0002"] and sup["rejected_attempts"] == []
     ok, proof = summarizer.preflight_rejected_proof(rejected, run)
-    assert ok is False and "identity.json" in proof["present_real_files"]
+    assert ok is False and "identity.json" in proof["extra_entries"]
 
 
 def test_preflight_rejected_with_launch_product_is_real_attempt(tmp_path, supervisor, reconciler):
     config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
     rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
     (rejected / "launch.json").write_text(json.dumps({"kind": "rsiflow_launch"}))
-    with pytest.raises(RuntimeError, match="real attempt files present"):
+    with pytest.raises(RuntimeError, match="directory not empty"):
         reconciler.mark_preflight_rejected(config, run, "0002")
     summarizer, _, _ = _cleanup_consumer_args(config, run, paths)
     assert summarizer._supervision(run)["attempts"] == ["0001", "0002"]
@@ -1931,6 +1931,108 @@ def test_resume_preflight_after_rejected_attempt_uses_historical_cleanup(tmp_pat
     got = supervisor._verify_resume_receipt(entry, expected_backend="linux_bwrap_seccomp_v1",
                                             run_dir=run, config_path=config)
     assert got["stage"] == "resume"
+
+
+# --- Critical: actual resume launch gate binds latest REAL prior, skips rejected 0002 -----
+
+def _disconnected_seed(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu, pids = _seed_run(tmp_path, supervisor, reconciler)
+    state_path = run / "meta_session/state.json"
+    state = json.loads(state_path.read_text()); state["status"] = "disconnected"
+    state_path.write_text(json.dumps(state))
+    return config, run, paths, state
+
+
+def test_resume_launch_gate_skips_rejected_attempt(tmp_path, supervisor, reconciler):
+    config, run, paths, state = _disconnected_seed(tmp_path, supervisor, reconciler)
+    (run / "meta_session/supervision/0002").mkdir()
+    reconciler.mark_preflight_rejected(config, run, "0002")
+    # real continuity is 0001 -> new 0003; rejected 0002 must not block history/chain/resumed_from
+    result = supervisor.launch(config, "0003", command=_sleep_command(0.2), timeout="10s",
+                               kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
+    binding = result["launch_seal"]["binding"]
+    assert binding["resumed_from"] == "0001" and binding["thread_id"] == state["thread_id"]
+    assert _wait(lambda: (run / "meta_session/supervision/0003/exit").exists())
+    # thread seal binds the REAL prior 0001, never the rejected 0002
+    assert (run / "meta_session/supervision/0001/resumed-thread-seal.json").is_file()
+    assert not (run / "meta_session/supervision/0002/resumed-thread-seal.json").exists()
+
+
+def test_resume_launch_gate_real_failed_0002_refused(tmp_path, supervisor, reconciler):
+    config, run, paths, state = _disconnected_seed(tmp_path, supervisor, reconciler)
+    failed = run / "meta_session/supervision/0002"; failed.mkdir()
+    (failed / "identity.json").write_text(json.dumps({"pid": 1, "pgid": 1, "start_ticks": "1", "run_dir": str(run)}))
+    (failed / "exit").write_text("1\n")
+    (failed / "reconcile.json").write_text(json.dumps({"status": "complete", "remaining": ["job"]}))
+    # a REAL failed 0002 (identity + unaccounted reconcile) is never skipped
+    with pytest.raises(RuntimeError, match="not accounted"):
+        supervisor.launch(config, "0003", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
+
+
+def test_resume_launch_gate_resumed_from_must_be_latest_real(tmp_path, supervisor, reconciler):
+    config, run, paths, state = _disconnected_seed(tmp_path, supervisor, reconciler)
+    (run / "meta_session/supervision/0002").mkdir()
+    reconciler.mark_preflight_rejected(config, run, "0002")
+    with pytest.raises(RuntimeError, match="resumed_from must be latest prior attempt 0001"):
+        supervisor.launch(config, "0003", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0002")
+
+
+def test_resume_launch_gate_rejected_number_not_reused(tmp_path, supervisor, reconciler):
+    config, run, paths, state = _disconnected_seed(tmp_path, supervisor, reconciler)
+    (run / "meta_session/supervision/0002").mkdir()
+    reconciler.mark_preflight_rejected(config, run, "0002")
+    with pytest.raises(RuntimeError, match="already exists"):
+        supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
+
+
+# --- Important: true emptiness (nested/unknown entries) + lock-inner re-verification -----
+
+def test_preflight_rejected_nested_external_cleanup_is_real(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
+    nested = rejected / "external-cleanup/obs-x"; nested.mkdir(parents=True)
+    (nested / "receipt.json").write_text(json.dumps({"status": "completed"}))
+    with pytest.raises(RuntimeError, match="directory not empty"):
+        reconciler.mark_preflight_rejected(config, run, "0002")
+    summarizer, _, _ = _cleanup_consumer_args(config, run, paths)
+    assert summarizer._supervision(run)["attempts"] == ["0001", "0002"]
+    # even WITH a marker, a nested entry => not a rejection (content-based, not allowlist)
+    (rejected / "preflight-rejected.json").write_text(json.dumps({
+        "kind": "rsiflow_preflight_rejected", "run_dir": str(run), "supervision_attempt": "0002",
+        "config_hash": "c" * 64, "host_identity": {"host": "h"}, "observed_at": 1.0}))
+    ok, proof = summarizer.preflight_rejected_proof(rejected, run)
+    assert ok is False and "external-cleanup" in proof["extra_entries"]
+    assert summarizer._supervision(run)["rejected_attempts"] == []
+
+
+def test_preflight_rejected_unknown_entry_is_real(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
+    (rejected / "preflight-rejected.json").write_text(json.dumps({
+        "kind": "rsiflow_preflight_rejected", "run_dir": str(run), "supervision_attempt": "0002",
+        "config_hash": "c" * 64, "host_identity": {"host": "h"}, "observed_at": 1.0}))
+    (rejected / "mystery.bin").write_text("unknown product")
+    summarizer, _, _ = _cleanup_consumer_args(config, run, paths)
+    ok, proof = summarizer.preflight_rejected_proof(rejected, run)
+    assert ok is False and "mystery.bin" in proof["extra_entries"]
+    assert summarizer._supervision(run)["attempts"] == ["0001", "0002"]
+
+
+def test_preflight_rejected_reverified_under_lock(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
+    real_acquire = reconciler._acquire_global_lock
+    def acquire_then_mutate(lock_file, timeout=2.0):
+        real_acquire(lock_file, timeout)
+        # a concurrent product appears inside the lock window; the inner re-check must catch it
+        (rejected / "late-product.json").write_text("{}")
+    monkeypatch.setattr(reconciler, "_acquire_global_lock", acquire_then_mutate)
+    with pytest.raises(RuntimeError, match="directory not empty"):
+        reconciler.mark_preflight_rejected(config, run, "0002")
+    assert not (rejected / "preflight-rejected.json").exists()
 
 
 # --- R7: SFT product-level joint resume drill (controlled Meta transport) -----

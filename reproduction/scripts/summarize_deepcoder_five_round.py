@@ -1266,30 +1266,29 @@ def _jobs_validation(run_dir) -> dict:
             "invalid": invalid, "required_failed": required_failed}
 
 
-# A prelaunch rejection leaves an attempt directory with NO identity/launch/exit/reconcile/
-# seal/product and no process. Such a dir is marked by a reviewed rsiflow_preflight_rejected
-# observation (never agent-edited JSON, never deleted, never a forged identity). The shared
-# classifier lets producer/consumer ignore genuine rejections for current-attempt/accounting/
-# inventory while NEVER hiding a real attempt or failed owner: any real-attempt file present
-# => not a rejection.
+# A prelaunch rejection leaves a TRULY EMPTY attempt directory (no entry at all before the
+# marker, no process). Such a dir is marked by a reviewed rsiflow_preflight_rejected observation
+# (never agent-edited JSON, never deleted, never a forged identity). The shared classifier lets
+# producer/consumer ignore genuine rejections for current-attempt/accounting/inventory while
+# NEVER hiding a real attempt or failed owner: emptiness is content-based (only the marker itself
+# is permitted), so ANY known/unknown/nested entry => not a rejection (fail closed).
 PREFLIGHT_REJECTED_KIND = "rsiflow_preflight_rejected"
-_REAL_ATTEMPT_FILES = ("identity.json", "launch.json", "prelaunch-seal.json", "exit",
-                       "reconcile.json", "launch-final.json", "post-launch-identity.json",
-                       "effective.json", "kind", "launcher.log", "identity-pending.json",
-                       "resumed-thread-seal.json")
 
 
 def preflight_rejected_proof(attempt_dir, run_dir):
     """Validate that an attempt dir is a GENUINE prelaunch rejection: a bound
-    rsiflow_preflight_rejected marker AND no real-attempt file (identity/launch/exit/reconcile/
-    seal/product). Returns (ok, proof). Any identity/launch/product file => not a rejection
-    (fail closed), so a real failed owner can never be hidden behind an empty-rejection mark."""
+    rsiflow_preflight_rejected marker AND TRUE emptiness — the ONLY entry permitted is the
+    marker itself. ANY other entry (known real-attempt file, unknown file, or nested dir such
+    as external-cleanup/obs-*/receipt.json or owner/product evidence) => not a rejection
+    (fail closed). This is content-based, not a filename allowlist, so a real failed owner or
+    nested product can never be hidden behind an empty-rejection mark. Returns (ok, proof)."""
     attempt_dir, run_dir = Path(attempt_dir), Path(run_dir)
     marker = _read_json(attempt_dir / "preflight-rejected.json")
-    present = [n for n in _REAL_ATTEMPT_FILES if (attempt_dir / n).exists()]
+    entries = sorted(p.name for p in attempt_dir.iterdir()) if attempt_dir.is_dir() else []
+    extra = [n for n in entries if n != "preflight-rejected.json"]
     proof = {"attempt": attempt_dir.name, "marker_present": isinstance(marker, dict),
-             "present_real_files": present, "empty": not present, "binding_ok": False}
-    if not isinstance(marker, dict) or marker.get("kind") != PREFLIGHT_REJECTED_KIND or present:
+             "entries": entries, "extra_entries": extra, "empty": not extra, "binding_ok": False}
+    if not isinstance(marker, dict) or marker.get("kind") != PREFLIGHT_REJECTED_KIND or extra:
         return False, proof
     binding_ok = (marker.get("run_dir") == str(run_dir)
                   and marker.get("supervision_attempt") == attempt_dir.name

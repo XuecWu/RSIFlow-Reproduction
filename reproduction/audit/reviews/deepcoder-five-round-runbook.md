@@ -163,9 +163,10 @@ preflight seal/资产验证拒绝**可能在 supervision 下留下空 attempt �
   --config "$CONFIG" --run-dir "$RUN_DIR" --supervision 0001   # 读 rejected_attempts 与 next_supervision
 ```
 
-- **共享分类**（producer/consumer 同一 `supervision_attempts`/`preflight_rejected_proof`）：仅当目录有绑定 run/attempt/config/host/observed_at 的 `rsiflow_preflight_rejected` 标记**且无任何真实 attempt 文件**时才归为 rejected；否则一律视为真实 attempt（即便未封口）。**任何 identity/job/product/进程存在都不得按空拒绝处理**，拒绝项绝不隐藏真实 failed owner。
+- **共享分类**（producer/consumer 同一 `supervision_attempts`/`preflight_rejected_proof`）：仅当目录有绑定 run/attempt/config/host/observed_at 的 `rsiflow_preflight_rejected` 标记**且真正空目录（内容级：除 marker 本身外无任何 entry）**时才归为 rejected；否则一律视为真实 attempt（即便未封口）。**任何已知/未知/嵌套 entry（identity、launch、external-cleanup/obs-*、owner/product 证据等）或活进程都不得按空拒绝处理**（非文件名 allowlist），拒绝项绝不隐藏真实 failed owner。producer 在 **lifecycle 锁内**重新核目录空/产品/活进程后才写不可变 marker；consumer 独立重算同一证明。
 - supervision/cleanup 消费者把 rejected 排除出 real attempts（current-attempt/accounting/inventory 只对 real），但**独立重算每个 rejected 的证明**；历史 receipt 的 rejected 列表须为当前 genuine rejected 的**子集**（封口后新增的拒绝允许；receipt 列为拒绝但已变真实 attempt 则拒绝）。因此**历史 0001 completed cleanup 仍可用于 resume preflight**。
-- **编号**：rejected 目录仍占用其编号、绝不复用；`next_supervision_number` = 全部数字目录（含 rejected）max+1（如 0002 拒绝 → 下一个 0003）。新 resume preflight（§7.1）验证标记后以 next 编号启动。
+- **resume launch gate**（`_validate_launch_gates`）同样用共享 real prior 列表并独立核 rejected proof：accounting/resumed_from/launch chain/thread seal/owner 连续性全部绑定**最新 real prior**（如 0001），rejected 0002 不阻断；真实 failed 0002（含 identity/未封口 reconcile）仍拒绝。
+- **编号**：rejected 目录仍占用其编号、绝不复用；`next_supervision_number` = 全部数字目录（含 rejected）max+1（如 0002 拒绝 → 下一个 0003）。新 resume preflight（§7.1）验证标记后以 inspect 取得的 next 编号启动（不硬编码）。
 
 ## 7. 恢复（同 thread，已完成 SFT 不重做）
 
@@ -203,9 +204,17 @@ mkdir "$AUDIT_DIR"
 "$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" preflight-input \
   --config "$CONFIG" --resume-preflight "$AUDIT_DIR/resume-preflight.json" \
   --output "$AUDIT_DIR/prelaunch-input.json"
-# resume launch（同 thread/config/backend；其余 resume 门全保留）
+# 编号不硬编码：从 inspect 取 next_supervision（含 rejected 目录，防复用）与最新 real prior。
+# 例：0001 real completed、0002 已 mark-preflight-rejected → NEXT=0003、RESUMED_FROM=0001。
+NEXT=$("$PYTHON" "$ROOT/reproduction/scripts/reconcile_deepcoder_run.py" inspect \
+  --config "$CONFIG" --run-dir "$RUN_DIR" --supervision 0001 \
+  | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["supervision"]["next_supervision"])')
+RESUMED_FROM=$("$PYTHON" "$ROOT/reproduction/scripts/reconcile_deepcoder_run.py" inspect \
+  --config "$CONFIG" --run-dir "$RUN_DIR" --supervision 0001 \
+  | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["supervision"]["attempts"][-1])')
+# resume launch（同 thread/config/backend；continuity 绑定最新 real prior，其余 resume 门全保留）
 "$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" launch \
-  --config "$CONFIG" --supervision 0002 --launch-mode resume --resumed-from 0001 \
+  --config "$CONFIG" --supervision "$NEXT" --launch-mode resume --resumed-from "$RESUMED_FROM" \
   --timeout 4h --kill-after 5m --preflight-seal "$AUDIT_DIR/prelaunch-input.json"
 ```
 

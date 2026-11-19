@@ -380,16 +380,25 @@ def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool
         state = _read_json(run_dir / "meta_session/state.json") or {}
         if state.get("status") == "complete":
             raise RuntimeError("complete run is cleanup-only; resume refused")
-        sup_root = run_dir / "meta_session/supervision"
-        prior_attempts = sorted((d for d in sup_root.iterdir() if d.is_dir() and d.name.isdigit()),
-                                key=lambda d: int(d.name)) if sup_root.is_dir() else []
+        # Shared classification: genuine preflight-rejected empty dirs are NOT real prior
+        # attempts. Resume continuity (accounting/resumed_from/launch chain/thread seal/owners)
+        # binds the latest REAL prior; rejected numbers still occupy their slot (next-number
+        # anti-reuse uses ALL numeric dirs via next_supervision_number). Each rejected proof is
+        # independently re-verified; an invalid rejection falls back to a real (unaccounted)
+        # attempt and refuses resume, so a rejection can never hide a real failed owner.
+        from summarize_deepcoder_five_round import supervision_attempts, preflight_rejected_proof
+        prior_attempts, rejected_attempts, _ = supervision_attempts(run_dir)
+        for rejected in rejected_attempts:
+            ok, _ = preflight_rejected_proof(rejected, run_dir)
+            if not ok:
+                raise RuntimeError(f"preflight_rejected proof invalid for {rejected.name}; resume refused")
         for prior in prior_attempts:
             reconcile = _read_json(prior / "reconcile.json") or {}
             exit_file = prior / "exit"
             if not (reconcile.get("status") == "complete" and not reconcile.get("remaining")
                     and exit_file.is_file()):
                 raise RuntimeError(f"prior supervision {prior.name} not accounted; resume refused")
-        # R7: resumed_from must be the latest prior attempt (not arbitrary/missing).
+        # R7: resumed_from must be the latest REAL prior attempt (not arbitrary/missing/rejected).
         if not prior_attempts:
             raise RuntimeError("resume requires a prior supervision attempt")
         latest_prior = prior_attempts[-1].name

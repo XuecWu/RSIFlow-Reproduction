@@ -92,7 +92,7 @@ _BAD_STATUSES = {
     "tool_error", "tool_process_error", "invalid_tool_receipt", "unknown_operation",
     "timed_out", "launch_error", "missing_checkpoint", "failed", "error", "validation_failed",
 }
-_ROUND_RE = re.compile(r"(?:^|[/_-])(?:round[_-]?|b)([0-9]+)(?:$|[/_.-])", re.IGNORECASE)
+_ROUND_RE = re.compile(r"^(?:round[_-]?|b)([0-9]+)(?=$|[._-])", re.IGNORECASE)
 _A0_RE = re.compile(r"(?:^|[/_-])a0(?:$|[/_.-])", re.IGNORECASE)
 
 
@@ -173,9 +173,10 @@ def _explicit_round(request: dict[str, Any], receipt: dict[str, Any] | None) -> 
     # below them. Prefer the most specific B/round path before the run-root
     # A0 marker.
     for ref in reversed(refs):
-        match = _ROUND_RE.search(ref)
-        if match:
-            return int(match.group(1))
+        for component in reversed(re.split(r"[/\\]", ref)):
+            match = _ROUND_RE.match(component)
+            if match:
+                return int(match.group(1))
     if any(_A0_RE.search(ref) for ref in refs):
         return 0
     return None
@@ -200,8 +201,8 @@ def _selection_choice(request: dict[str, Any]) -> str | None:
         return None
     if not isinstance(selection, dict):
         return None
-    choice = selection.get("accept_or_retain")
-    return choice if choice in _SELECTION_CHOICES else None
+    choice = selection.get("accept_or_retain", selection.get("selection"))
+    return choice if isinstance(choice, str) and choice in _SELECTION_CHOICES else None
 
 
 def _five_round_rejection(*, stage: dict[str, Any], current: dict[str, Any] | None,
@@ -236,7 +237,7 @@ def _five_round_rejection(*, stage: dict[str, Any], current: dict[str, Any] | No
             return "ignored", "duplicate_selection: the first valid selection is terminal for this attempt"
         return "ignored", f"out_of_order: expected {expected}, got {milestone}"
     if milestone == "selection_recorded" and _selection_choice(request) is None:
-        return "invalid", "invalid_selection: expected explicit accept_or_retain with a known choice"
+        return "invalid", "invalid_selection: expected explicit accept_or_retain or selection with a known choice"
     return None
 
 
@@ -458,29 +459,22 @@ class ExperimentProgress:
                 stage["retry_pending"] = False
             if (milestone == "selection_recorded"
                     and (stage["round"] >= retry_from or five_round)):
-                selection = None
-                try:
-                    selection = json.loads(request.get("content", ""))
-                except (TypeError, ValueError):
-                    if request.get("path"):
-                        selection = _read_object(Path(request["path"]))
-                if isinstance(selection, dict):
-                    choice = selection.get("accept_or_retain")
-                    if choice in {"retain_parent", "reject", "rejected"}:
-                        stage["last_selection"] = choice
-                        if five_round:
-                            stage["terminal_retain"] = True
-                            stage["retry_pending"] = False
-                        else:
-                            stage["retry_pending"] = True
-                            # These belong to the previous accepted round, not this rejected attempt.
-                            late = {"task_meta_snapshot", "validation_snapshot", "independent_validation"}
-                            stage["completed_milestones"] = [m for m in stage["completed_milestones"] if m not in late]
-                    elif choice in {"accept", "accepted", "accept_candidate"}:
+                choice = _selection_choice(request)
+                if choice in {"retain_parent", "reject", "rejected"}:
+                    stage["last_selection"] = choice
+                    if five_round:
+                        stage["terminal_retain"] = True
                         stage["retry_pending"] = False
-                        stage["last_selection"] = choice
-                        if five_round:
-                            stage["terminal_retain"] = False
+                    else:
+                        stage["retry_pending"] = True
+                        # These belong to the previous accepted round, not this rejected attempt.
+                        late = {"task_meta_snapshot", "validation_snapshot", "independent_validation"}
+                        stage["completed_milestones"] = [m for m in stage["completed_milestones"] if m not in late]
+                elif choice in {"accept", "accepted", "accept_candidate"}:
+                    stage["retry_pending"] = False
+                    stage["last_selection"] = choice
+                    if five_round:
+                        stage["terminal_retain"] = False
             if milestone not in stage["completed_milestones"]:
                 stage["completed_milestones"].append(milestone)
             if (milestone == "task_meta_snapshot" and stage["round"] > 0

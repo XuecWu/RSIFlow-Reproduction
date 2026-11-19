@@ -282,6 +282,47 @@ def test_nested_round_path_wins_over_a0_marker_in_run_root(tmp_path):
     assert state["stages"][1]["completed_milestones"] == ["parent_rollout"]
 
 
+def test_five_round_run_name_batch_size_is_not_round_number(tmp_path):
+    run = tmp_path / "deepcoder_five_round_16_v1" / "runs" / "deepcoder_function_16_five_round_workspace_v1"
+    session = run / "meta_session"
+    session.mkdir(parents=True)
+    (session / "workflow_policy.json").write_text(json.dumps(FIVE_ROUND_POLICY))
+    _five_round_turn(session, 0, "bootstrap", 0,
+                     output_dir=str(run / "controller_receipts/round_00/bootstrap"))
+    _five_round_turn(session, 1, "snapshot_task_meta", 0,
+                     destination=str(run / "snapshots/A0"))
+    for number in (0, 1):
+        command_path = session / "turns" / f"{number:04d}" / "command.json"
+        command = json.loads(command_path.read_text())
+        del command["request"]["round_number"]
+        command_path.write_text(json.dumps(command))
+
+    state = ExperimentProgress(session, rounds=5).rebuild()
+
+    assert state["current_stage"] == "B1"
+    assert state["stages"][0]["completed_milestones"] == ["bootstrap", "task_meta_snapshot"]
+
+
+@pytest.mark.parametrize("path,expected", [
+    ("/run/controller/round_00_base/bootstrap", 0),
+    ("/run/controller/round_00_seed200/bootstrap", 0),
+    ("/run/round_1_attempts/attempt_1/candidate", 1),
+    ("/run/round_1-attempt-1/candidate", 1),
+    ("/run/B1-attempt-1/candidate", 1),
+    ("/run/round_00/bootstrap", 0),
+    ("/run/round_1/parent", 1),
+    ("/run/B1_attempt_1/snapshot", 1),
+    ("/run/round_1.json", 1),
+    ("/run/deepcoder_five_round_16_v1/snapshots/A0", 0),
+    ("/run/deepcoder_five_round_16/snapshots/A0", 0),
+    ("/run/deepcoder_five_round_16_attempt_1/snapshots/A0", 0),
+])
+def test_round_inference_uses_path_components_not_run_name(path, expected):
+    from experiment_progress import _explicit_round
+
+    assert _explicit_round({"output_dir": path}, None) == expected
+
+
 def test_validation_failed_candidate_is_not_successful(tmp_path):
     session = tmp_path / "meta_session"
     _turn(session, 0, "rsiflow", round_number=1, status="validation_failed")
@@ -345,6 +386,25 @@ def _record_five_round(session, number, start, choice="accept_candidate", *, ski
     for offset, (operation, extra) in enumerate(operations[skip:skip + steps], start=skip):
         _five_round_turn(session, start + offset - skip, operation, number, **extra)
     return start + len(operations[skip:skip + steps])
+
+
+def test_five_round_native_selection_field_advances_after_accept(tmp_path):
+    session = _five_round_progress_session(tmp_path)
+    next_turn = _complete_five_round_a0(session)
+    next_turn = _record_five_round(session, 1, next_turn)
+    command_path = session / "turns" / f"{next_turn - 4:04d}" / "command.json"
+    command = json.loads(command_path.read_text())
+    command["request"]["content"] = json.dumps({
+        "selection": "accept", "round": 1, "attempt": 1,
+        "before": 0.125, "after": 0.1875, "delta": 0.0625,
+    })
+    command_path.write_text(json.dumps(command))
+
+    state = ExperimentProgress(session, rounds=5).rebuild()
+
+    assert state["current_stage"] == "B2"
+    assert state["stages"][1]["last_selection"] == "accept"
+    assert state["stages"][1]["status"] == "complete"
 
 
 def test_five_round_progress_advances_after_accept_and_terminal_retain(tmp_path):
@@ -425,6 +485,9 @@ def _complete_five_rounds_through_b4(session):
     "{}",
     "{",
     json.dumps({"accept_or_retain": "unknown"}),
+    json.dumps({"selection": "unknown"}),
+    json.dumps({"selection": ["accept"]}),
+    json.dumps({"selection": {"choice": "accept"}}),
     json.dumps([]),
 ])
 def test_five_round_invalid_selection_cannot_open_finish_gate(tmp_path, content):

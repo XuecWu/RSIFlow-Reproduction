@@ -29,9 +29,11 @@ binding; frozen 16-unique cohort bound to the trusted manifest; real bool succes
 full-verifier/positive-int tests evidence; and side-scoped receipt reconciliation.
 HARNESS/MODEL candidates retain per-task/per-call canonical request-hash checks.
 ARTIFACTS candidates instead require completed direct-submission receipts bound to exact
-parent-row hashes, candidate state, edited artifact payloads and unchanged baseline reuse;
-their zero candidate calls do not require Qwen per-call receipts. Direct performance is
-explicitly attributed to Meta-assisted output repair, never Task policy improvement.
+parent-row hashes, candidate state, edited artifact payloads and unchanged baseline reuse.
+Current edits are added/changed records relative to the active parent artifact manifest;
+unchanged inherited records stay hash-bound without being reclassified as current edits.
+Zero candidate calls do not require Qwen per-call receipts. Direct performance is explicitly
+attributed to Meta-assisted output repair, never Task policy improvement.
 Selection/compare/activate receipts bind exact paths/hashes with strictly positive gain
 for acceptance; retain_parent is terminal without activation. Production ARTIFACTS and
 MODEL hash-verified snapshots use A0 or the previous selected B snapshot as the parent
@@ -562,14 +564,14 @@ def _snapshot_original_state(state_path):
     return state, item.get("source_state")
 
 
-def _direct_submission_valid(parent_rows, candidate_rows, candidate_dir, candidate_state,
+def _direct_submission_valid(parent_rows, candidate_rows, candidate_dir, parent_state, candidate_state,
                              round_n, manifest, protocol_hash) -> tuple[list[str], dict]:
     reasons = []
     performance = _read_json(candidate_dir / "performance.json") or {}
     info = {"evaluation_protocol": performance.get("evaluation_protocol"),
             "attribution": performance.get("attribution"), "receipts_valid": 0,
-            "new_model_calls": 0, "edited_targets": [], "reused_baseline_results": 0,
-            "ids_order_match": False, "source_hashes_match": False}
+            "new_model_calls": 0, "edited_targets": [], "inherited_targets": [],
+            "reused_baseline_results": 0, "ids_order_match": False, "source_hashes_match": False}
     parent = {(r.get("task_id"), r.get("rollout_id", 0)): r for r in parent_rows}
     info["ids_order_match"] = ([r.get("task_id") for r in parent_rows]
                                == [r.get("task_id") for r in candidate_rows])
@@ -585,12 +587,25 @@ def _direct_submission_valid(parent_rows, candidate_rows, candidate_dir, candida
         state_harness_hash = _sha256(candidate_state.get("harness_path"))
         artifacts_root = Path((candidate_state.get("artifacts") or {}).get("directory"))
         state_artifacts = _artifact_manifest(artifacts_root)
+        parent_artifacts = (parent_state or {}).get("artifacts") or {}
+        parent_manifest = parent_artifacts.get("manifest") or []
+        if _artifact_manifest(parent_artifacts.get("directory")) != parent_manifest:
+            reasons.append("candidate direct: active parent artifact manifest mismatch")
     except (OSError, TypeError, ValueError, KeyError):
         return reasons + ["candidate direct: candidate state/artifacts unreadable"], info
 
-    artifact_targets = {p.relative_to(artifacts_root).as_posix()
+    artifact_records = {p.relative_to(artifacts_root).as_posix()
                         for p in artifacts_root.rglob("*") if p.is_file()} if artifacts_root.is_dir() else set()
+    parent_by_path = {item.get("path"): item for item in parent_manifest}
+    candidate_by_path = {item.get("path"): item for item in state_artifacts}
+    missing_inherited = set(parent_by_path) - set(candidate_by_path)
+    if missing_inherited:
+        reasons.append("candidate direct: cumulative inherited artifact missing")
+    artifact_targets = {path for path in artifact_records
+                        if path not in parent_by_path or candidate_by_path.get(path) != parent_by_path[path]}
+    inherited_targets = {path for path in artifact_records if path not in artifact_targets}
     info["edited_targets"] = sorted(artifact_targets)
+    info["inherited_targets"] = sorted(inherited_targets)
     info["reused_baseline_results"] = len(candidate_rows) - len(artifact_targets)
     receipt_root = candidate_dir / "train_rollouts"
     expected_receipts = set()
@@ -1005,12 +1020,15 @@ def _model_round_evidence(run_dir, number, parent_state):
     job, request, result = records[0]
     directory = Path(request.get("output_dir", "/missing"))
     model_update = directory / "model_update"
+    production_rollout = (attempt / "candidate_rollout").is_dir()
+    request_state_ok = ((production_rollout and request.get("state_path") == str(run_dir / "active_task.json"))
+                        or _identity_equal(_read_json(request.get("state_path")), parent_state))
     if (not _within(directory, attempt) or not _within(model_update, attempt)
             or result.get("status") != "completed"
             or result.get("training_metrics_path") != str(model_update / "training_metrics.json")
             or result.get("candidate_state_path") != str(directory / "candidate_state.json")
             or request.get("parent_rollout_dir") != str(run_dir / f"round_{number}/parent")
-            or not _identity_equal(_read_json(request.get("state_path")), parent_state)):
+            or not request_state_ok):
         return failed
     identifier = job.get("job_id")
     if (job.get("result_path") != str(run_dir / "controller_transport" / str(identifier) / "result.json")
@@ -1149,8 +1167,12 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
     observed_direct_performance = _read_json(attempt / "candidate_rollout/performance.json") or {}
     if not direct and observed_direct_performance.get("evaluation_protocol") == "direct_submission_same_tasks_v1":
         blockers.append("direct submission protocol requires component=ARTIFACTS")
-    decision_round = decision.get("round_number") if direct and isinstance(decision, dict) else (decision or {}).get("round")
-    if not isinstance(decision, dict) or decision_round != number or decision.get("attempt") != 1:
+    decision_round = (decision.get("round_number", decision.get("round")) if production and isinstance(decision, dict)
+                      else (decision or {}).get("round"))
+    conflicting_round_aliases = (isinstance(decision, dict) and "round_number" in decision and "round" in decision
+                                 and decision.get("round_number") != decision.get("round"))
+    if (not isinstance(decision, dict) or decision_round != number or decision.get("attempt") != 1
+            or conflicting_round_aliases):
         blockers.append("decision round/attempt binding invalid")
     if not isinstance(selection, dict) or selection.get("round") != number or selection.get("attempt") != 1:
         blockers.append("selection round/attempt binding invalid")
@@ -1170,7 +1192,8 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
                                trusted_manifest, protocol_hash)
     if direct:
         direct_reasons, direct_info = _direct_submission_valid(
-            parent_rows, candidate_rows, candidate_dir, candidate_state, number, trusted_manifest, protocol_hash)
+            parent_rows, candidate_rows, candidate_dir, parent_state, candidate_state,
+            number, trusted_manifest, protocol_hash)
         blockers.extend(direct_reasons)
         candidate_calls = {"trajectory_calls": candidate["trajectory_calls"],
                            "transport_calls": candidate["transport_calls"],
@@ -1226,11 +1249,18 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
     terminal = decision_value in TERMINAL_DECISIONS
     if not terminal:
         blockers.append(f"selection decision {decision_value!r} not terminal")
+    ordered_pairing_match = denominator_match and all(
+        [r.get(key) for r in parent_rows] == [r.get(key) for r in candidate_rows]
+        for key in ("task_id", "task_source_hash", "manifest_hash"))
     if isinstance(selection, dict):
-        if production and selection.get("same_id_set") is not True:
+        if production and "same_id_set" in selection and selection.get("same_id_set") is not True:
             blockers.append("selection same_id_set is not True")
-        if production and selection.get("source_hash_mismatches") != 0:
+        if production and "source_hash_mismatches" in selection and selection.get("source_hash_mismatches") != 0:
             blockers.append("selection source_hash_mismatches != 0")
+        missing_pairing_declarations = (production and not ordered_pairing_match
+                                        and ("same_id_set" not in selection or "source_hash_mismatches" not in selection))
+        if missing_pairing_declarations:
+            blockers.append("selection pairing declarations missing and recomputed ID/order/source hashes invalid")
         for key, expected in [("before", parent["macro_success"]), ("after", candidate["macro_success"]),
                               ("delta", delta), ("paired_tasks", EXPECTED_COHORT),
                               ("new_success", transitions["new_success"]),

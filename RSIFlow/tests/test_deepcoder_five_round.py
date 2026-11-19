@@ -1245,8 +1245,7 @@ def _fixture_journal(run, config_path, complete):
              {"status": "written", "path": str(at / "decision.json")})
         if component == "MODEL":
             result = json.loads((run / f"controller_transport/sft_{n}/result.json").read_text())
-            sft_state = (run / f"round_{n - 1}/attempts/attempt_1/build/candidate_state.json"
-                         if production_model else at / "before/parent_task.json")
+            sft_state = run / "active_task.json" if production_model else at / "before/parent_task.json"
             sft_output = at / ("build" if production_model else "candidate")
             emit("sft", n, {**common, "state_path": str(sft_state),
                             "parent_rollout_dir": str(rd / "parent"), "output_dir": str(sft_output)},
@@ -2563,6 +2562,225 @@ def test_summarizer_model_retain_tampering_fails_closed(tmp_path, case):
 
 
 # --- F6: production MODEL/SFT schema ---------------------------------------
+
+
+def _build_multiround_artifacts_run(tmp_path):
+    import shutil
+
+    run, ctx = _build_model_retain_run(tmp_path)
+    extra_root = tmp_path / "round3-release-input"
+    extra_release, extra_manifests, _ = _build_release(extra_root, 3)
+    release = ctx["release"]
+    shutil.copytree(extra_release / "B3", release / "B3")
+    b3_tasks = copy.deepcopy(extra_manifests[3]["tasks"])
+    for task in b3_tasks:
+        task["record_file"] = task["record_file"].replace(str(extra_release), str(release))
+    ctx["manifests"][3] = make_manifest("train_evolution", 3, b3_tasks)
+    (release / "B3/manifest.json").write_text(
+        json.dumps(ctx["manifests"][3], sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+
+    parent_state = json.loads(
+        (run / "round_1/attempts/attempt_1/build/candidate_state.json").read_text())
+    parent_snapshot_state = json.loads(
+        (run / "snapshots/B2_attempt_1/task/task_state_snapshot.json").read_text())
+    manifest = ctx["manifests"][3]
+    protocol_hash = _fixture_protocol(ctx["config_path"])
+    parent_scope = _make_scope(3, manifest["manifest_hash"], "parent_pre_update",
+                               parent_state, protocol_hash)
+    parent_state_hash = _fingerprint_fixture(parent_scope)
+    round_dir = run / "round_3"
+    attempt = round_dir / "attempts/attempt_1"
+    attempt.mkdir(parents=True)
+    parent_rows = []
+    for tid in TASK_IDS:
+        row = _trajectory(
+            tid, success=tid in set(TASK_IDS[:2]), calls=5 if tid in TASK_IDS[:6] else 0,
+            round_n=3, state_hash=parent_state_hash, branch="parent",
+            manifest_hash=manifest["manifest_hash"],
+            task_source_hash=manifest["tasks"][0]["record_sha256"],
+            collection_stage="parent_pre_update", scope=parent_scope,
+            checkpoint_manifest=parent_state["checkpoint_manifest"], model_ref=parent_state["model_ref"])
+        row["artifact_input_manifest"] = parent_state["artifacts"]["manifest"]
+        parent_rows.append(row)
+    _write_side(round_dir / "parent", round_dir / "rollout_cache", parent_rows,
+                parent_state_hash, 3, manifest["manifest_hash"], parent_scope, manifest)
+
+    child = attempt / "build/child"
+    harness_path = child / "rsiflow_base_manifest.json"
+    harness_path.parent.mkdir(parents=True)
+    shutil.copyfile(parent_state["harness_path"], harness_path)
+    artifacts_dir = child / "artifacts"
+    shutil.copytree(parent_state["artifacts"]["directory"], artifacts_dir)
+    edited_task = TASK_IDS[3]
+    edited_name = f"submissions/train/{_sha(edited_task + ':0')}.json"
+    baseline = next(row for row in parent_rows if row["task_id"] == edited_task)
+    baseline_hash = _value_hash(baseline)
+    payload = {"final_answer": "def validate(number): return True", "actions": []}
+    artifact_path = artifacts_dir / edited_name
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(json.dumps({
+        "schema": "task_submission_v1", "baseline_sha256": baseline_hash,
+        "task_id": edited_task, "task_source_hash": baseline["task_source_hash"],
+        "rollout_id": 0, "split": baseline["split"], "seed": baseline.get("seed"),
+        "payload": payload,
+    }), encoding="utf-8")
+    candidate_state = {
+        **parent_state, "generation": 2, "harness_path": str(harness_path),
+        "artifacts": {"directory": str(artifacts_dir),
+                      "manifest": _artifact_manifest_fixture(artifacts_dir)},
+    }
+    (attempt / "build").mkdir(parents=True, exist_ok=True)
+    (attempt / "build/candidate_state.json").write_text(json.dumps(candidate_state), encoding="utf-8")
+    candidate_scope = _make_scope(3, manifest["manifest_hash"], "child_post_update",
+                                  candidate_state, protocol_hash)
+    candidate_state_hash = candidate_scope["task_hash"]
+    receipt_root = attempt / "candidate_rollout/train_rollouts"
+    receipt_root.mkdir(parents=True)
+    candidate_rows = []
+    for old in parent_rows:
+        tid = old["task_id"]
+        name = f"submissions/train/{_sha(tid + ':0')}.json"
+        receipt_path = receipt_root / (_sha(tid + ":0") + ".json")
+        old_hash = _value_hash(old)
+        edited = tid == edited_task
+        binding = {"state_hash": candidate_state_hash, "baseline_sha256": old_hash,
+                   "edited": edited, "round_scope": candidate_scope}
+        row = copy.deepcopy(old)
+        row.update(
+            state_hash=candidate_state_hash, model_calls=[], transport_calls=[], sft_conversations=[],
+            messages=[], notes=[], input_tokens=0, output_tokens=0, model_call_count=0,
+            unknown_usage_calls=0, usage_complete=True, wall_time_seconds=0, tool_calls=[],
+            artifact_input_manifest=candidate_state["artifacts"]["manifest"], artifact_chars_used=0,
+            submission_origin="meta_output_repair" if edited else "baseline_result_reused",
+            baseline_row_sha256=old_hash, events=[], meta_generated=True,
+            derived_from=[old_hash], submission_receipt=str(receipt_path.resolve()),
+            collection_stage="child_post_update", branch_id="child",
+            trajectory_id=_value_hash([binding, name]), candidate_id=None,
+        )
+        if edited:
+            row.update(final_answer=payload["final_answer"], model_answer=None,
+                       terminal_reward=1.0, metrics={"pass": 1.0, "test_pass_fraction": 1.0},
+                       verification={"status": "completed", "verifier_id": VERIFIER_ID,
+                                     "success": True, "full_verifier": True,
+                                     "tests_completed": 11, "tests_total": 11},
+                       error_type=None, execution_error_type=None, valid_answer=True,
+                       wall_time_seconds=0.25,
+                       events=[{"kind": "direct_submission_evaluated",
+                                "task_model_calls": 0, "tool_actions": 0}])
+        receipt_path.write_text(json.dumps({"binding": binding, "status": "completed", "row": row}),
+                                encoding="utf-8")
+        candidate_rows.append(row)
+    candidate_dir = attempt / "candidate_rollout"
+    (candidate_dir / "train_trajectories.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in candidate_rows), encoding="utf-8")
+    performance = _performance(candidate_rows, 3, manifest["manifest_hash"])
+    performance["training_rewards"] = copy.deepcopy({
+        key: performance[key] for key in
+        ("domains", "macro_success", "domain_weights", "status", "total_rollouts", "units")})
+    performance.pop("benchmarks")
+    performance.update(evaluation_protocol="direct_submission_same_tasks_v1",
+                       attribution="meta_assisted_output_quality_not_task_policy_improvement")
+    (candidate_dir / "performance.json").write_text(json.dumps(performance), encoding="utf-8")
+    (candidate_dir / "cost.json").write_text(json.dumps({
+        "model_calls": 0, "input_tokens": 0, "output_tokens": 0, "unknown_usage_calls": 0,
+        "usage_complete": True, "api_cost_usd": None, "gpu_hours": 0,
+        "wall_time_seconds": 0.25, "replayed_submissions": 1, "reused_baseline_results": 15,
+    }), encoding="utf-8")
+    (attempt / "decision.json").write_text(json.dumps({
+        "component": "ARTIFACTS", "round": 3, "attempt": 1, "relevant_skill_ids": [],
+        "rationale": "one new edit with inherited B1 artifact",
+        "prediction": {"target_task_ids": [edited_task], "new_success": 1, "new_regression": 0},
+    }), encoding="utf-8")
+    (attempt / "selection.json").write_text(json.dumps({
+        "selection": "accept_candidate", "component": "ARTIFACTS", "round": 3, "attempt": 1,
+        "before": 0.125, "after": 0.1875, "delta": 0.0625, "paired_tasks": 16,
+        "new_success": 1, "new_regression": 0,
+    }), encoding="utf-8")
+    (attempt / "skill_use.json").write_text(json.dumps({"used_skill_ids": []}), encoding="utf-8")
+    diff_dir = attempt / "task_differences"
+    diff_dir.mkdir()
+    (diff_dir / "summary.json").write_text(json.dumps({
+        "status": "compared", "paired_tasks": 16, "same_id_set": True,
+        "counts": {"retained_failure": 13, "new_success": 1, "new_regression": 0, "retained_success": 2},
+        "source_mismatches": [], "duplicates": {"before": [], "after": []},
+        "missing_in_after": [], "extra_in_after": [], "notes": [],
+    }), encoding="utf-8")
+    parent_performance = round_dir / "parent/performance.json"
+    candidate_performance = candidate_dir / "performance.json"
+    _transport_receipt(run, "compare_3", {
+        "operation": "compare_scores", "status": "compared", "metric": "macro_success",
+        "before": 0.125, "after": 0.1875, "delta": 0.0625,
+        "before_path": str(parent_performance), "after_path": str(candidate_performance),
+        "before_sha256": file_hash(parent_performance), "after_sha256": file_hash(candidate_performance),
+    })
+    candidate_state_path = attempt / "build/candidate_state.json"
+    active_hash = file_hash(candidate_state_path)
+    _transport_receipt(run, "activate_3", {
+        "operation": "activate_task", "status": "activated_as_requested",
+        "source_state": str(candidate_state_path), "active_state": str(run / "active_task.json"),
+        "source_sha256": active_hash, "active_sha256": active_hash,
+    })
+    _fixture_snapshot(run, run / "snapshots/B3_attempt_1", parent_snapshot_state,
+                      candidate_state, candidate_state, attempt=attempt,
+                      parent_source=run / "snapshots/B2_attempt_1/task/task_state_snapshot.json")
+    _fixture_journal(run, ctx["config_path"], False)
+    return run, ctx
+
+
+def test_summarizer_multiround_cumulative_artifacts_and_sft_are_complete(tmp_path):
+    run, ctx = _build_multiround_artifacts_run(tmp_path)
+
+    result = _summarize(run, ctx)
+
+    rounds = _rounds(result)
+    assert result["completed_rounds"] == 3
+    for number in (1, 2, 3):
+        assert rounds[number]["product_blockers"] == []
+        assert rounds[number]["products_complete"] is True
+    assert rounds[2]["terminal"] is True and rounds[2]["activated"] is False
+    assert result["model_sft"]["status"] == "completed"
+    assert rounds[3]["terminal"] is True and rounds[3]["activated"] is True
+    assert rounds[3]["parent"]["successes"] == 2
+    assert rounds[3]["candidate"]["successes"] == 3
+    assert rounds[3]["direct_submission"]["edited_targets"] == [
+        f"submissions/train/{_sha(TASK_IDS[3] + ':0')}.json"]
+    assert rounds[3]["direct_submission"]["receipts_valid"] == 16
+    assert rounds[3]["snapshot_states"]["selected"]["artifacts"]["manifest"] == (
+        rounds[3]["candidate_state"]["artifacts"]["manifest"])
+    assert len(rounds[3]["snapshot_states"]["selected"]["artifacts"]["manifest"]) == 2
+
+
+@pytest.mark.parametrize("case, expected", [
+    ("inherited_edited_flag", "edited target set"),
+    ("missing_current_artifact", "edited"),
+    ("selection_same_id_set", "selection same_id_set"),
+    ("selection_source_hashes", "selection source_hash_mismatches"),
+])
+def test_summarizer_multiround_cumulative_tampering_fails_closed(tmp_path, case, expected):
+    run, ctx = _build_multiround_artifacts_run(tmp_path)
+    attempt = run / "round_3/attempts/attempt_1"
+    if case == "inherited_edited_flag":
+        path = attempt / "candidate_rollout/train_rollouts" / (_sha(TASK_IDS[2] + ":0") + ".json")
+        receipt = json.loads(path.read_text())
+        receipt["binding"]["edited"] = True
+        path.write_text(json.dumps(receipt), encoding="utf-8")
+    elif case == "missing_current_artifact":
+        (attempt / "build/child/artifacts/submissions/train" /
+         (_sha(TASK_IDS[3] + ":0") + ".json")).unlink()
+    else:
+        path = attempt / "selection.json"
+        selection = json.loads(path.read_text())
+        if case == "selection_same_id_set":
+            selection["same_id_set"] = False
+        else:
+            selection["source_hash_mismatches"] = 1
+        path.write_text(json.dumps(selection), encoding="utf-8")
+
+    round_result = _rounds(_summarize(run, ctx))[3]
+
+    assert round_result["products_complete"] is False
+    assert any(expected in blocker for blocker in round_result["product_blockers"])
 
 
 def _add_model_round(run, ctx, n=2, *, mutate=None, production=False):

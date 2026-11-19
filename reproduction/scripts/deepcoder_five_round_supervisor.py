@@ -334,6 +334,33 @@ tmp = attempt_dir / "exit.tmp"; tmp.write_text(f"{rc}\n"); os.replace(tmp, attem
 '''
 
 
+def _early_a0_no_active_proof(paths: dict, run_dir: Path) -> None:
+    """Early-A0 resume gate (active_task.json never existed). Allow resume ONLY when the
+    shared producer/consumer not_created history proof still shows A0/bootstrap incomplete
+    with no compute/service creation history, AND there are no jobs/training phases/
+    candidate/training products or service registry on disk. The production bootstrap (not
+    the supervisor) creates the active Task once; this never forges active state. Any B1+
+    stage, corrupted/incomplete history, or existing product => requires_audit (fail closed).
+    Uses the same not_created_history_proof helper as cleanup; no gate is relaxed."""
+    from summarize_deepcoder_five_round import not_created_history_proof
+    workflow = _read_json(run_dir / "meta_session/workflow_state.json") or {}
+    history_ok, proof = not_created_history_proof(run_dir, workflow)
+    if not (history_ok and proof.get("current_stage") == "A0"
+            and proof.get("bootstrap_complete") is False
+            and not proof.get("compute_service_creations")):
+        raise RuntimeError("resume requires_audit: missing active Task without a trusted early-A0 "
+                           "not_created history proof (A0/bootstrap incomplete, no creation history)")
+    products = (list((run_dir / "meta_session/jobs").glob("*/job.json"))
+                + list(run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))
+                + list(run_dir.glob("round_*/attempts/attempt_*/**/candidate_state.json"))
+                + list(run_dir.glob("round_*/attempts/attempt_*/**/checkpoint_trained.json"))
+                + list(run_dir.glob("round_*/attempts/attempt_*/**/training_metrics.json")))
+    registry = paths["registry"]
+    if products or registry.exists() or registry.is_symlink():
+        raise RuntimeError("resume requires_audit: missing active Task but compute/candidate/training "
+                           "products or a service registry exist")
+
+
 def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool, mode: str,
                            resumed_from=None):
     run_dir = paths["run_dir"]
@@ -369,8 +396,17 @@ def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool
         if resumed_from != latest_prior:
             raise RuntimeError(f"resumed_from must be latest prior attempt {latest_prior}; resume refused")
         # R7: product/identity continuity — active Task, thread, config hash, terminal jobs.
+        early_a0_no_active = False
         if not (run_dir / "active_task.json").is_file():
-            raise RuntimeError("resume requires an existing active Task; resume refused")
+            # Early-A0 resume: the active Task was never created (bootstrap failed before A0
+            # sealed). Allow ONLY with a trusted shared not_created history proof (still
+            # A0/bootstrap incomplete, no creation history) and no compute/candidate/training
+            # products or service registry on disk. The production bootstrap creates the
+            # active Task once; the supervisor never forges active state. Any B1+ stage or
+            # existing product with a missing active Task => requires_audit. All other resume
+            # gates (thread/config/backend/owners/chain/seal) still apply unchanged.
+            _early_a0_no_active_proof(paths, run_dir)
+            early_a0_no_active = True
         if not state.get("thread_id"):
             raise RuntimeError("resume requires a prior thread_id; resume refused")
         prior_launch = _read_json(prior_attempts[-1] / "launch.json") or {}
@@ -401,7 +437,13 @@ def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool
             if _observe_owner(owner, run_dir)["state"] != "exited":
                 raise RuntimeError("resume owner not exited")
         job_check = _jobs_validation(run_dir)
-        if job_check["invalid"] or job_check["missing_final_receipts"]:
+        missing_final = job_check["missing_final_receipts"]
+        if early_a0_no_active:
+            # A proven early-A0 not_created run never created any job (the inventory gate
+            # above already required jobs==[]); the empty-inventory sentinel is expected,
+            # not a binding failure. Any real invalid/missing binding still blocks.
+            missing_final = [m for m in missing_final if m != "<no job inventory>"]
+        if job_check["invalid"] or missing_final:
             raise RuntimeError("resume job binding requires_audit")
         for jobpath in (run_dir / "meta_session/jobs").glob("*/job.json"):
             job = _read_json(jobpath)

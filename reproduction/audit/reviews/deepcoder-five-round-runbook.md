@@ -155,6 +155,7 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
 分支合同：
 - **state=complete**：只做外部 cleanup（§6.2），不 resume。
 - **incomplete/disconnected**：允许恢复；从下一 milestone 继续，不重复 A0/父代 rollout/已验证候选/SFT。
+- **早期 A0 且 active_task.json 从不存在**（bootstrap 在 A0 封口前失败）：仅当共用 `not_created_history_proof` 仍证明 `current_stage==A0`、bootstrap 未完成、有序历史无 compute/service 创建（含 run_command），且磁盘无 jobs/training phase/候选/训练产品（candidate_state/checkpoint_trained/training_metrics/gpu_phase_receipt）与 service registry 时才允许 resume（`_early_a0_no_active_proof`）；active Task 由**生产 bootstrap 创建一次**，supervisor 绝不伪造 active state。空 job 库存哨兵 `<no job inventory>` 对该已证明路径视为预期（真实 invalid/missing 绑定仍阻断）。**任何 B1+ 阶段、历史缺口/损坏/不一致、或已有产品但 active 缺失 → `requires_audit`**。其余 resume 门（thread/config/backend/owners/launch chain/thread seal）一律不跳过。
 - **active job 仍运行**：等待自然终态或既有 owner `job_status`/`wait_job`+start identity 调和；未调和前禁 cleanup completed/新 resume。
 - **dead job 缺 result 或 SFT receipt 非终态**：`requires_audit`，不因新 supervision 编号再调用 sft。
 - **metrics/checkpoint 已完成但候选/技能回执未记录**：从既有成功 sft job/result/candidate_state 继续，不生成第二个训练目录重训。

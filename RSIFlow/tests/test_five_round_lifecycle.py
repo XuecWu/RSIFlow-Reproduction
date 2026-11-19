@@ -1234,8 +1234,80 @@ def test_resume_refuses_missing_active_task(tmp_path, supervisor):
     run = paths["run_dir"]
     assert _wait(lambda: (run / "meta_session/supervision/0001/exit").is_file())
     (run / "meta_session/state.json").write_text(json.dumps({"status": "disconnected", "thread_id": "t1"}))
-    # no active_task.json => R7 product gate refuses
+    # no active_task.json and no trusted early-A0 proof => R7 product gate refuses
     with pytest.raises(RuntimeError, match="active Task"):
+        supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
+
+
+def _disconnect(run):
+    state_path = run / "meta_session/state.json"
+    state = json.loads(state_path.read_text()); state["status"] = "disconnected"
+    state_path.write_text(json.dumps(state))
+
+
+def test_resume_early_a0_without_active_task_allowed(tmp_path, supervisor, reconciler):
+    # Real early-A0 scenario: bootstrap failed before A0 sealed, active_task.json NEVER
+    # existed, turn history is only failed bootstrap/job_status, no jobs/phase/service,
+    # cleanup completed. Same-thread resume must be allowed; the production bootstrap (not
+    # the supervisor) creates the active Task once.
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "active_task.json").unlink()
+    _disconnect(run)
+    result = supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
+                               kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
+    assert result["launch_seal"]["binding"]["resumed_from"] == "0001"
+    assert _wait(lambda: (run / "meta_session/supervision/0002/exit").exists())
+    # the supervisor must NOT forge active state; it stays absent until production bootstrap
+    assert not (run / "active_task.json").exists()
+
+
+def test_resume_late_stage_missing_active_requires_audit(tmp_path, supervisor, reconciler):
+    # B1+ protocol stage with a missing active Task is never an early-A0 resume.
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "active_task.json").unlink()
+    wf_path = run / "meta_session/workflow_state.json"
+    wf = json.loads(wf_path.read_text()); wf["current_stage"] = "B1"
+    wf_path.write_text(json.dumps(wf))
+    _disconnect(run)
+    with pytest.raises(RuntimeError, match="requires_audit"):
+        supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
+
+
+def test_resume_a0_candidate_product_missing_active_requires_audit(tmp_path, supervisor, reconciler):
+    # A0 stage but a candidate product exists with missing active Task => requires_audit,
+    # even though the turn history alone still looks like early A0.
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "active_task.json").unlink()
+    attempt = run / "round_01/attempts/attempt_1"
+    attempt.mkdir(parents=True)
+    (attempt / "candidate_state.json").write_text(json.dumps({"generation": 1}))
+    _disconnect(run)
+    with pytest.raises(RuntimeError, match="requires_audit"):
+        supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
+
+
+def test_resume_a0_job_product_missing_active_requires_audit(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "active_task.json").unlink()
+    job_dir = run / "meta_session/jobs/run_parent_1"
+    job_dir.mkdir(parents=True)
+    (job_dir / "job.json").write_text(json.dumps({"job_id": "run_parent_1"}))
+    _disconnect(run)
+    with pytest.raises(RuntimeError, match="requires_audit"):
+        supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
+                          kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
+
+
+def test_resume_a0_service_registry_missing_active_requires_audit(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "active_task.json").unlink()
+    paths["registry"].parent.mkdir(parents=True, exist_ok=True)
+    paths["registry"].write_text(json.dumps({"phase": "inference_ready"}))
+    _disconnect(run)
+    with pytest.raises(RuntimeError, match="requires_audit"):
         supervisor.launch(config, "0002", command=_sleep_command(0.2), timeout="10s",
                           kill_after="2s", skip_asset_gates=True, mode="resume", resumed_from="0001")
 

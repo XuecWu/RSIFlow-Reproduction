@@ -1901,6 +1901,57 @@ def test_summarizer_two_rounds_observed_facts(tmp_path):
     assert rounds[2]["activated"] is False
 
 
+@pytest.mark.parametrize("selection, expected", [
+    ({"decision": "retain_parent", "selection": "retain_parent",
+      "accept_or_retain": "accept"}, "accept_candidate"),
+    ({"decision": "accept_candidate", "selection": "accept",
+      "accept_or_retain": "retain_parent"}, "retain_parent"),
+])
+def test_summarizer_conflicting_dual_selection_fields_use_production_precedence(selection, expected):
+    from experiment_progress import _selection_choice
+
+    production = _selection_choice({"content": json.dumps(selection)})
+    observed = _load_summarizer()._selection_decision(selection, "ARTIFACTS")
+
+    assert observed == expected
+    assert observed == {
+        "accept": "accept_candidate", "accepted": "accept_candidate",
+        "accept_candidate": "accept_candidate", "retain_parent": "retain_parent",
+        "reject": "retain_parent", "rejected": "retain_parent",
+    }[production]
+
+
+def test_summarizer_accept_uses_later_success_after_earlier_activation_failure(tmp_path):
+    run, _, ctx = _build_run(tmp_path)
+    path = run / "controller_transport/activate_1/result.json"
+    success = json.loads(path.read_text())
+    path.write_text(json.dumps({
+        "operation": "activate_task", "status": "tool_error",
+        "source_state": success["source_state"], "active_state": success["active_state"],
+    }))
+    _transport_receipt(run, "activate_1_later_success", success)
+
+    result = _summarize(run, ctx)
+    round_result = _rounds(result)[1]
+
+    assert round_result["products_complete"] is True
+    assert round_result["activated"] is True
+
+
+def test_summarizer_accept_rejects_multiple_successful_activations(tmp_path):
+    run, _, ctx = _build_run(tmp_path)
+    success = json.loads((run / "controller_transport/activate_1/result.json").read_text())
+    _transport_receipt(run, "activate_1_duplicate_success", success)
+
+    result = _summarize(run, ctx)
+    round_result = _rounds(result)[1]
+
+    assert round_result["products_complete"] is False
+    assert round_result["activated"] is False
+    assert any("unique successful activate_task" in blocker
+               for blocker in round_result["product_blockers"])
+
+
 def test_summarizer_verification_separation(tmp_path):
     run, _, ctx = _build_run(tmp_path)
     r = _rounds(_summarize(run, ctx))[2]
@@ -2499,7 +2550,7 @@ def test_summarizer_real_shaped_model_retain_round_is_terminal_without_activatio
 
 
 @pytest.mark.parametrize("case", [
-    "candidate_hash", "selection_score", "compare_hash", "false_accept_activation",
+    "candidate_hash", "selection_score", "compare_hash",
     "candidate_selected", "wrong_previous_snapshot", "incomplete_sft", "failed_sft",
 ])
 def test_summarizer_model_retain_tampering_fails_closed(tmp_path, case):
@@ -2520,18 +2571,6 @@ def test_summarizer_model_retain_tampering_fails_closed(tmp_path, case):
         value = json.loads(path.read_text())
         value["after_sha256"] = "0" * 64
         path.write_text(json.dumps(value), encoding="utf-8")
-    elif case == "false_accept_activation":
-        path = attempt / "selection.json"
-        value = json.loads(path.read_text())
-        value["selection"] = "accept"
-        path.write_text(json.dumps(value), encoding="utf-8")
-        candidate = attempt / "build/candidate_state.json"
-        digest = file_hash(candidate)
-        _transport_receipt(run, "activate_2", {
-            "operation": "activate_task", "status": "activated_as_requested",
-            "source_state": str(candidate), "active_state": str(run / "active_task.json"),
-            "source_sha256": digest, "active_sha256": digest,
-        })
     elif case == "candidate_selected":
         parent = json.loads((run / "snapshots/B1_attempt_1/task/task_state_snapshot.json").read_text())
         child = json.loads((attempt / "build/candidate_state.json").read_text())
@@ -2559,6 +2598,52 @@ def test_summarizer_model_retain_tampering_fails_closed(tmp_path, case):
         assert any("snapshot parent source" in blocker for blocker in round_result["product_blockers"])
     if case in {"incomplete_sft", "failed_sft"}:
         assert result["model_sft"]["status"] in {"selected_pending", "selected_failed"}
+
+
+def test_summarizer_model_retain_rejects_successful_activation(tmp_path):
+    run, ctx = _build_model_retain_run(tmp_path)
+    attempt = run / "round_2/attempts/attempt_1"
+    candidate = attempt / "build/candidate_state.json"
+    digest = file_hash(candidate)
+    _transport_receipt(run, "activate_2", {
+        "operation": "activate_task", "status": "activated_as_requested",
+        "source_state": str(candidate), "active_state": str(run / "active_task.json"),
+        "source_sha256": digest, "active_sha256": digest,
+    })
+
+    result = _summarize(run, ctx)
+    round_result = _rounds(result)[2]
+
+    assert round_result["selection"]["selection"] == "retain_parent"
+    assert round_result["product_blockers"] == ["retain_parent must not activate candidate"]
+
+
+def test_summarizer_model_false_accept_isolated_from_activation_guard(tmp_path):
+    run, ctx = _build_model_retain_run(tmp_path)
+    attempt = run / "round_2/attempts/attempt_1"
+    selection_path = attempt / "selection.json"
+    selection = json.loads(selection_path.read_text())
+    selection["selection"] = "accept"
+    selection_path.write_text(json.dumps(selection), encoding="utf-8")
+    candidate = attempt / "build/candidate_state.json"
+    child = json.loads(candidate.read_text())
+    parent = json.loads((run / "snapshots/B1_attempt_1/task/task_state_snapshot.json").read_text())
+    _fixture_snapshot(run, run / "snapshots/B2_attempt_1", parent, child, child,
+                      attempt=attempt,
+                      parent_source=run / "snapshots/B1_attempt_1/task/task_state_snapshot.json")
+    (run / "active_task.json").write_text(json.dumps(child), encoding="utf-8")
+    digest = file_hash(candidate)
+    _transport_receipt(run, "activate_2", {
+        "operation": "activate_task", "status": "activated_as_requested",
+        "source_state": str(candidate), "active_state": str(run / "active_task.json"),
+        "source_sha256": digest, "active_sha256": digest,
+    })
+
+    result = _summarize(run, ctx)
+    round_result = _rounds(result)[2]
+
+    assert round_result["activated"] is True
+    assert round_result["product_blockers"] == ["accept_candidate without strictly positive gain"]
 
 
 # --- F6: production MODEL/SFT schema ---------------------------------------

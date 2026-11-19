@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "research_status": "completed_source_research",
-  "experiment_status": "deepcoder_function_16_canary_complete_preflight_in_progress",
+  "experiment_status": "deepcoder_function_16_five_round_complete",
   "source_commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
   "isolation_branch": "reproduction/4b-bwrap",
   "user_boundary": "4B 公开数据同协议重构、Meta 使用 gpt-6-astra、ACE 跳过；五轮须等独立安全审阅、五类 benchmark 最小 smoke、健康四卡 Qwen 服务、当前 694 --check 与 experiment preflight",
@@ -27,8 +27,8 @@
     "verified": false
   },
   "current_execution": {
-    "status": "deepcoder_function_16_canary_complete_and_independently_reviewed",
-    "phase": "single_domain_canary_complete_formal_five_round_preflight_pending",
+    "status": "deepcoder_function_16_five_round_run_complete",
+    "phase": "single_domain_five_round_complete_formal_five_domain_and_independent_evaluation_not_run",
     "backbone": "Qwen3-4B",
     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3（正式实验规划；canary 为 dev4 四卡）",
@@ -38,9 +38,10 @@
     "sandbox_backend": "linux_bwrap_seccomp_v1"
   },
   "current_offline_suite": {
-    "test_counts": "522 passed, 2 skipped",
+    "test_counts": "1020 passed, 2 skipped",
     "skipped_counted_as_passed": false,
-    "scope": "current_full_offline_suite_not_real_canary_substitute"
+    "scope": "accepted_base_5071b705_full_suite_not_final_fix_wave_rerun",
+    "evidence": ".superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-7-final-review-fix-report.md"
   },
   "deepcoder_canary": {
     "status": "completed_accepted_with_concerns",
@@ -79,6 +80,67 @@
     "independent_validation_or_benchmark_run": false,
     "five_rounds_run": false,
     "author_original_experiment_reproduced": false
+  },
+  "deepcoder_five_round": {
+    "status": "run_complete",
+    "run_complete": true,
+    "completed_rounds": 5,
+    "protocol_complete": true,
+    "launcher_exited": true,
+    "external_cleanup_ok": true,
+    "evidence": "reproduction/audit/reviews/deepcoder-five-round-real-results.md",
+    "accepted_summary": "reproduction/audit/evidence/five-round-final-summary-20261119.json",
+    "config": "reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+    "task_source": "DeepCoder/TACO",
+    "interface": "function",
+    "domain": "code",
+    "unique_tasks": 16,
+    "rollout_positions": 80,
+    "repeated_same_cohort": true,
+    "experiment_attempts_per_round": 1,
+    "rounds": [
+      {"round": 1, "component": "ARTIFACTS", "parent_calls": 87, "candidate_calls": 0, "parent_full_verifier": 7, "candidate_full_verifier": 7, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept", "activated": true},
+      {"round": 2, "component": "MODEL", "parent_calls": 40, "candidate_calls": 118, "parent_full_verifier": 6, "candidate_full_verifier": 7, "parent_successes": 4, "candidate_successes": 3, "new_success": 2, "new_regression": 3, "decision": "retain_parent", "activated": false},
+      {"round": 3, "component": "ARTIFACTS", "parent_calls": 61, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true},
+      {"round": 4, "component": "ARTIFACTS", "parent_calls": 59, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true},
+      {"round": 5, "component": "ARTIFACTS", "parent_calls": 63, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 4, "candidate_successes": 5, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true}
+    ],
+    "artifacts_attribution": "meta_assisted_direct_submission_output_repair_zero_new_qwen_calls",
+    "model_sft": {
+      "round": 2,
+      "positive_only": true,
+      "input_samples": 20,
+      "unique_samples": 20,
+      "sampled_training_examples": 20,
+      "ranks": 4,
+      "epochs": 1,
+      "optimizer_steps": 3,
+      "candidate_activated": false
+    },
+    "final_active": {
+      "generation": 4,
+      "checkpoint": "base_Qwen3_4B",
+      "b2_merged_candidate_active": false,
+      "cumulative_artifact_records": 4,
+      "skills_context_snapshots_complete": true
+    },
+    "durable_jobs": {"total": 22, "missing_or_invalid": 0},
+    "supervision": {
+      "real_attempts": ["0001", "0003", "0004", "0005", "0006", "0007", "0008"],
+      "preflight_rejected": ["0002"],
+      "final_attempt": "0008",
+      "final_exit_code": 0,
+      "all_reconciled": true
+    },
+    "cleanup": "completed_services_stopped_four_gpus_free",
+    "occupier": "running_tmux_after_user_authorized_direct_start_auto_restore_pending_history_preserved",
+    "full_verifier_submissions_per_side": "6_to_8_not_all_16",
+    "limitations": [
+      "enoent_eagain_and_zero_call_overlaps_limit_attribution",
+      "no_held_out_or_independent_validation_or_benchmark",
+      "no_formal_five_domain_3000_or_694_of_744_result",
+      "no_author_original_experiment_reproduction_or_general_capability_claim"
+    ]
   },
   "compatibility_fixes": {
     "skip_ace_744": {
@@ -339,8 +401,14 @@
     },
     {
       "id": "run_4b_five_rounds",
-      "status": "not_run_pending_approval",
-      "evidence": null
+      "status": "completed_single_domain_16_task_engineering_canary",
+      "evidence": "reproduction/audit/reviews/deepcoder-five-round-real-results.md",
+      "run_complete": true,
+      "unique_tasks": 16,
+      "rollout_positions": 80,
+      "final_active": "base_Qwen3_4B_plus_four_cumulative_artifacts",
+      "occupier": "running_tmux_after_user_authorized_direct_start",
+      "scope": "not_formal_five_domain_held_out_benchmark_or_author_reproduction"
     },
     {
       "id": "evaluate_4b_694",
@@ -366,7 +434,7 @@
     "current_694_python_RSIFlow_4B_launch.py_--check",
     "final_independent_experiment_preflight_review"
   ],
-  "not_run": ["five_rounds", "formal_SFT", "final_694_of_744", "ACE_50", "8B", "independent_validation_or_benchmark", "author_original_experiment_reproduction", "persistent_formal_Qwen_services"],
+  "not_run": ["formal_five_domain_five_rounds", "formal_SFT", "final_694_of_744", "ACE_50", "8B", "independent_validation_or_benchmark", "author_original_experiment_reproduction", "persistent_formal_Qwen_services"],
   "blocking_decisions": [
     "original_3000_744_source_manifests_availability",
     "exact_reproduction_or_protocol_reconstruction",

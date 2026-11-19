@@ -216,7 +216,7 @@ Retry 5 brief 指定 Qwen4-Max scoped re-review PASS、主 Kimi 已复核 schedu
 ## v1 保留与 v2 plan
 
 - `00001353` 的首次只读 precheck 因操作员 Python 引号错误 NameError，未修改任何文件/进程；`00001354` 修正后确认 HEAD/clean diff、v1 SFT final 仍 `incomplete`、无 active training/service owner、source/input seals 仍 true、v2 root 不存在、occupier `24009` 四卡运行。
-- 旧 `Rollout_logs/deepcoder_model_smoke_v1` 未 execute、未删除、未改写；后验 `00001360` 再次确认 v1 incomplete/seals 不变。
+- 旧 `Rollout_logs/deepcoder_model_smoke_v1` 在 Retry 5 **not executed again**、未删除、未改写；Retry 4 已真实 execute 并失败，后验 `00001360` 再次确认 v1 incomplete/seals 不变。
 - `00001355`：occupier 运行中，新 `Rollout_logs/deepcoder_model_smoke_v2` public plan exit 0。Plan SHA256 `2466c2285cbf85a4f2596446a46b12c5921577e4949508516f2bb21df62daed7`，plan identity `8398911273705e2cbb1b812e01f27588f1daf8f9509dfa27b1ce59c768567865`。
 - `00001356`：runner 自身 `_load_execute_plan()` 重算通过；16 tasks、51 source transport calls、3 unique positives、18 SFT samples（每个正例 6 个）、source hashes 相同、checkpoint seals 42、Harness seals 2、registry 隔离、无 stage started/final，v1 仍 incomplete。
 

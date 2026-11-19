@@ -6,7 +6,7 @@
 - **已合并、已备份**：隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入 `reproduction/4b-main8`。**合并与初次备份点为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`），推送当时 `ls-remote` 两个远端复现分支同为该 SHA。承载本次发布文档更新的提交在该点**之后**由主 agent 纳入后续文档提交，因此**当前分支 HEAD 与远端 SHA 一律以 `git log` / `git ls-remote` 实测为准**，本文不写死后续 SHA。**当前不再是"只本地 commit、未 push"状态。**
 - 远程与备份边界：`origin` 仍是 GitHub 上游且未向其推送；`gitlab` 指向内部项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow 。GitLab 既有 `main` 仍为 `0c47d98df09327ba09f4fad9aaa9914837ffa280`，与本地历史无共同提交，**未强推、未覆盖、未建 MR**；GitLab CI 未验证。
 - 当前范围：Qwen3-4B、公开数据同协议重构、Meta `OpenAI/gpt-6-astra`。正式实验规划仍为主分区 8×A800 仅用 GPU 0–3。
-- **尚未运行五轮演化、SFT 或最终 694/744 评估，没有任何模型 benchmark 分数。ACE 50、8B 和正式 Qwen 服务也未在本轮启动。**
+- **固定同一 16 条 DeepCoder function 的单域五轮及 B2 positive-only SFT 已完成；正式五域五轮和最终 694/744 评估仍未运行，没有独立模型 benchmark 分数。ACE 50、8B 和持久正式 Qwen 服务也未启动。**
 - **公网首页：** https://75f371f2.r61.cpolar.top
 - **过程审计：** https://75f371f2.r61.cpolar.top/process.html
 - **本地地址：** http://127.0.0.1:18000/ （由主工作树 `web/` 提供）
@@ -31,7 +31,25 @@
 - **配对结果**：**3/16=0.1875 → 4/16=0.25，delta +0.0625**。`compare_scores`、`compare_task_differences`、显式 `accept_candidate` 和 activate 均完成，candidate state 与 active state hash 一致。
 - **必须同时公开的限制**：4 个新成功伴随 3 个回归，原 3 个成功全部回归；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败。结果只支持固定批净正增益，过程异常使 Harness 因果归因受限。
 - **终局与恢复**：skills/context/snapshot、state COMPLETE、finish、jobs 调和和四卡 cleanup 均完成。supervision 0001 有 24 个失败 turns、24 条 error events 及 24 条对应 turn/completed events；0002 在同一 thread 从 candidate_built 恢复，无重复 A0/父代，最终 exit 0。
-- **边界**：MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行。当前完整离线套件 **522 passed, 2 skipped**。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。
+- **边界**：该单轮 run 的 MODEL 未选择、SFT 未运行；522 passed/2 skipped 是此历史阶段计数。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。后续单域五轮见下节；694/744、独立 validation/benchmark 和作者原始实验复现仍未运行。
+
+## DeepCoder function 16 单域五轮（2026-11-19，真实完成）
+
+- **有界协议**：A0+B1–B5 使用同一组 16 个唯一 function tasks，共 80 rollout positions，每轮一个实验 attempt；`run_complete=true`、protocol complete、launcher exit 0、external cleanup ok。它不是正式五域 3000-task 实验或 held-out evaluation。
+- **逐轮实测**：下表 Calls 为真实 Qwen calls，full verifier 仅计实际进入完整验证的有效 submissions；并非全部 16 条都收到完整测试。
+
+| 轮次 | 组件 | Calls 父→候选 | full verifier 父→候选 | 成功数 父→候选 | new success / regression | 决定 |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| B1 | ARTIFACTS | 87→0 | 7→7 | 2/16→3/16 | 1 / 0 | accept + activate |
+| B2 | MODEL | 40→118 | 6→7 | 4/16→3/16 | 2 / 3 | retain_parent |
+| B3 | ARTIFACTS | 61→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
+| B4 | ARTIFACTS | 59→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
+| B5 | ARTIFACTS | 63→0 | 8→8 | 4/16→5/16 | 1 / 0 | accept_candidate + activate |
+
+- **ARTIFACTS 归因**：四轮都是 Meta-assisted direct-submission output repair，零新增 Qwen calls；每轮编辑一个 target、复用其余 15 个 baseline results。最终 active 是 base Qwen3-4B + 四个累计 artifacts，不能宣称 Task policy 或通用能力提升。
+- **MODEL SFT**：B2 真实 positive-only SFT 为 20 samples、4 ranks、1 epoch、3 optimizer steps；merged candidate 因 4/16→3/16 未激活，最终 model 仍是 base。
+- **状态与恢复**：active/model/artifact/skills/context/snapshot 链完整，22 个 durable jobs 终态有效。真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止和 missing-key failure 保留，最终 0008 exit 0。四卡最终 cleanup 时空闲；自动 occupier restore 当时因 NVML PID ownership 未解决而 pending。随后经用户明确授权，在复核四卡空闲后直接通过 **tmux** 启动，当前四 rank 持续运行、每卡日志约 2519 MB；这不改写自动恢复失败历史。
+- **限制与测试**：ENOENT/EAGAIN 和零调用重叠限制归因。正式五域、3000、694/744、独立 benchmark 和作者复现仍未运行。最终修复后完整套件为 **1031 passed, 2 skipped in 723.43s**；独立 scoped re-review 为 Ready=Yes、Critical/Important=0。完整验证见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。完整结果见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
 
 ## 合并、备份与本次复验（2026-11-16）
 
@@ -51,7 +69,7 @@
 - 真实 `OPENAI_API_KEY` 仅在 host `ResponsesTransport`；sandbox 只有 dummy relay key。公开页不包含 raw prompts/responses、私有轨迹、凭据或大输出。
 - Codex native-shell descendant hygiene 未执行；legacy Landlock 不可用且 nested vendor bwrap 与 anti-escape seccomp 冲突。当前仅验证 `shell_tool=false` 的 construction-level hygiene，未放宽 seccomp。
 - 最终独立 re-review 已完成：三项生产修复与两项发布修复均为 ADDRESSED，无新增 Critical/Important，Ready to merge Yes。combined `pt-v6m10c4t` 仍不得写成 SUCCEEDED。
-- 五轮前仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review。
+- 正式五域五轮前仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review；固定 16 条单域五轮不替代这些门。
 
 ## 独立审阅与公开原则
 

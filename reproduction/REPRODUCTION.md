@@ -1,6 +1,6 @@
 # RSI-Flow 复现与 bubblewrap 隔离手册
 
-> 当前已完成 4B 隔离基础设施验证和 DeepCoder function 16 单域单轮单候选真实 canary；后者接受 HARNESS，固定批 3/16→4/16，但有 4 新成功、3 回归和过程异常归因限制。五轮、正式 SFT、最终 694/744、ACE 50、8B、独立 benchmark 和作者原始实验复现仍未运行；candidate/EvalPlus/BFCL/Codex 历史结果仍是最小基础设施 smoke，不是模型 benchmark 分数。通用数据、GPU 和评估协议见 `web/REPRODUCTION.md`。
+> 当前已完成 4B 隔离基础设施验证、DeepCoder function 16 单域单轮 canary，以及固定同一 16 条的 A0+B1–B5 单域工程实验。后者 B1/B3/B4 ARTIFACTS 为 2/16→3/16、B5 为 4/16→5/16，B2 MODEL 为 4/16→3/16 并 retain_parent；B2 真实 positive-only SFT 未激活，最终 active 为 base Qwen3-4B + 四个累计 artifacts。正式五域五轮、最终 694/744、ACE 50、8B、独立 benchmark 和作者原始实验复现仍未运行；candidate/EvalPlus/BFCL/Codex 历史结果仍是最小基础设施 smoke，不是模型 benchmark 分数。通用数据、GPU 和评估协议见 `web/REPRODUCTION.md`。
 
 ## 1. 显式后端与禁止回退
 
@@ -135,7 +135,7 @@ cd /data/wuxuecheng/Hierarchical_level/RSI-Flow
 
 保存输出并确认 `config` 正是该机器文件，再独立核对有效 `PipelineConfig` 的 v4 frozen release、`skip_acebench=true`、694/744（五个 scored benchmark）、validation manifest 与输出目录。`--check` 本身只巡检路径存在性、rounds 与每轮任务数，不校验 skip-ACE、694 计数、manifest 内容、评测器可执行性、GPU 或 API，**返回 0 不等于该门通过**；该门当前仍未关闭。
 
-正式运行同样必须显式选择同一机器配置，且 ACP 控制器保持**前台**：`RSIFlow_4B/start_5round_600.sh` 固定加入 `--prepare-data --detach` 又不带 `--config`，不能直接依赖。五轮、SFT、最终 694/744、ACE 50、8B 与正式 Qwen 服务均未运行。
+正式运行同样必须显式选择同一机器配置，且 ACP 控制器保持**前台**：`RSIFlow_4B/start_5round_600.sh` 固定加入 `--prepare-data --detach` 又不带 `--config`，不能直接依赖。正式五域五轮、最终 694/744、ACE 50、8B 与持久正式 Qwen 服务均未运行；固定 16 条单域五轮及 B2 SFT 不替代这些正式目标。
 
 ## 8. 真实 Qwen 最小评分 smoke（已实现，待 controller 审阅后执行）
 
@@ -261,4 +261,26 @@ Tasks 1–4 完成实现、冻结 release、离线测试和审查；Task 5 已�
 
 supervision 0001 保留 24 个失败 turns、24 条 error events 和 24 条对应 turn/completed events 的 502 历史；0002 在同一 run/thread 从 candidate_built 恢复，无重复 bootstrap/run_parent，最终 exit 0。真实执行与恢复必须遵循 `reproduction/audit/reviews/deepcoder-canary-runbook.md` 的 detached supervisor、4 小时 launcher 监督、显式 bwrap、私有 Meta env、identity-checked cleanup 和同 run resume；active jobs 未调和前禁止 cleanup/resume。
 
-当前完整离线套件为 **522 passed, 2 skipped**。MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行，ACEBench 是 skipped 而非 scored。
+该单轮 run 的 MODEL 未选择、SFT 未运行；522 passed/2 skipped 是此历史阶段计数，当前测试证据见 final-review fix report。后续固定 16 条单域五轮见下节；694/744、独立 validation/benchmark 和作者原始实验复现仍未运行，ACEBench 是 skipped 而非 scored。
+
+## 12. DeepCoder function 16 单域五轮（真实完成，有界工程结果）
+
+实际配置为 `reproduction/configs/train_4b_deepcoder_five_round_workspace.json`，与单轮 canary 是不同 run。五轮重复使用同一组 16 个唯一 function tasks，共 80 rollout positions；每轮一个 `attempt_1`，无独立 validation。接受汇总为 `reproduction/audit/evidence/five-round-final-summary-20261119.json`，完整脱敏结果见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
+
+| 轮次 | 组件 | Calls 父→候选 | full verifier 父→候选 | 成功数 父→候选 | new success / regression | 结果 |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| B1 | ARTIFACTS | 87→0 | 7→7 | 2/16→3/16 | 1 / 0 | accept + activate |
+| B2 | MODEL | 40→118 | 6→7 | 4/16→3/16 | 2 / 3 | retain_parent |
+| B3 | ARTIFACTS | 61→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
+| B4 | ARTIFACTS | 59→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
+| B5 | ARTIFACTS | 63→0 | 8→8 | 4/16→5/16 | 1 / 0 | accept_candidate + activate |
+
+ARTIFACTS 均为 Meta-assisted direct-submission output repair，候选零新增 Qwen calls，每轮编辑一个 target、复用其余 15 个 baseline results，累计 artifacts 为 1/2/3/4。每侧只有 6–8 个有效 submissions 进入 full verifier，不声称全部 16 条收到完整测试。
+
+B2 positive-only SFT 使用 20 input/unique/sampled examples、4 ranks（每 rank 5 samples）、1 epoch、每 rank及全局 3 optimizer steps；LoRA rank 8、LR `2e-6`。merged candidate 未激活，B2 选择父代。最终 active generation=4，checkpoint 仍是 base Qwen3-4B，累计四个 artifacts；各轮 selected snapshot、skills、context 和 active hash 链均通过重算。
+
+真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止和 missing-key failure 保留，最终 0008 exit 0，22 个 durable jobs 终态完整。`run_complete=true`、protocol complete、launcher exited、external cleanup ok，四卡最终 cleanup 时空闲。Occupier 自动恢复当时因 NVML PID ownership 未解决而 stopped/restore_pending；之后用户明确授权直接启动，主 agent 复核四卡空闲后通过 `tmux` 会话 `rsiflow-idle-occupier` 执行 `bash run.sh --mem-mb 2500 --log-interval 20`，四个 rank 均持续训练。该操作是 cleanup 后的独立资源恢复，不改写自动恢复失败历史或实验证据。
+
+最终修复后的完整离线套件为 **1031 passed, 2 skipped in 723.43s**；21 个终审专项测试、真实最终汇总重算、独立 scoped re-review、网站 11/11 和合并前 10 个 HTTP 资源检查均通过，详见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。
+
+边界：没有正式五域 3000、held-out 或 694/744，没有作者复现或通用能力结论。ENOENT/EAGAIN 和零调用重叠限制归因；ARTIFACTS 分数是 Meta-assisted output repair，不是 Task policy 改进，B2 SFT 也不是模型质量提升。

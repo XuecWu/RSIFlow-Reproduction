@@ -7,12 +7,13 @@
 - 只做 Qwen3-4B；正式实验规划仍是主分区 8×A800 顺序执行、当前仅用 GPU 0–3。Task 6 的隔离 smoke 例外使用用户后来授权的 8×A100，不改变正式实验资源方案。
 - 公开数据同协议重构，不是作者原始 3000/744 队列的精确复现。
 - Meta 使用自定义 `gpt-6-astra`；ACE 50 跳过并标记 pending，计划评分 694/744。
-- 4B 审阅后才决定是否准备和运行 8B；尚未运行五轮演化、SFT、最终 694/744 评估或模型 benchmark 评分。
+- 4B 审阅后才决定是否准备和运行 8B；固定 16 条 DeepCoder 单域五轮及其中 B2 positive-only SFT 已完成，但正式五域五轮、最终 694/744 评估和模型 benchmark 评分仍未运行。
 - 当前交付分支为 `reproduction/4b-main8`：隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入。**合并与初次备份点为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`），初次备份推送当时 `ls-remote` 两个远端复现分支同为该 SHA。两个复现分支已备份到内部 GitLab（`gitlab` remote，项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow ）；`origin` 仍是 GitHub 上游且未向其推送，GitLab 既有 `main`（`0c47d98df09327ba09f4fad9aaa9914837ffa280`）未强推/未覆盖/未建 MR，GitLab CI 未验证。承载发布文档更新的提交在合并与初次备份点之后由主 agent 纳入后续文档提交，**当前分支 HEAD 与远端 SHA 以 `git log` / `git ls-remote` 实测为准，本页不写死后续 SHA**。本页只发布脱敏状态，不公开 raw prompts/responses、私有轨迹、凭据或大日志。
 
 ## 已完成并验证
 
-- **DeepCoder function 16 真实 canary（2026-11-17）**：固定 16 条 function、code 单域、单轮、一个 HARNESS 候选已完成。Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，并有 4 个新成功和 3 个回归；原 3 个成功全部回归，4 个新成功全部来自父代零调用失败，3 个回归全为候选零调用失败，因此只接受固定批净正增益，不宣称普遍 Harness 因果改进。accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成；MODEL 未选择、SFT 未运行。独立结果审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。当前完整离线套件为 **522 passed, 2 skipped**；五轮、694/744、独立 benchmark 和作者原始实验复现仍未运行。
+- **DeepCoder function 16 真实 canary（2026-11-17）**：固定 16 条 function、code 单域、单轮、一个 HARNESS 候选已完成。Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，并有 4 个新成功和 3 个回归；原 3 个成功全部回归，4 个新成功全部来自父代零调用失败，3 个回归全为候选零调用失败，因此只接受固定批净正增益，不宣称普遍 Harness 因果改进。accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成；该单轮 run 的 MODEL 未选择、SFT 未运行。独立结果审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。522 passed/2 skipped 是该历史阶段计数；最终修复后完整套件为 **1031 passed, 2 skipped in 723.43s**，详见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。
+- **DeepCoder function 16 单域五轮（2026-11-19）**：同一 16 条、80 rollout positions 的 A0+B1–B5 已完成，`run_complete=true`、launcher exit 0、external cleanup ok。B1/B3/B4 ARTIFACTS 均为 2/16→3/16，B5 为 4/16→5/16，均是零新增 Qwen calls 的 Meta-assisted direct-submission output repair；B2 MODEL 为 4/16→3/16，真实 positive-only SFT 20 samples、4 ranks、1 epoch、3 optimizer steps，retain_parent 且未激活。最终 active 为 base Qwen3-4B + 四个累计 artifacts。每侧仅 6–8 个有效 submissions 进入 full verifier；ENOENT/EAGAIN 与零调用重叠限制归因。四卡最终 cleanup 时空闲；自动 occupier restore 当时因 NVML PID ownership 未解决而 pending。随后经用户明确授权，在四卡空闲复核后直接以 `tmux` 启动，当前四 rank 持续运行、每卡日志约 2519 MB。正式五域、3000、694/744、独立 benchmark 和作者复现仍未运行。详见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
 - 历史复现分支 `reproduction/4b-main8` 的阶段 commit、追加式操作/关键结果账本、每日审计和 Herdr 三方通道已有记录；bwrap 隔离工作已 fast-forward 合入该分支，并完成内部 GitLab 备份。
 - 合并复验（2026-11-16）：功能工作树预检 `297 passed, 2 skipped in 92.22s`、website `11/11`。**合并后主工作树首次完整 pytest 为 `13 failed, 284 passed, 2 skipped`**，逐项确认根因是主工作树缺少 Git-ignored 的 `assets/isolation/`，不是代码或测试回归。用既有 `reproduction/scripts/install_bwrap.py` 从功能工作树同一 pinned binary（SHA256 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`）安装并校验 manifest/launcher receipt 后，受影响测试 `51 passed in 48.77s`、完整 pytest **`297 passed, 2 skipped in 89.15s`**，website `11/11`、`node --check`、`git diff --check` 通过；全程未改生产代码或测试。
 - 账本保护：主工作树两份未提交追加 JSONL 在 merge 前后 SHA256 完全不变（`operations.jsonl` `ea9403380b77b5f1100c6bce5b66578cc3cf4e218ec9985bea8d2b7f0749858e`、`key_results.jsonl` `82c10d582e9459d62d03c3b42c6ba9efaabdfd1254114519389259fd1ba92c0a`）。两个工作树的 operations 在 **sequence 581 之后分叉**，原件均保留，禁止覆盖或直接拼接；bwrap 功能工作树与 `Meta_logs/` 一并保留。
@@ -45,8 +46,8 @@
 ## 当前剩余门槛
 
 - Task 7 最终独立安全审阅及 consolidated fix-wave re-review 已由未参与实现的 reviewer 关闭；全部 Critical/Important 已修复，结论为 Ready to merge Yes。保留一个仅影响非 UTF-8 installation_id 报错类型的 Minor 诊断项，不影响启动前拒绝和状态安全。
-- 五轮 preflight 仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 上健康的四卡 Qwen 服务、当前 694 配置 `python RSIFlow_4B/launch.py --check`，以及最终独立 experiment preflight review。
-- 五轮、SFT、最终 694/744、ACE 50、8B 和 Qwen 服务均未在本轮隔离任务中启动；没有模型 benchmark 分数。
+- 正式五域五轮 preflight 仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 上健康的四卡 Qwen 服务、当前 694 配置 `python RSIFlow_4B/launch.py --check`，以及最终独立 experiment preflight review；已完成的固定 16 条单域五轮不替代这些门。
+- 正式五域五轮、最终 694/744、ACE 50、8B 和持久正式 Qwen 服务均未运行；没有独立模型 benchmark 分数。单域 B2 SFT 已发生但未激活，不能写成模型质量结果。
 
 ## 过程与证据
 

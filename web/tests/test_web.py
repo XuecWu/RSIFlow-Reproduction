@@ -142,8 +142,20 @@ class WebsiteTests(unittest.TestCase):
         self.assertFalse(frozen["clean_independence_audited"])
         self.assertEqual("exposure_unknown", frozen["exposure"])
         self.assertEqual("694_of_744_ace_pending_audit", by_id["evaluate_4b_694"]["evaluation_scope"])
-        for identifier in ("run_4b_five_rounds", "evaluate_4b_694", "run_8b_five_rounds", "evaluate_8b_694"):
+        five = by_id["run_4b_five_rounds"]
+        self.assertEqual("completed_single_domain_16_task_engineering_canary", five["status"])
+        self.assertTrue(five["run_complete"])
+        self.assertEqual(16, five["unique_tasks"])
+        self.assertEqual(80, five["rollout_positions"])
+        self.assertEqual("running_tmux_after_user_authorized_direct_start", five["occupier"])
+        for identifier in ("evaluate_4b_694", "run_8b_five_rounds", "evaluate_8b_694"):
             self.assertEqual("not_run_pending_approval", by_id[identifier]["status"])
+        rounds = self.reproduction["deepcoder_five_round"]["rounds"]
+        self.assertEqual([2, 4, 2, 2, 4], [r["parent_successes"] for r in rounds])
+        self.assertEqual([3, 3, 3, 3, 5], [r["candidate_successes"] for r in rounds])
+        self.assertEqual("retain_parent", rounds[1]["decision"])
+        self.assertFalse(rounds[1]["activated"])
+        self.assertEqual(20, self.reproduction["deepcoder_five_round"]["model_sft"]["sampled_training_examples"])
         self.assertIn("主分区 8×A800", self.reproduction["current_execution"]["gpu_profile_display"])
         self.assertEqual("main_partition_8xA800_sequential_gpu_0_to_3", self.reproduction["current_execution"]["gpu_profile"])
         meta = self.reproduction["bwrap_isolation"]["persistent_meta"]

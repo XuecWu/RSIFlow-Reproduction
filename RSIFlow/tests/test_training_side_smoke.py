@@ -1968,6 +1968,87 @@ def test_model_smoke_execute_missing_plan_requires_audit(model_smoke, tmp_path):
     assert "plan" in result["error"].lower()
 
 
+def test_model_smoke_execute_valid_final_receipts_resume_without_retraining(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    plan = _model_plan(model_smoke, model_source, tmp_path, "valid-resume")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    assert model_smoke.execute_model_smoke(root)["status"] == "completed"
+    FakeAdapter.instances.clear()
+    calls.clear()
+    SERVICE_CHECKPOINTS.clear()
+
+    resumed = model_smoke.execute_model_smoke(root)
+
+    assert resumed["status"] == "already_completed"
+    assert FakeAdapter.instances == [] and calls == [] and SERVICE_CHECKPOINTS == []
+    (root / "receipts/recovery.json").unlink()
+    recovered = model_smoke.execute_model_smoke(root)
+    assert recovered["status"] == "completed"
+    assert recovered["recovery"]["retrained"] is False
+    assert FakeAdapter.instances == []
+
+
+@pytest.mark.parametrize("stage", ["sft", "recovery"])
+def test_model_smoke_execute_rejects_stale_plan_stage_receipt(
+        model_smoke, model_source, tmp_path, monkeypatch, stage):
+    plan = _model_plan(model_smoke, model_source, tmp_path, f"stale-{stage}")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    assert model_smoke.execute_model_smoke(root)["status"] == "completed"
+    FakeAdapter.instances.clear()
+    calls.clear()
+    SERVICE_CHECKPOINTS.clear()
+    path = root / f"receipts/{stage}.json"
+    receipt = json.loads(path.read_text())
+    receipt["plan_identity"] = "0" * 64
+    path.write_text(json.dumps(receipt))
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert stage in result["error"].lower()
+    assert FakeAdapter.instances == [] and calls == [] and SERVICE_CHECKPOINTS == []
+
+
+@pytest.mark.parametrize("stage", ["sft", "recovery"])
+def test_model_smoke_execute_rejects_foreign_root_stage_receipt(
+        model_smoke, model_source, tmp_path, monkeypatch, stage):
+    plan = _model_plan(model_smoke, model_source, tmp_path, f"foreign-current-{stage}")
+    other = _model_plan(model_smoke, model_source, tmp_path, f"foreign-other-{stage}")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    assert model_smoke.execute_model_smoke(Path(other["output_root"]))["status"] == "completed"
+    assert model_smoke.execute_model_smoke(root)["status"] == "completed"
+    FakeAdapter.instances.clear()
+    calls.clear()
+    SERVICE_CHECKPOINTS.clear()
+    foreign = json.loads((Path(other["output_root"]) / f"receipts/{stage}.json").read_text())
+    (root / f"receipts/{stage}.json").write_text(json.dumps(foreign))
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert stage in result["error"].lower()
+    assert FakeAdapter.instances == [] and calls == [] and SERVICE_CHECKPOINTS == []
+
+
+def test_model_smoke_execute_rejects_post_plan_root_symlink_swap(
+        model_smoke, model_source, tmp_path, monkeypatch):
+    plan = _model_plan(model_smoke, model_source, tmp_path, "root-symlink-swap")
+    root = Path(plan["output_root"])
+    calls = _patch_model_runtime(model_smoke, monkeypatch)
+    moved = root.with_name(root.name + "-real")
+    root.rename(moved)
+    root.symlink_to(moved, target_is_directory=True)
+
+    result = model_smoke.execute_model_smoke(root)
+
+    assert result["status"] == "requires_audit"
+    assert "symlink" in result["error"].lower()
+    assert FakeAdapter.instances == [] and calls == [] and SERVICE_CHECKPOINTS == []
+
+
 @pytest.mark.parametrize("stage", ["sft", "recovery"])
 def test_model_smoke_execute_started_stage_requires_audit_without_training(
         model_smoke, model_source, tmp_path, monkeypatch, stage):

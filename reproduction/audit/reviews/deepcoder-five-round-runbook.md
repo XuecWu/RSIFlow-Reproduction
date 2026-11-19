@@ -262,3 +262,7 @@ NVML `--query-compute-apps` 的 compute PID 与容器内 rank PID **可能属不
 ## 9. 完成判定与报告
 
 最终完成同时核验 SOP §9 各项（state complete/last_turn completed、A0+B1–B5 milestones、current_stage COMPLETE/finish_allowed、B5 前无提前 finish、每轮单 attempt、active 链、durable jobs 终态、supervision exit/reconcile、launcher/Codex PID 不存活、owned registry services_stopped、GPU 无计算进程）+ external cleanup completed。任何缺失只报告实得轮次与 blocker。报告逐轮表格、跨轮 active/skills 链、MODEL/SFT 实际发生轮次、过程异常限制；五轮工程完成不等于五域/3000/694/744/作者复现。
+
+**2026-11-19 实际终局**：该固定 16 条单域五轮已达到上述完成判定，`run_complete=true`、最终 supervision `0008` exit 0、external cleanup completed，四卡在 cleanup 时空闲。逐轮结果与 attempts/recovery 历史见 `deepcoder-five-round-real-results.md`。Occupier 自动恢复因 NVML PID ownership 未解决而 stopped/`restore_pending`，没有强行通过自动恢复门；后续不得再从 COMPLETE run 重放实验。最终汇总器会检查完整 activation inventory：retain 拒绝任何成功 activation，accept 只接受唯一且正确绑定的成功 activation；selection 的 `accept_or_retain` 优先于 `selection`，与生产 progress 一致。
+
+**2026-11-19 cleanup 后用户授权的直接启动**：用户明确要求可在占卡目录用 `tmux` 直接 `bash run.sh`。主 agent 先实测四卡均无 compute app、每卡仅 1 MiB，再启动独立会话 `rsiflow-idle-occupier`，参数为 `--mem-mb 2500 --log-interval 20`，日志写 `runtime/dev4/tmux-occupier-20261119.log`。实测四 rank 持续训练、每卡脚本显存约 2519 MB；这不属于上述自动 restore receipt，也不改写 cleanup 时的空卡观测。后续新实验必须先核对并停止该自有 tmux/torchrun 进程组，确认四卡满足空闲门，不能与之抢卡。

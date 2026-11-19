@@ -577,6 +577,68 @@ def load_effective_config(root):
     return PipelineConfig.model_validate(read(Path(root) / "plan/effective_config.json"))
 
 
+def _validate_execute_root(output_root):
+    candidate = Path(output_root)
+    if candidate.is_symlink():
+        raise SmokeBlocked(f"Output root must not be a symlink: {candidate}")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise SmokeBlocked(f"Output root or final plan receipt does not exist: {candidate}") from exc
+    if Path(os.path.abspath(candidate)) != resolved:
+        raise SmokeBlocked("Output root must be canonical and contain no symlink aliases")
+    project = Path(side.PROJECT).resolve()
+    if resolved == project or not resolved.is_relative_to(project):
+        raise SmokeBlocked(f"Output root must remain inside the project: {resolved}")
+    if not resolved.is_dir():
+        raise SmokeBlocked(f"Output root must be a real directory: {resolved}")
+    return resolved
+
+
+def _bound_stage_output(root, value, *, expected=None, parent=None):
+    if not isinstance(value, str) or not value:
+        raise SmokeBlocked("Stage output path is missing")
+    path = Path(value)
+    if not path.is_absolute() or path.is_symlink() or path.resolve(strict=True) != path:
+        raise SmokeBlocked(f"Stage output path is not canonical and symlink-free: {path}")
+    if expected is not None and path != expected:
+        raise SmokeBlocked(f"Stage output path does not match its canonical destination: {path}")
+    if parent is not None and not path.is_relative_to(parent):
+        raise SmokeBlocked(f"Stage output path escapes the stage root: {path}")
+    if not path.is_relative_to(root):
+        raise SmokeBlocked(f"Stage output path escapes the MODEL smoke root: {path}")
+    return path
+
+
+def _validate_completed_stage(root, plan, stage, receipt, sft=None):
+    receipt_path = root / f"receipts/{stage}.json"
+    if (not isinstance(receipt, dict) or receipt_path.is_symlink()
+            or receipt.get("status") != "completed" or receipt.get("stage") != stage
+            or receipt.get("operation", stage) != stage
+            or receipt.get("plan_identity") != plan["plan_identity"]):
+        raise SmokeBlocked(f"{stage} final receipt is not bound to the current plan and stage")
+    sft_root = root / "runs/deepcoder_model_smoke/sft"
+    child = _bound_stage_output(root, receipt.get("child_checkpoint"), parent=sft_root)
+    if stage == "recovery":
+        if sft is None:
+            raise SmokeBlocked("recovery final receipt requires a completed bound SFT receipt")
+        expected_child = _bound_stage_output(root, sft.get("child_checkpoint"), parent=sft_root)
+        if child != expected_child:
+            raise SmokeBlocked("recovery child checkpoint does not match the bound SFT output")
+        return
+    expected_paths = {
+        "candidate_state_path": sft_root / "candidate_state.json",
+        "training_metrics_path": sft_root / "model_update/training_metrics.json",
+        "gpu_phase_receipt_path": sft_root / "model_update/gpu_phase_receipt.json",
+    }
+    for key, expected in expected_paths.items():
+        path = _bound_stage_output(root, receipt.get(key), expected=expected)
+        if file_hash(path) != receipt.get(key.replace("_path", "_sha256")):
+            raise SmokeBlocked(f"sft final receipt has a changed or unbound output: {key}")
+    child_state = read(expected_paths["candidate_state_path"])
+    _bound_stage_output(root, child_state.get("checkpoint_path"), expected=child)
+
+
 def _audit(stage, error, **extra):
     return {"status": "requires_audit", "stage": stage, "error": error, **SMOKE_FLAGS, **extra}
 
@@ -749,14 +811,15 @@ def _completed_summary(plan, sft, recovery, status):
 
 
 def execute_model_smoke(output_root):
-    root = Path(output_root).resolve()
     try:
+        root = _validate_execute_root(output_root)
         plan = _load_execute_plan(root)
     except (OSError, ValueError, SmokeBlocked) as exc:
         return _audit("plan", str(exc))
     try:
         with _stage_lock(root):
             try:
+                root = _validate_execute_root(root)
                 plan = _load_execute_plan(root)
             except (OSError, ValueError, SmokeBlocked) as exc:
                 return _audit("plan", str(exc))
@@ -770,6 +833,11 @@ def execute_model_smoke(output_root):
                 return _audit("sft", "Previous SFT final receipt is not completed; automatic rerun is forbidden")
             if recovery_state == "final" and recovery.get("status") != "completed":
                 return _audit("recovery", "Previous recovery final receipt is not completed; audit is required")
+            if sft_state == "final":
+                _validate_completed_stage(root, plan, "sft", sft)
+            if recovery_state == "final":
+                _validate_completed_stage(root, plan, "recovery", recovery,
+                                          sft=sft if sft_state == "final" else None)
             if sft_state == "final" and recovery_state == "final":
                 return _completed_summary(plan, sft, recovery, "already_completed")
             if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != "linux_bwrap_seccomp_v1":

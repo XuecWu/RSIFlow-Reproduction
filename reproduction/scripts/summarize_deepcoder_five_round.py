@@ -486,18 +486,17 @@ def _side_calls(rows, cache_root, round_n, state, manifest=None, protocol_hash=N
 
 
 def _selection_decision(selection, component):
+    del component
     if not isinstance(selection, dict):
         return None
-    value = selection.get("decision")
-    if value in TERMINAL_DECISIONS:
-        return value
-    if component in {"ARTIFACTS", "MODEL"}:
-        value = selection.get("selection", selection.get("accept_or_retain"))
-        return {"accept": "accept_candidate", "accepted": "accept_candidate",
-                "accept_candidate": "accept_candidate", "retain": "retain_parent",
-                "retain_parent": "retain_parent", "reject": "retain_parent",
-                "rejected": "retain_parent"}.get(value)
-    return value
+    if not any(key in selection for key in ("accept_or_retain", "selection")):
+        value = selection.get("decision")
+        return value if value in TERMINAL_DECISIONS else None
+    from experiment_progress import _selection_choice
+    value = _selection_choice({"content": json.dumps(selection)})
+    return {"accept": "accept_candidate", "accepted": "accept_candidate",
+            "accept_candidate": "accept_candidate", "retain_parent": "retain_parent",
+            "reject": "retain_parent", "rejected": "retain_parent"}.get(value)
 
 
 def _snapshot_dir(run_dir, number):
@@ -1307,26 +1306,34 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
 
     activated = False
     candidate_state_path = attempt / "build/candidate_state.json"
+    marker = f"round_{number}/"
+    activations = [
+        receipt for receipt in _find_transport_receipts(run_dir, "activate_task")
+        if any(isinstance(receipt.get(key), str) and marker in receipt[key]
+               for key in ("source_state", "active_state"))
+    ]
+    successful_activations = [receipt for receipt in activations
+                              if receipt.get("status") == "activated_as_requested"]
     if decision_value == "accept_candidate":
         if delta is None or delta <= 0:
             blockers.append("accept_candidate without strictly positive gain")
-        activate = _receipt_for_round(_find_transport_receipts(run_dir, "activate_task"),
-                                      number, ("source_state", "active_state"))
-        if not isinstance(activate, dict) or activate.get("active_state") != str(run_dir / "active_task.json"):
+        active_state = str(run_dir / "active_task.json")
+        if any(receipt.get("active_state") != active_state for receipt in successful_activations):
             blockers.append("activate_task active_state != exact run_dir/active_task.json")
-        if (isinstance(activate, dict) and activate.get("status") == "activated_as_requested"
-                and activate.get("source_state") == str(candidate_state_path)
-                and activate.get("source_sha256") == _sha256(candidate_state_path)
-                and activate.get("active_sha256") == activate.get("source_sha256")
-                and activate.get("source_sha256")):
+        bound = [
+            receipt for receipt in successful_activations
+            if receipt.get("source_state") == str(candidate_state_path)
+            and receipt.get("active_state") == active_state
+            and receipt.get("source_sha256") == _sha256(candidate_state_path)
+            and receipt.get("active_sha256") == receipt.get("source_sha256")
+            and receipt.get("source_sha256")
+        ]
+        if len(successful_activations) == 1 and len(bound) == 1:
             activated = True
         else:
-            blockers.append("accept_candidate lacks bound activate_task receipt")
-    elif decision_value == "retain_parent":
-        activate = _receipt_for_round(_find_transport_receipts(run_dir, "activate_task"),
-                                      number, ("source_state", "active_state"))
-        if isinstance(activate, dict) and activate.get("status") == "activated_as_requested":
-            blockers.append("retain_parent must not activate candidate")
+            blockers.append("accept_candidate lacks correctly bound unique successful activate_task receipt")
+    elif decision_value == "retain_parent" and successful_activations:
+        blockers.append("retain_parent must not activate candidate")
 
     snapshot_receipt = _snapshot_dir(run_dir, number) / "snapshot_receipt.json"
     snapshot_present = snapshot_receipt.is_file()

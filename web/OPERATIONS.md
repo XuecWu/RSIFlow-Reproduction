@@ -232,3 +232,18 @@
 - 新 URL 已实测 `/`、`/RESULTS.md`、`/OPERATIONS.md`、`/data/reproduction.json` 四项全部 **HTTP 200**；`RESULTS.md` 包含 `3/16`、`4/16` 和 `HARNESS`。本地 `http://127.0.0.1:18000/` 也为 **200**。
 - `reproduction/PROGRESS.md` 与 `web/RESULTS.md` 的当前首页/过程页入口已同步到新地址；旧地址仅留在历史操作记录中。
 - 最终完整离线套件为 **522 passed, 2 skipped**。上文 2026-11-17 首次真实结果发布节的 517/2 是当时维护/发布历史，保留原记录并以本节最终 522/2 为准；未修改 2026-11-16 daily 历史账本。
+
+
+## 2026-11-19
+
+### DeepCoder function 16 单域五轮完成与真实结果发布
+
+- 接受证据为 `reproduction/audit/evidence/five-round-final-summary-20261119.json`：同一组 16 个唯一 function tasks、五轮共 80 rollout positions、每轮一个实验 attempt；`run_complete=true`、protocol complete、launcher exit 0、external cleanup ok。
+- B1/B3/B4 ARTIFACTS 均为 2/16→3/16，B5 为 4/16→5/16；都是零新增 Qwen calls 的 Meta-assisted direct-submission output repair。B2 MODEL 为 4/16→3/16，真实 positive-only SFT 使用 20 samples、4 ranks、1 epoch、3 optimizer steps，但 retain_parent 且未激活。
+- 父子 Calls 分别为：B1 87→0、B2 40→118、B3 61→0、B4 59→0、B5 63→0。full verifier 分别为 7→7、6→7、8→8、8→8、8→8；每侧只有 6–8 个有效 submissions 进入完整验证，不声称全部 16 条收到完整测试。
+- 最终 active 为 base Qwen3-4B + 四个累计 artifacts，B2 merged checkpoint 不在 active 链。active/model/artifacts/skills/context/snapshot 和 22 个 durable jobs 均通过最终重算。
+- 真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止、Astra/provider 异常和 missing-key failure 保留为历史，后续从下一 milestone 恢复，最终 0008 exit 0。未改写真实 run evidence。
+- 四卡最终 cleanup 时空闲；自动 occupier restore 当时因 NVML PID ownership 未解决而 pending，未强行通过身份恢复门。
+- 随后用户明确授权直接启动。主 agent 重新实测四卡无 compute app、每卡 1 MiB 后，在 `tmux` 会话 `rsiflow-idle-occupier` 中执行 `bash run.sh --mem-mb 2500 --log-interval 20`。四个 rank 均持续训练，日志各约 2519 MB，`nvidia-smi` 各约 3085 MiB、46–48% 利用率；日志为 `/data/wuxuecheng/z-occupier-ready/runtime/dev4/tmux-occupier-20261119.log`。这是 cleanup 后独立资源操作，不伪造自动恢复 receipt。
+- 限制：ENOENT/EAGAIN 与零调用重叠限制归因；ARTIFACTS 不是 Task policy 改进，B2 SFT 不是模型质量结果。没有正式五域 3000、held-out、694/744、独立 benchmark、作者复现或通用能力结论。
+- 新建 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`，同步 `AGENTS.md`、`reproduction/PROGRESS.md`、`reproduction/REPRODUCTION.md`、`web/data/reproduction.json` 和 `web/RESULTS.md`。最终修复后完整套件为 **1031 passed, 2 skipped in 723.43s**，exit 0；主 agent 另复核 21 个终审专项测试、真实最终汇总 SHA256 不变、网站 11/11、node/JSON/diff-check、密钥形态零命中和合并前 10 个 HTTP 资源全部 200。独立 scoped re-review 为 Ready=Yes、Critical/Important=0。详见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。

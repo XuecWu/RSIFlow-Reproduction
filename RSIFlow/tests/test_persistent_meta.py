@@ -543,9 +543,10 @@ def test_normalize_inline_typed_args_recovered_and_separate_fields_win():
     # a separate native field takes precedence over an inline string arg
     precedence = _normalize_dynamic_request({'operation': 'f(x=1)', 'x': 99})
     assert precedence['x'] == 99 and precedence['operation'] == 'f'
-    # quoted inline value stays a string; bare path stays a string
-    quoted = _normalize_dynamic_request({'operation': "f(path='/a/b.json',name=hello)"})
-    assert quoted['path'] == '/a/b.json' and quoted['name'] == 'hello'
+    # quoted inline value stays a string; a bare string is legal only for an explicitly
+    # whitelisted string field (write_text.content), not for an unknown operation/field.
+    quoted = _normalize_dynamic_request({'operation': "write_text(path='/a/b.json',content=hello)"})
+    assert quoted['path'] == '/a/b.json' and quoted['content'] == 'hello'
 
 
 def test_normalize_illegal_input_fails_closed():
@@ -637,6 +638,91 @@ def test_forwarding_non_string_bare_word_never_calls_executor(tmp_path):
     receipt = json.loads((run / 'meta_session/turns/0000/receipt.json').read_text())
     assert receipt['status'] == 'tool_error'
     assert seen == []
+
+
+def test_normalize_run_command_non_string_fields_reject_bare_words():
+    from persistent_meta import _normalize_dynamic_request
+    # I1: the real run_command handler requires argv=array and env=object; a bare word for
+    # either must fail closed (it is a LONG_OPERATION, so a leak would create a durable job).
+    for operation in (
+        'run_command(argv=not_a_list)',
+        'run_command(env=not_an_object)',
+        'prepare_evaluation(timeout_seconds=not_a_number)',
+        'evaluate(skip_ace=not_a_bool)',
+        'artifacts(edits=not_an_object)',
+        'append_skills(entries=not_a_list)',
+    ):
+        with pytest.raises(ValueError):
+            _normalize_dynamic_request({'operation': operation})
+    # valid JSON literals for those fields still recover their native types
+    ok = _normalize_dynamic_request({
+        'operation': 'run_command(argv=["python","-V"],env={"A":"1"},timeout_seconds=30)'})
+    assert ok['argv'] == ['python', '-V'] and ok['env'] == {'A': '1'}
+    assert ok['timeout_seconds'] == 30 and type(ok['timeout_seconds']) is int
+    # declared string/path fields keep whitespace-free bare strings
+    paths = _normalize_dynamic_request({'operation': 'run_command(receipt_dir=/tmp/r,cwd=/tmp)'})
+    assert paths['receipt_dir'] == '/tmp/r' and paths['cwd'] == '/tmp'
+
+
+def test_normalize_undeclared_field_and_operation_reject_bare_word():
+    from persistent_meta import _normalize_dynamic_request
+    # I1: fail closed by default — an unknown operation or an undeclared field of a known
+    # operation must NOT accept a bare word (no string-like fallback).
+    with pytest.raises(ValueError):
+        _normalize_dynamic_request({'operation': 'custom_op(field=hello)'})
+    with pytest.raises(ValueError):
+        _normalize_dynamic_request({'operation': 'write_text(path=/p,extra=hello)'})
+    # quoted strings and JSON literals still work for undeclared operations/fields
+    quoted = _normalize_dynamic_request({'operation': 'custom_op(field="hello",n=5)'})
+    assert quoted['field'] == 'hello' and quoted['n'] == 5
+
+
+def test_forwarding_run_command_bad_argv_env_never_start_job(tmp_path, monkeypatch):
+    # I1 end-to-end through NativeExperimentTools.__call__: run_command is a LONG_OPERATION,
+    # so a bad argv/env must be rejected at normalize BEFORE jobs.start (no durable job).
+    started, executed = [], []
+    monkeypatch.setattr(ExperimentJobs, 'start',
+                        lambda self, request, turn_dir: started.append(request) or {'status': 'running'})
+
+    class Executor:
+        def execute(self, request):
+            executed.append(request)
+            return {'status': 'unexpected'}
+
+    run = tmp_path / 'run'
+    tools = NativeExperimentTools(project=tmp_path, run=run, executor=Executor(),
+                                  progress=ExperimentProgress(run / 'meta_session'))
+    for index, inline in enumerate(('run_command(argv=not_a_list)', 'run_command(env=not_an_object)')):
+        tools('experiment', {'request': {'operation': inline}})
+        receipt = json.loads((run / f'meta_session/turns/{index:04d}/receipt.json').read_text())
+        assert receipt['status'] == 'tool_error'
+    assert started == [] and executed == []
+    # positive control: a valid structured argv reaches jobs.start with its native list type
+    tools('experiment', {'request': {'operation': 'run_command(argv=["echo","hi"])'}})
+    assert len(started) == 1 and started[0]['argv'] == ['echo', 'hi']
+    assert executed == []
+
+
+def test_forwarding_prepare_evaluation_bad_timeout_never_calls_executor(tmp_path):
+    # I1: prepare_evaluation.timeout_seconds is a real number field (subprocess timeout);
+    # a bare word must be rejected at normalize and never reach the executor.
+    seen = []
+
+    class Executor:
+        def execute(self, request):
+            seen.append(request)
+            return {'status': 'unexpected'}
+
+    run = tmp_path / 'run'
+    tools = NativeExperimentTools(project=tmp_path, run=run, executor=Executor(),
+                                  progress=ExperimentProgress(run / 'meta_session'))
+    tools('experiment', {'request': {'operation': 'prepare_evaluation(timeout_seconds=not_a_number)'}})
+    receipt = json.loads((run / 'meta_session/turns/0000/receipt.json').read_text())
+    assert receipt['status'] == 'tool_error'
+    assert seen == []
+    # positive control: a JSON number reaches the executor with its native int type
+    tools('experiment', {'request': {'operation': 'prepare_evaluation(timeout_seconds=30)'}})
+    assert len(seen) == 1 and seen[0]['timeout_seconds'] == 30
 
 
 def test_forwarding_inline_bootstrap_reaches_executor_with_full_params(tmp_path):

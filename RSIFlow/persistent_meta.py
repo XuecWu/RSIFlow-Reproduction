@@ -344,25 +344,87 @@ def dynamic_tools():
             for name, description, properties, required in definitions]
 
 
-# I1: explicit per-operation argument schema deciding whether a bare (unquoted) string is
-# legal. Path/string fields accept whitespace-free bare strings; non-string fields (number,
-# integer, boolean, array, object) reject bare words and require a matching JSON literal.
-# Fields/operations not listed default to string-like (the experiment tool is dynamic).
+# I1: explicit per-operation argument schema derived from the REAL operation handlers
+# (controller_tools.py, task_adapter.py, skill_memory.py and the native dynamic tools).
+# Only fields explicitly declared "string" accept a whitespace-free bare (unquoted) string;
+# every other field — non-string types (number/integer/boolean/array/object) AND any
+# undeclared operation/field — fails closed and requires a matching JSON literal or a quoted
+# string. There is no string-like fallback for unknown operations/fields.
+_TASK_ROLLOUT_ARGS = {
+    "config_path": "string", "state_path": "string", "checkpoint_path": "string",
+    "round_number": "integer", "output_dir": "string", "stage": "string",
+    "ensure_services": "boolean", "baseline_dir": "string", "submission_targets": "array",
+}
 _INLINE_ARG_SCHEMA = {
-    "bootstrap": {"config_path": "string", "state_path": "string"},
-    "wait_job": {"job_id": "string", "seconds": "number"},
+    # native dynamic tools
     "job_status": {"job_id": "string"},
+    "wait_job": {"job_id": "string", "seconds": "number"},
     "finish_experiment": {"summary": "string"},
+    # task_adapter stages
+    "bootstrap": {"config_path": "string", "checkpoint_path": "string",
+                  "seed_harness": "string", "state_path": "string"},
+    "run_parent": dict(_TASK_ROLLOUT_ARGS),
+    "run_candidate": dict(_TASK_ROLLOUT_ARGS),
+    "rollout": dict(_TASK_ROLLOUT_ARGS),
+    "prepare_meta_evidence": {"parent_rollout_dir": "string", "round_number": "integer",
+                              "output_dir": "string"},
+    "sft": {"config_path": "string", "state_path": "string", "checkpoint_path": "string",
+            "parent_rollout_dir": "string", "round_number": "integer", "output_dir": "string",
+            "diagnosis": "string", "evidence": "array", "rationale": "string",
+            "proposed_change": "string", "expected_effect": "string"},
+    "rsiflow": {"candidate_dir": "string", "state_path": "string", "round_number": "integer",
+                "output_dir": "string", "localization_report_path": "string",
+                "improvement_direction_path": "string"},
+    "artifacts": {"baseline_dir": "string", "state_path": "string", "round_number": "integer",
+                  "output_dir": "string", "edits": "object", "max_tool_calls": "integer"},
+    "prepare_evaluation": {"config_path": "string", "checkpoint_path": "string",
+                           "validation_config_path": "string", "manifest_path": "string",
+                           "role": "string", "round_number": "integer", "output_dir": "string"},
+    "evaluate": {"config_path": "string", "checkpoint_path": "string", "snapshot_path": "string",
+                 "validation_config_path": "string", "manifest_path": "string", "role": "string",
+                 "round_number": "integer", "output_dir": "string",
+                 "skip_ace": "boolean", "timeout_seconds": "number"},
+    # controller_tools handlers
+    "run_command": {"argv": "array", "env": "object", "timeout_seconds": "number",
+                    "receipt_dir": "string", "cwd": "string", "result_json": "string"},
     "write_text": {"path": "string", "content": "string"},
+    "apply_patch": {"patch": "string", "cwd": "string"},
+    "compare_scores": {"before": "string", "after": "string", "metric": "string",
+                       "before_trajectories": "string", "after_trajectories": "string"},
+    "activate_task": {"source_state": "string", "active_state": "string", "selection_note": "string"},
+    "deploy_candidate": {"source_state": "string", "active_state": "string", "selection_note": "string"},
+    "append_skills": {"path": "string", "entries": "array"},
+    "maintain_skills": {"path": "string", "operations": "array"},
+    "retrieve_skills": {"path": "string", "fingerprint_path": "string", "fingerprint": "object",
+                        "max_chars": "integer", "per_category": "integer",
+                        "components": "array", "include_inactive": "boolean"},
+    # read_skill.ids / record_skill_use.*_skill_ids accept a single bare id (handler _list /
+    # isinstance(str) branch) as well as a JSON array.
+    "read_skill": {"path": "string", "ids": "string", "offset_chars": "integer", "max_chars": "integer"},
+    "rebuild_skills_index": {"path": "string"},
+    "record_skill_use": {"path": "string", "decision_path": "string", "skills_path": "string",
+                         "retrieval_path": "string", "component": "string", "round": "integer",
+                         "attempt": "integer", "relevant_skill_ids": "string", "used_skill_ids": "string",
+                         "prediction": "object", "rationale": "string", "trajectory_refs": "array"},
+    "skill_usage_report": {"path": "string", "output_path": "string"},
+    "compare_task_differences": {"before_trajectories": "string", "after_trajectories": "string",
+                                 "output_dir": "string", "skill_use_path": "string"},
+    "snapshot": {"destination": "string", "sources": "object"},
+    "snapshot_task_meta": {"destination": "string", "versions_root": "string",
+                           "parent_task_state": "string", "candidate_task_state": "string",
+                           "active_task_state": "string", "context_path": "string",
+                           "meta_state_path": "string", "meta_harness_path": "string",
+                           "controller_path": "string", "controller_metadata": "string",
+                           "codex_thread_metadata": "string", "skills_path": "string"},
+    "compose_task": {"versions_root": "string", "template_state_path": "string",
+                     "model_id": "string", "harness_id": "string", "destination": "string"},
+    "prepare_validation_snapshot": {"task_state_path": "string", "meta_state_path": "string",
+                                    "source_round_path": "string", "destination": "string",
+                                    "round": "integer", "deployment_status": "string",
+                                    "chosen_component": "string"},
     "read_json": {"path": "string"},
-    "read_text": {"path": "string"},
-    "append_skills": {"path": "string", "content": "string"},
-    "run_command": {"command": "string", "output_dir": "string", "timeout_seconds": "number"},
-    "run_parent": {"round_number": "integer", "output_dir": "string"},
-    "run_candidate": {"round_number": "integer", "output_dir": "string"},
-    "sft": {"round_number": "integer", "output_dir": "string"},
-    "evaluate": {"round_number": "integer", "output_dir": "string"},
-    "rollout": {"round_number": "integer", "output_dir": "string"},
+    "read_text": {"path": "string", "offset_chars": "integer", "max_chars": "integer"},
+    "materialize_harness": {"state_path": "string", "destination": "string"},
 }
 _NON_STRING_TYPES = {"number", "integer", "boolean", "array", "object"}
 
@@ -372,8 +434,9 @@ def _parse_arg_value(value, operation=None, key=None):
     JSON strings (proper \\uXXXX/escape handling, illegal escapes rejected); single-quoted
     values decode known escapes and preserve unknown escapes literally (never silently drop
     a backslash). Structured literals ([...], {...}) must parse as valid JSON or fail closed.
-    Bare values are JSON literals, or whitespace-free strings only for string-like fields
-    (non-string fields reject bare words per the operation schema)."""
+    Bare values are JSON literals, or whitespace-free strings ONLY for fields explicitly
+    declared "string" in the operation schema; non-string fields and any undeclared
+    operation/field reject bare words (fail closed, no string-like fallback)."""
     if not value:
         return ""
     if value[0] == '"':
@@ -414,6 +477,9 @@ def _parse_arg_value(value, operation=None, key=None):
         field_type = (_INLINE_ARG_SCHEMA.get(operation) or {}).get(key)
         if field_type in _NON_STRING_TYPES:
             raise ValueError(f"bare word not allowed for non-string field {operation}.{key} ({field_type}): " + value)
+        if field_type != "string":
+            raise ValueError(f"bare word not allowed for undeclared field {operation}.{key}; only explicitly "
+                             "whitelisted string fields accept bare strings: " + value)
         if any(c.isspace() for c in value):
             raise ValueError("bare tool argument with whitespace not allowed: " + value)
         return value

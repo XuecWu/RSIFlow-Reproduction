@@ -645,6 +645,103 @@ def test_not_created_consumer_rejects_stale_summary_after_history_change(tmp_pat
     assert started == []
 
 
+def _pending_not_created(receipt):
+    assert receipt["status"] != "completed", receipt
+    assert receipt["registry"]["phase"] != "not_created_verified"
+    assert any("not_created" in b for b in receipt["blockers"])
+
+
+def test_not_created_missing_command_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "meta_session/turns/0001/command.json").unlink()
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    _pending_not_created(receipt)
+    assert receipt["not_created_evidence"]["turns_parseable"] is False
+
+
+def test_not_created_missing_receipt_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "meta_session/turns/0001/receipt.json").unlink()
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    _pending_not_created(receipt)
+    assert receipt["not_created_evidence"]["turns_parseable"] is False
+
+
+def test_not_created_corrupt_command_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "meta_session/turns/0001/command.json").write_text("{bad json")
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    _pending_not_created(receipt)
+    assert receipt["not_created_evidence"]["turns_parseable"] is False
+
+
+def test_not_created_corrupt_receipt_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "meta_session/turns/0001/receipt.json").write_text("{bad json")
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    _pending_not_created(receipt)
+    assert receipt["not_created_evidence"]["turns_parseable"] is False
+
+
+def test_not_created_events_out_of_order_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    events_path = run / "meta_session/workflow_events.jsonl"
+    events = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    events[0], events[1] = events[1], events[0]  # decreasing turn order
+    events_path.write_text("".join(json.dumps(e) + "\n" for e in events))
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    _pending_not_created(receipt)
+    assert receipt["not_created_evidence"]["workflow_events_ok"] is False
+
+
+def test_not_created_events_operation_mismatch_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    events_path = run / "meta_session/workflow_events.jsonl"
+    events = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    events[0]["operation"] = "sft"  # disagrees with turn 0000's command operation
+    events_path.write_text("".join(json.dumps(e) + "\n" for e in events))
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    _pending_not_created(receipt)
+    assert receipt["not_created_evidence"]["workflow_events_ok"] is False
+
+
+def test_not_created_consumer_and_restore_reject_run_command_history(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "completed", receipt["blockers"]
+    # A run_command turn (LONG_OPERATION => durable job creation) appears AFTER the receipt
+    # was sealed; the consumer must recompute the history and reject, not trust the summary.
+    _add_turn(run, "0003", "run_command")
+    _rebuild_workflow(run)
+    summarizer = _load("summarize_deepcoder_five_round")
+    cfg = json.loads(config.read_text()); cfg["_config_path"] = str(config.resolve())
+    active = json.loads((run / "active_task.json").read_text())
+    sup = summarizer._supervision(run)
+    with pytest.raises(ValueError, match="not_created"):
+        summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
+    started = []
+    with pytest.raises(RuntimeError, match="cleanup evidence"):
+        reconciler.restore_occupier(config, run, "0001",
+                                    occupier_start_fn=lambda: started.append(1) or {},
+                                    shared_identity_path=tmp_path / "run-command-restore-identity.json",
+                                    gpu_observer=_gpu_observer(gpu_obs))
+    assert started == []
+
+
 def test_cleanup_active_job_pending(tmp_path, supervisor, reconciler):
     config, run, paths, gpu_obs, pids = _seed_run(tmp_path, supervisor, reconciler)
     # spawn a live process and bind it as the job owner so the group is still alive

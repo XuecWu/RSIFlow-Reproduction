@@ -386,14 +386,28 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     status = "completed"
     state = _read_json(run_dir / "meta_session/state.json") or {}
     launch = _read_json(attempt_dir / "launch.json") or {}
+    active = _read_json(run_dir / "active_task.json") or {}
+    prestate_evidence = None
+    prestate_candidate = (launch.get("binding", {}).get("mode") == "resume"
+                          and (attempt_dir / "identity-pending.json").is_file())
     try:
         chain = load_launch_chain(attempt_dir, config_path, run_dir, observer_host=host_identity())
         launch = {**launch, **{k: chain[k] for k in ("binding", "owners", "expected_gpus")}}
         for source in chain["paths"]:
             seal(source)
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        blockers.append("launch_chain:" + str(exc))
         chain = None
+        if prestate_candidate:
+            from summarize_deepcoder_five_round import prestate_launch_cleanup_proof
+            try:
+                prestate_evidence = prestate_launch_cleanup_proof(
+                    attempt_dir, run_dir, config_path, output_root, active, observe=seal)
+                launch = {**launch, "expected_gpus": prestate_evidence["expected_gpus"]}
+            except (OSError, ValueError, KeyError, TypeError) as proof_exc:
+                blockers.append("prestate_launch_proof:" + str(proof_exc))
+                status = "pending"
+        if prestate_evidence is None:
+            blockers.append("launch_chain:" + str(exc))
     identity = _read_json(attempt_dir / "identity.json")
     reconcile = _read_json(attempt_dir / "reconcile.json")
     try:
@@ -478,11 +492,25 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                 "evidence_path": obs_path, "evidence_sha256": digest}
 
     launch_path = attempt_dir / "launch.json"
-    for group, pid_key in (("launcher", "launcher_pid"), ("app_server", "codex_pid")):
-        ident = launch.get("owners", {}).get(group) or {}
-        if ident.get("pid") != state.get(pid_key):
-            blockers.append(f"{group}_identity_mismatch")
-        owners[group] = make_owner(ident, launch_path, group)
+    if prestate_evidence is not None:
+        owners["launcher"] = make_owner(launch.get("supervisor") or {}, launch_path, "launcher")
+        pending_path = attempt_dir / "identity-pending.json"
+        from summarize_deepcoder_five_round import _value_hash
+        app_obs = {"kind": "rsiflow_app_server_not_created", "run_dir": str(run_dir),
+                   "supervision_attempt": supervision,
+                   "launch_sha256": _sha256(launch_path),
+                   "identity_pending_sha256": _sha256(pending_path),
+                   "proof_sha256": _value_hash(prestate_evidence)}
+        app_path, app_hash = write_sealed(obs_dir / "app_server_not_created.json", app_obs)
+        owners["app_server"] = {"identity": None, "source_path": str(pending_path),
+                                "state": "not_created", "evidence_path": app_path,
+                                "evidence_sha256": app_hash}
+    else:
+        for group, pid_key in (("launcher", "launcher_pid"), ("app_server", "codex_pid")):
+            ident = launch.get("owners", {}).get(group) or {}
+            if ident.get("pid") != state.get(pid_key):
+                blockers.append(f"{group}_identity_mismatch")
+            owners[group] = make_owner(ident, launch_path, group)
     from summarize_deepcoder_five_round import _jobs_validation
     job_check = _jobs_validation(run_dir)
     blockers.extend("job_binding:" + reason for reason in job_check["invalid"] + job_check["missing_final_receipts"])
@@ -531,8 +559,10 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     registry_after_hash = registry_before_hash
     stop_action = "skipped"
     stop_command_result = None
-    non_service_exited = all(o["state"] == "exited" for o in
-                             [owners["launcher"], owners["app_server"], *owners["jobs"], *owners["training_phases"]])
+    non_service_owners = [owners["launcher"], *owners["jobs"], *owners["training_phases"]]
+    if prestate_evidence is None:
+        non_service_owners.append(owners["app_server"])
+    non_service_exited = all(o["state"] == "exited" for o in non_service_owners)
     registry_owned = True
     if effective_obj is not None:
         try:
@@ -558,9 +588,9 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
     )
     if not launch_binding_ok:
         blockers.append("launch_binding_gate_failed")
-    # load_launch_chain above is mandatory and binds the observer's actual host,
-    # boot and namespace to immutable prelaunch/runtime evidence before any signals.
-    if chain is None:
+    # Normal cleanup requires the runtime chain. The narrow pre-state proof instead binds
+    # prelaunch/launch/supervisor identity and explicitly proves app_server was not created.
+    if chain is None and prestate_evidence is None:
         blockers.append("trusted_launch_chain_missing")
     # full service inventory + weights verified BEFORE stop (R5).
     services = registry.get("services", [])
@@ -761,8 +791,33 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
             stop_action = "not_created_verified"
             registry["phase"] = "not_created_verified"
 
+    if prestate_evidence is not None:
+        gpu_released = (len(gpu_observations) == 2
+                        and all(not o.get("compute_apps") and o.get("free_verified") is True
+                                for o in gpu_observations))
+        current_owners_exited = all(
+            o.get("state") == "exited"
+            for group in ("launcher", "jobs", "training_phases", "inference_services")
+            for o in ([owners[group]] if group == "launcher" else owners[group]))
+        proof_ok = (gpu_released and ports.get("status") == "closed" and current_owners_exited
+                    and owners["app_server"].get("state") == "not_created"
+                    and launch_binding_ok and registry_owned
+                    and registry.get("phase") == "services_stopped"
+                    and registry_after_hash == prestate_evidence["registry_sha256"])
+        if not proof_ok:
+            blockers.append("prestate_launch_cleanup_proof_incomplete")
+            if status == "completed":
+                status = "pending"
+        else:
+            stop_action = "prestate_verified"
+
     if blockers and status == "completed":
         status = "pending"
+    from summarize_deepcoder_five_round import turn_hash_inventory
+    try:
+        turn_inventory = turn_hash_inventory(run_dir, observe=seal)
+    except (OSError, ValueError, TypeError):
+        turn_inventory = None
     finished_wall = datetime.now(timezone.utc)
     receipt = {
         "schema_version": 1, "kind": "rsiflow_external_cleanup", "observation_id": obs_id,
@@ -781,13 +836,15 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                      "state_hash": _sha256(run_dir / "meta_session/state.json"),
                      "observed_status": state.get("status"),
                      "current_stage": (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("current_stage"),
-                     "finish_allowed": (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("finish_allowed")},
+                     "finish_allowed": (_read_json(run_dir / "meta_session/workflow_state.json") or {}).get("finish_allowed"),
+                     "turn_inventory": turn_inventory},
         "owners": owners,
         "registry": {"path": str(registry_path), "before_path": registry_before_snapshot, "before_hash": registry_before_hash,
                      "after_hash": registry_after_hash, "phase": registry.get("phase"),
                      "checkpoint": registry.get("checkpoint"), "weights": active.get("checkpoint_manifest"),
                      "stop_action_skipped_or_executed": stop_action, "command_result": stop_command_result},
         "not_created_evidence": not_created_evidence,
+        "prestate_launch_evidence": prestate_evidence,
         "gpu_observations": gpu_observations,
         "ports_observation": {**ports, "evidence_path": ports_path, "evidence_sha256": ports_hash},
         "actions": actions, "errors": errors,

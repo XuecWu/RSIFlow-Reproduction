@@ -1434,6 +1434,329 @@ def validate_gpu_measurement(obs, expected, *, require_idle=True):
     return parsed, apps
 
 
+def turn_hash_inventory(run_dir, *, observe=None):
+    """Return a complete, sealed command/receipt hash inventory; never use mtimes as proof."""
+    run_dir = Path(run_dir).resolve()
+    observe = observe or (lambda path: None)
+    root = run_dir / "meta_session/turns"
+    entries = sorted(root.iterdir()) if root.is_dir() else []
+    if (not entries or any(not p.is_dir() or p.is_symlink() or not p.name.isdigit() for p in entries)
+            or [int(p.name) for p in entries] != list(range(len(entries)))):
+        raise ValueError("turn_inventory_invalid")
+    inventory = []
+    for directory in entries:
+        if {p.name for p in directory.iterdir()} != {"command.json", "receipt.json"}:
+            raise ValueError("turn_entries_invalid")
+        item = {"turn": directory.name}
+        for name in ("command.json", "receipt.json"):
+            path = directory / name
+            if path.is_symlink() or not isinstance(json.loads(path.read_text()), dict):
+                raise ValueError("turn_json_invalid")
+            observe(path)
+            item[name + "_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        inventory.append(item)
+    return inventory
+
+
+def prestate_launch_cleanup_proof(attempt_dir, run_dir, config_path, output_root, active, *,
+                                  observe=None, historical_attempts=None):
+    """Prove the narrow resume failure before PersistentMeta/app-server creation.
+
+    The producer seals every source through ``observe``; the consumer passes its sealed-source
+    accessor and recomputes the same value from the current files. Live process/GPU/ports checks
+    deliberately remain in the cleanup writer/consumer, not in this pure evidence proof.
+    """
+    import ast
+
+    attempt_dir, run_dir = Path(attempt_dir).resolve(), Path(run_dir).resolve()
+    config_path, output_root = Path(config_path).resolve(), Path(output_root).resolve()
+    observe = observe or (lambda path: None)
+
+    def require(ok, reason):
+        if not ok:
+            raise ValueError("prestate_" + reason)
+
+    def source(path):
+        path = Path(path)
+        require(not path.is_symlink(), "source_symlink")
+        observe(path)
+        return path
+
+    def read_bytes(path):
+        return source(path).read_bytes()
+
+    def read_json(path):
+        value = json.loads(read_bytes(path))
+        require(isinstance(value, dict), "json_object")
+        return value
+
+    def digest(path):
+        return hashlib.sha256(read_bytes(path)).hexdigest()
+
+    launch = read_json(attempt_dir / "launch.json")
+    prelaunch = read_json(attempt_dir / "prelaunch-seal.json")
+    identity = read_json(attempt_dir / "identity.json")
+    pending = read_json(attempt_dir / "identity-pending.json")
+    reconcile = read_json(attempt_dir / "reconcile.json")
+    exit_bytes = read_bytes(attempt_dir / "exit")
+    require(launch.get("kind") == "rsiflow_launch"
+            and prelaunch.get("kind") == "rsiflow_prelaunch_seal", "launch_schema")
+    binding, prebinding = launch.get("binding") or {}, prelaunch.get("binding") or {}
+    config_hash = hashlib.sha256(read_bytes(config_path)).hexdigest()
+    common = {"config_path": str(config_path), "config_hash": config_hash,
+              "run_dir": str(run_dir), "supervision_attempt": attempt_dir.name}
+    require(all(binding.get(k) == v for k, v in common.items())
+            and all(prebinding.get(k) == v for k, v in common.items()), "binding")
+    require(binding.get("mode") == "resume" and prebinding.get("launch_mode") == "resume",
+            "not_resume")
+    require(binding.get("backend") == prelaunch.get("backend") == "linux_bwrap_seccomp_v1",
+            "backend")
+    from deepcoder_five_round_supervisor import host_identity
+    observed_host = host_identity()
+    require(prelaunch.get("host_identity") == observed_host, "host_binding")
+    require(launch.get("prelaunch_hash") == digest(attempt_dir / "prelaunch-seal.json"),
+            "prelaunch_hash")
+    for name in ("post-launch-identity.json", "launch-final.json"):
+        path = attempt_dir / name
+        require(not path.exists() and not path.is_symlink(), "runtime_chain_exists")
+    from deepcoder_five_round_supervisor import validate_identity, validate_gpu_inventory
+    supervisor = validate_identity(launch.get("supervisor"))
+    require(identity.get("run_dir") == str(run_dir)
+            and identity.get("attempt_dir") == str(attempt_dir)
+            and all(identity.get(k) == supervisor.get(k) for k in ("pid", "pgid", "start_ticks")),
+            "supervisor_identity")
+    require(pending.get("kind") == "rsiflow_actual_started_identity_pending"
+            and pending.get("supervision_attempt") == attempt_dir.name
+            and pending.get("experiment_executed") is True
+            and pending.get("identity_pending") is True
+            and pending.get("supervisor") == supervisor, "identity_pending")
+    require(exit_bytes.decode().strip() == "1" and reconcile.get("status") == "complete"
+            and reconcile.get("remaining") == [], "exit_reconcile")
+
+    if historical_attempts is None:
+        attempts, _, _ = supervision_attempts(run_dir)
+    else:
+        attempts = [Path(a).resolve() for a in historical_attempts]
+    require(len(attempts) >= 2 and attempts[-1] == attempt_dir
+            and attempts[-2].name == binding.get("resumed_from"), "resumed_from")
+    prior = attempts[-2]
+    resume_ref = (prelaunch.get("preflight_receipts") or {}).get("resume") or {}
+    resume_path = Path(resume_ref.get("path", "/missing")).resolve()
+    resume = read_json(resume_path)
+    require(digest(resume_path) == resume_ref.get("sha256"), "resume_receipt_hash")
+    require(resume.get("stage") == "resume" and resume.get("status") == "success"
+            and resume.get("run_dir") == str(run_dir)
+            and resume.get("config_hash") == config_hash
+            and resume.get("backend") == "linux_bwrap_seccomp_v1"
+            and all(resume.get(k) == observed_host[k] for k in ("host", "boot_id", "pid_namespace")),
+            "resume_receipt_binding")
+    cleanup_ref = resume.get("cleanup_receipt") or {}
+    previous_path = Path(cleanup_ref.get("path", "/missing")).resolve()
+    require(_within(previous_path, prior / "external-cleanup")
+            and previous_path.name == "receipt.json", "previous_cleanup_path")
+    previous = read_json(previous_path)
+    previous_hash = digest(previous_path)
+    require(previous_hash == cleanup_ref.get("sha256"), "previous_cleanup_hash")
+    previous_binding = previous.get("binding") or {}
+    require(previous.get("kind") == "rsiflow_external_cleanup"
+            and previous.get("status") == "completed" and previous.get("blockers") == []
+            and previous_binding.get("run_dir") == str(run_dir)
+            and previous_binding.get("config_hash") == config_hash
+            and previous_binding.get("supervision_attempt") == prior.name,
+            "previous_cleanup_binding")
+    state_path = run_dir / "meta_session/state.json"
+    state = read_json(state_path)
+    state_hash = digest(state_path)
+    previous_protocol = previous.get("protocol") or {}
+    require(previous_protocol.get("state_hash") == state_hash, "state_changed")
+    require(state.get("thread_id") and state.get("thread_id") == binding.get("thread_id")
+            and state.get("status") != "complete", "thread_or_complete_state")
+    workflow_path = run_dir / "meta_session/workflow_state.json"
+    workflow = read_json(workflow_path)
+    config = read_json(config_path)
+    config["_config_path"] = str(config_path)
+    previous_stage = previous_protocol.get("current_stage")
+    current_stage = workflow.get("current_stage")
+    legacy_reconstruction = None
+    if current_stage != previous_stage:
+        require(previous_stage == "A0" and current_stage == "B2"
+                and prelaunch.get("reviewed_commit") == "beebd9b42b734c0f5a1dd6ba927931ee76b81f43",
+                "workflow_changed")
+        production = _workflow_milestones(run_dir, config)
+        require(production.get("current_stage") == "B2"
+                and production.get("incomplete_stages") == ["B2", "B3", "B4", "B5"]
+                and production.get("stages_present") == ["A0", "B1", "B2", "B3", "B4", "B5"],
+                "legacy_production_rebuild")
+        legacy_reconstruction = {
+            "previous_stage": previous_stage, "current_stage": current_stage,
+            "reviewed_commit": prelaunch["reviewed_commit"],
+            "production_incomplete_stages": production["incomplete_stages"],
+        }
+    require(workflow.get("finish_allowed") is False
+            and previous_protocol.get("finish_allowed") is False, "workflow_changed")
+
+    current_supervision = _supervision(run_dir)
+    require(current_supervision["all_attempts_accounted_for"], "supervision_unaccounted")
+    previous_supervision = {**current_supervision, "attempts": [a.name for a in attempts[:-1]]}
+    _validate_cleanup(previous, previous_path, run_dir, config, output_root,
+                      previous_supervision, active, historical_attempts=attempts[:-1])
+
+    previous_snapshots = previous.get("source_snapshots") or {}
+    jobs = sorted((run_dir / "meta_session/jobs").glob("*/job.json"))
+    phases = sorted(run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))
+    previous_owners = previous.get("owners") or {}
+    for label, current, key in (("jobs", jobs, "jobs"),
+                                ("training_phases", phases, "training_phases")):
+        old = previous_owners.get(key) or []
+        require([o.get("source_path") for o in old] == [str(p) for p in current],
+                label + "_inventory_changed")
+        for path in current:
+            old_source = previous_snapshots.get(str(path.resolve())) or {}
+            require(old_source.get("sha256") == digest(path), label + "_source_changed")
+    job_check = _jobs_validation(run_dir)
+    require(not job_check["invalid"] and not job_check["missing_final_receipts"],
+            "job_terminal_binding")
+    job_artifacts = []
+    for jobpath in jobs:
+        job = read_json(jobpath)
+        result_path = Path(job.get("result_path", "/invalid")).resolve()
+        expected_result = (run_dir / "controller_transport" / jobpath.parent.name / "result.json").resolve()
+        require(result_path == expected_result, "job_result_binding")
+        for kind, path in (("result", result_path), ("request", result_path.parent / "request.json")):
+            previous_source = previous_snapshots.get(str(path)) or {}
+            current_hash = digest(path)
+            require(previous_source.get("sha256") == current_hash,
+                    "job_" + kind + "_changed")
+            job_artifacts.append({"job_id": jobpath.parent.name, "kind": kind,
+                                  "path": str(path), "sha256": current_hash})
+    for phase in phases:
+        _validate_phase_owner(read_json(phase), phase, run_dir)
+
+    registry_path = output_root / "services/four_gpu_services.json"
+    registry = read_json(registry_path)
+    previous_registry = previous.get("registry") or {}
+    require(previous_registry.get("phase") == "services_stopped"
+            and registry.get("phase") == "services_stopped"
+            and registry.get("stopped_at") is not None
+            and digest(registry_path) == previous_registry.get("after_hash"),
+            "registry_changed")
+
+    try:
+        turns = turn_hash_inventory(run_dir, observe=observe)
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError("prestate_turn_inventory_invalid") from exc
+    previous_turns = previous_protocol.get("turn_inventory")
+    if previous_turns is not None:
+        require(isinstance(previous_turns, list) and bool(previous_turns), "turn_baseline_missing")
+        require(turns == previous_turns, "turn_inventory_changed")
+        for item in previous_turns:
+            for name in ("command.json", "receipt.json"):
+                path = run_dir / "meta_session/turns" / item["turn"] / name
+                previous_source = previous_snapshots.get(str(path.resolve())) or {}
+                require(previous_source.get("sha256") == item.get(name + "_sha256"),
+                        "turn_baseline_unbound")
+    else:
+        require(legacy_reconstruction is not None, "turn_baseline_missing")
+        turns_root = run_dir / "meta_session/turns"
+        anchored = {}
+        snapshot_paths = set()
+        for raw, snapshot in previous_snapshots.items():
+            path = Path(raw).resolve()
+            if not path.is_relative_to(turns_root):
+                continue
+            require(path.name in {"command.json", "receipt.json"}
+                    and path.parent.parent == turns_root, "legacy_turn_snapshot_binding")
+            require(snapshot.get("sha256") == digest(path), "legacy_anchor_turn_changed")
+            anchored.setdefault(path.parent.name, set()).add(path.name)
+            snapshot_paths.add(path)
+        expected_paths = set()
+        for jobpath in jobs:
+            job = read_json(jobpath)
+            turn_dir = Path(job.get("turn_dir", "/invalid")).resolve()
+            require(turn_dir.parent == turns_root and turn_dir.name.isdigit(),
+                    "legacy_job_turn_binding")
+            expected_paths.update((turn_dir / "command.json", turn_dir / "receipt.json"))
+        require(snapshot_paths == expected_paths, "legacy_turn_anchor_set")
+        anchored_turns = sorted(anchored)
+        require(anchored and all(names == {"command.json", "receipt.json"}
+                                 for names in anchored.values()), "legacy_turn_baseline_missing")
+        require(workflow.get("observed_turns") == len(turns), "legacy_observed_turns")
+        legacy_reconstruction.update({
+            "anchored_turns": anchored_turns, "observed_turns": len(turns),
+            "proof_scope": "causal_no_new_0004_work_not_complete_historical_turn_bytes",
+        })
+
+    config_base = (_PROJECT / "RSIFlow" / config.get("runtime_source", "runtime")
+                   / config["base_config"]).resolve()
+    base = read_json(config_base)
+    require((base.get("meta") or {}).get("api_key_env") == "OPENAI_API_KEY", "provider_key_env")
+    launch_meta_path = _PROJECT / "RSIFlow/launch_meta.py"
+    launch_meta = read_bytes(launch_meta_path).decode("utf-8")
+    log_path = attempt_dir / "launcher.log"
+    log = read_bytes(log_path).decode("utf-8")
+    error = "RuntimeError: OPENAI_API_KEY is unset and no compatible provider key was found"
+    lines = log.splitlines()
+    require(len(lines) >= 3 and lines[0] == "Traceback (most recent call last):"
+            and lines[-1] == error and log.count("Traceback (most recent call last):") == 1,
+            "canonical_traceback")
+    body = lines[1:-1]
+    source_lines = launch_meta.splitlines()
+    position = 0
+    for function in ("<module>", "main", "_autodl_key"):
+        require(position + 1 < len(body), "canonical_traceback_frames")
+        match = re.fullmatch(r'  File "([^"]+)", line ([0-9]+), in (.+)', body[position])
+        require(match is not None and match.group(3) == function
+                and Path(match.group(1)).resolve() == launch_meta_path.resolve(),
+                "canonical_traceback_frame")
+        line_number = int(match.group(2))
+        require(1 <= line_number <= len(source_lines)
+                and body[position + 1] == "    " + source_lines[line_number - 1].strip(),
+                "canonical_traceback_source")
+        position += 2
+        if position < len(body) and re.fullmatch(r"    [~^ ]*[~^][~^ ]*", body[position]):
+            position += 1
+    require(position == len(body), "canonical_traceback_additional_content")
+    tree = ast.parse(launch_meta)
+    main = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main"), None)
+    require(main is not None, "launch_meta_main")
+    calls = []
+    for node in ast.walk(main):
+        if isinstance(node, ast.Call):
+            name = node.func.id if isinstance(node.func, ast.Name) else (
+                node.func.attr if isinstance(node.func, ast.Attribute) else None)
+            if name in {"_autodl_key", "PersistentMeta"}:
+                calls.append((node.lineno, node.col_offset, name))
+    calls.sort()
+    names = [name for _, _, name in calls]
+    require("_autodl_key" in names and "PersistentMeta" in names
+            and names.index("_autodl_key") < names.index("PersistentMeta"),
+            "not_before_persistent_meta")
+    expected_gpus = validate_gpu_inventory(prelaunch.get("expected_gpus"))
+    require(resume.get("gpus") == expected_gpus, "gpu_binding")
+    return {
+        "schema_version": 1, "kind": "rsiflow_prestate_launch_cleanup_proof",
+        "attempt": attempt_dir.name, "resumed_from": prior.name,
+        "missing_provider_key": "OPENAI_API_KEY", "thread_id": state["thread_id"],
+        "prelaunch_sha256": digest(attempt_dir / "prelaunch-seal.json"),
+        "launch_sha256": digest(attempt_dir / "launch.json"),
+        "identity_sha256": digest(attempt_dir / "identity.json"),
+        "identity_pending_sha256": digest(attempt_dir / "identity-pending.json"),
+        "exit_sha256": digest(attempt_dir / "exit"),
+        "reconcile_sha256": digest(attempt_dir / "reconcile.json"),
+        "launcher_log_sha256": digest(log_path), "launch_meta_sha256": digest(launch_meta_path),
+        "resume_receipt_sha256": digest(resume_path),
+        "previous_cleanup_path": str(previous_path), "previous_cleanup_sha256": previous_hash,
+        "state_sha256": state_hash, "workflow_sha256": digest(workflow_path),
+        "jobs": [{"path": str(p), "sha256": digest(p)} for p in jobs],
+        "job_artifacts": job_artifacts,
+        "training_phases": [{"path": str(p), "sha256": digest(p)} for p in phases],
+        "registry_sha256": digest(registry_path), "turns": turns,
+        "legacy_reconstruction": legacy_reconstruction,
+        "expected_gpus": expected_gpus, "supervisor": supervisor,
+        "host_identity": prelaunch.get("host_identity"),
+    }
+
+
 def _validate_phase_owner(value, phase, run):
     from deepcoder_five_round_supervisor import validate_identity
     identity = validate_identity(value.get("training_identity"))
@@ -1453,7 +1776,8 @@ def _validate_phase_owner(value, phase, run):
     return identity
 
 
-def _validate_cleanup(receipt, path, run, config, output, supervision, active):
+def _validate_cleanup(receipt, path, run, config, output, supervision, active, *,
+                      historical_attempts=None):
     """Consumer contract for the external writer; never inspect/signal live owners.
 
     All observations are sealed files, cross-bound to launch and the actual
@@ -1503,13 +1827,24 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
     require(_within(launch_path, run / "meta_session/supervision" / attempts[-1]), "launch_path")
     launch = _read_json(launch_path) or {}
     require(launch.get("kind") == "rsiflow_launch", "launch_schema")
-    from deepcoder_five_round_supervisor import load_launch_chain
     attempt = run / "meta_session/supervision" / attempts[-1]
-    chain = load_launch_chain(attempt, config["_config_path"], run,
-                              read_json=lambda p: _read_json(sealed(p)),
-                              digest=lambda p: _sha256(sealed(p)))
-    for source in chain["paths"]:
-        sealed(source)
+    prestate = receipt.get("prestate_launch_evidence") is not None
+    if prestate:
+        recomputed = prestate_launch_cleanup_proof(
+            attempt, run, config["_config_path"], output, active, observe=sealed,
+            historical_attempts=historical_attempts)
+        require(recomputed == receipt.get("prestate_launch_evidence"),
+                "prestate_summary_mismatch")
+        chain = {"binding": launch.get("binding") or {}, "owners": {},
+                 "expected_gpus": recomputed["expected_gpus"],
+                 "host_identity": recomputed["host_identity"], "paths": []}
+    else:
+        from deepcoder_five_round_supervisor import load_launch_chain
+        chain = load_launch_chain(attempt, config["_config_path"], run,
+                                  read_json=lambda p: _read_json(sealed(p)),
+                                  digest=lambda p: _sha256(sealed(p)))
+        for source in chain["paths"]:
+            sealed(source)
     fields = ("config_path", "config_hash", "base_config_path", "base_config_hash", "effective_config_path",
               "effective_config_hash", "run_dir", "output_root", "supervision_attempt", "thread_id")
     require(all(binding.get(k) is not None and chain["binding"].get(k) == binding[k] for k in fields), "launch_binding")
@@ -1600,10 +1935,26 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
                 and observation.get("group_members") == [] and observation.get("read_errors") == []
                 and observation.get("observed_at"), "owner_exit_observation")
 
-    for group, pid_key in (("launcher", "launcher_pid"), ("app_server", "codex_pid")):
-        identity = runtime_owners.get(group) or {}
-        require(identity.get("pid") == state.get(pid_key), "launcher_identity")
-        owner(owners.get(group), identity, run / "meta_session/supervision" / attempts[-1] / "launch.json")
+    if prestate:
+        owner(owners.get("launcher"), launch.get("supervisor") or {},
+              run / "meta_session/supervision" / attempts[-1] / "launch.json")
+        app = owners.get("app_server") or {}
+        pending_path = run / "meta_session/supervision" / attempts[-1] / "identity-pending.json"
+        require(app.get("state") == "not_created" and app.get("identity") is None
+                and app.get("source_path") == str(pending_path), "prestate_app_server_binding")
+        observation = _read_json(sealed(app.get("evidence_path"), app.get("evidence_sha256"))) or {}
+        require(observation.get("kind") == "rsiflow_app_server_not_created"
+                and observation.get("run_dir") == str(run)
+                and observation.get("supervision_attempt") == attempts[-1]
+                and observation.get("launch_sha256") == _sha256(launch_path)
+                and observation.get("identity_pending_sha256") == _sha256(sealed(pending_path))
+                and observation.get("proof_sha256") == _value_hash(recomputed),
+                "prestate_app_server_observation")
+    else:
+        for group, pid_key in (("launcher", "launcher_pid"), ("app_server", "codex_pid")):
+            identity = runtime_owners.get(group) or {}
+            require(identity.get("pid") == state.get(pid_key), "launcher_identity")
+            owner(owners.get(group), identity, run / "meta_session/supervision" / attempts[-1] / "launch.json")
     if not not_created:
         inventory = owners.get("jobs")
         require(isinstance(inventory, list) and len(inventory) == len(jobs) and bool(jobs), "jobs_inventory_missing")

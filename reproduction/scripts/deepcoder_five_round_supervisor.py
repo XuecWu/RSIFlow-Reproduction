@@ -436,10 +436,20 @@ def _validate_launch_gates(paths: dict, supervision: str, skip_asset_gates: bool
                 raise RuntimeError(f"resume requires_audit: training phase {phase.parent.name} unsealed")
             if not (phase.parent / "checkpoint_trained.json").is_file():
                 raise RuntimeError(f"resume requires_audit: training phase {phase.parent.name} no trained checkpoint")
-        from reconcile_deepcoder_run import _observe_owner
-        from summarize_deepcoder_five_round import _jobs_validation, _validate_phase_owner
-        prior_chain = load_launch_chain(prior_attempts[-1], paths["config_path"], run_dir,
-                                        observer_host=host_identity())
+        from reconcile_deepcoder_run import _observe_owner, _latest_cleanup_receipt
+        from summarize_deepcoder_five_round import (
+            _jobs_validation, _validate_cleanup, _validate_phase_owner, _supervision)
+        prior_cleanup, prior_cleanup_path = _latest_cleanup_receipt(prior_attempts[-1])
+        if (prior_cleanup or {}).get("prestate_launch_evidence") is not None:
+            cfg = dict(paths["config"], _config_path=str(paths["config_path"]))
+            _validate_cleanup(prior_cleanup, prior_cleanup_path, run_dir, cfg,
+                              paths["output_root"], _supervision(run_dir),
+                              _read_json(run_dir / "active_task.json") or {})
+            prior_chain = {"binding": {"thread_id": state["thread_id"]},
+                           "owners": {"launcher": prior_cleanup["owners"]["launcher"]["identity"]}}
+        else:
+            prior_chain = load_launch_chain(prior_attempts[-1], paths["config_path"], run_dir,
+                                            observer_host=host_identity())
         if state["thread_id"] != prior_chain["binding"]["thread_id"]:
             raise RuntimeError("resume thread differs from sealed runtime")
         for owner in prior_chain["owners"].values():

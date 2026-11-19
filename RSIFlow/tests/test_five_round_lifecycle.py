@@ -46,7 +46,7 @@ def reconciler(tmp_path):
     return module
 
 
-def _config(tmp_path, output_root, run_name):
+def _config(tmp_path, output_root, run_name, *, isolated_openai=False):
     """A temp machine config naturally deriving output/run, built from the valid
     five-round launcher value so TaskAdapter._config normalization succeeds."""
     from test_deepcoder_five_round import _five_round_launcher_value
@@ -55,6 +55,13 @@ def _config(tmp_path, output_root, run_name):
     release.mkdir(exist_ok=True)
     (release / "protocol.json").write_text(json.dumps({"rounds": 5}))
     value.update(output_root=str(output_root), run_name=run_name, frozen_data_dir=str(release))
+    if isolated_openai:
+        value["meta_logs_root"] = str(tmp_path / "meta_logs")
+        base_path = tmp_path / "base-openai.json"
+        base = json.loads((ROOT / "RSIFlow" / value["runtime_source"] / value["base_config"]).read_text())
+        base["meta"]["api_key_env"] = "OPENAI_API_KEY"
+        base_path.write_text(json.dumps(base))
+        value["base_config"] = str(base_path)
     config_path = tmp_path / "machine.json"
     config_path.write_text(json.dumps(value))
     return config_path
@@ -256,10 +263,10 @@ def test_status_reports_state(tmp_path, supervisor):
 # --- cleanup writer: controlled processes + injected GPU observation --------
 
 def _seed_run(tmp_path, supervisor, reconciler, *, jobs_active=False, services_stopped=True,
-              compute_apps=None, training_leader_dead_rank_alive=False):
+              compute_apps=None, training_leader_dead_rank_alive=False, isolated_openai=False):
     """Build a temp run with a completed supervision, jobs, registry, and owners."""
     output_root = tmp_path / "out"
-    config = _config(tmp_path, output_root, "run")
+    config = _config(tmp_path, output_root, "run", isolated_openai=isolated_openai)
     paths = supervisor.derive_paths(config)
     run = paths["run_dir"]
     run.mkdir(parents=True)
@@ -2573,3 +2580,543 @@ def test_layout_fix1_rollback_unknown_keeps_topology_and_pending(tmp_path, recon
             reconciler._start_occupier_process(command,shared_identity_path=shared,gpu_observer=observer)
     finally:
         if attempts: real_terminate(attempts[0],grace=.2)
+
+
+# --- resume launcher pre-state missing-key failure: shared cleanup proof -------------------
+
+
+def _seed_prestate_missing_key(tmp_path, supervisor, reconciler, monkeypatch, *, legacy=False):
+    config, run, paths, gpu_obs, _ = _seed_run(
+        tmp_path, supervisor, reconciler, isolated_openai=True)
+    old_turn = run / "meta_session/turns/run_parent_1"
+    new_turn = run / "meta_session/turns/0000"
+    old_turn.rename(new_turn)
+    job_path = run / "meta_session/jobs/run_parent_1/job.json"
+    job = json.loads(job_path.read_text())
+    job["turn_dir"] = str(new_turn)
+    job_path.write_text(json.dumps(job))
+    (new_turn / "receipt.json").write_text(json.dumps({
+        "operation": "run_parent", "status": "running", "job_id": "run_parent_1",
+        "result_path": job["result_path"]}))
+    if legacy:
+        _legacy_initial_history(run, config)
+    state_path = run / "meta_session/state.json"
+    state = json.loads(state_path.read_text())
+    state["status"] = "disconnected"
+    state_path.write_text(json.dumps(state))
+    (run / "meta_session/workflow_state.json").write_text(json.dumps({
+        "current_stage": "A0" if legacy else "B2", "finish_allowed": False}))
+    previous = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                      skip_asset_gates=True)
+    assert json.loads(previous.read_text())["status"] == "completed"
+    if legacy:
+        old = json.loads(previous.read_text())
+        old["protocol"].pop("turn_inventory")
+        _legacy_keep_only_job_turn_snapshots(old)
+        previous.write_text(json.dumps(old))
+        _legacy_complete_b1_history(run, config)
+    common = {"config_path": str(config.resolve()), "config_hash": supervisor._sha256(config),
+              "run_dir": str(run.resolve()), "supervision_attempt": "0002"}
+    expected_gpus = [{"gpu": g, "uuid": f"GPU-{g}"} for g in range(4)]
+    resume_receipt = tmp_path / "prestate-resume-preflight.json"
+    resume_receipt.write_text(json.dumps({
+        "stage": "resume", "status": "success", **common,
+        "host": supervisor.host_identity()["host"],
+        "boot_id": supervisor.host_identity()["boot_id"],
+        "pid_namespace": supervisor.host_identity()["pid_namespace"],
+        "backend": "linux_bwrap_seccomp_v1", "provider": "gpt-6-astra",
+        "ports": [8271, 8272, 8273, 8274], "gpus": expected_gpus,
+        "cleanup_receipt": {"path": str(previous), "sha256": supervisor._sha256(previous)},
+    }))
+    prelaunch = {
+        "kind": "rsiflow_prelaunch_seal",
+        "reviewed_commit": "beebd9b42b734c0f5a1dd6ba927931ee76b81f43" if legacy else "a" * 40,
+        "backend": "linux_bwrap_seccomp_v1", "binding": {**common, "launch_mode": "resume"},
+        "host_identity": supervisor.host_identity(), "expected_gpus": expected_gpus,
+        "preflight_receipts": {"resume": {"path": str(resume_receipt),
+                                          "sha256": supervisor._sha256(resume_receipt)}},
+    }
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    supervisor.launch(
+        config, "0002",
+        command=[sys.executable, str(ROOT / "RSIFlow/launch_meta.py"),
+                 "--config", str(config), "--run-dir", str(run)],
+        timeout="10s", kill_after="2s", skip_asset_gates=True,
+        mode="resume", resumed_from="0001", prelaunch_evidence=prelaunch)
+    attempt = run / "meta_session/supervision/0002"
+    with pytest.raises(RuntimeError, match="old/starting state"):
+        supervisor.collect_post_launch_identity(config, "0002", timeout=0.1)
+    supervisor.record_post_launch_pending(config, "0002", reason="old disconnected state")
+
+    def settled():
+        if not (attempt / "exit").is_file() or not (attempt / "reconcile.json").is_file():
+            return False
+        reconcile = json.loads((attempt / "reconcile.json").read_text())
+        return reconcile.get("status") == "complete" and reconcile.get("remaining") == []
+
+    assert _wait(settled), "missing-key supervision did not reconcile"
+    assert (attempt / "exit").read_text().strip() == "1"
+    log = (attempt / "launcher.log").read_text()
+    assert "in _autodl_key" in log
+    assert "RuntimeError: OPENAI_API_KEY is unset and no compatible provider key was found" in log
+    assert not (attempt / "post-launch-identity.json").exists()
+    assert not (attempt / "launch-final.json").exists()
+    return config, run, paths, gpu_obs, previous, attempt
+
+
+def _prestate_consumer(config, run, paths, receipt_path):
+    summarizer, cfg, active = _cleanup_consumer_args(config, run, paths)
+    receipt = json.loads(receipt_path.read_text())
+    sup = summarizer._supervision(run)
+    summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
+
+
+def test_prestate_missing_key_cleanup_consumer_and_next_resume(
+        tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu_obs, _, _ = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "completed", receipt["blockers"]
+    assert receipt["prestate_launch_evidence"]["missing_provider_key"] == "OPENAI_API_KEY"
+    assert receipt["owners"]["launcher"]["state"] == "exited"
+    assert receipt["owners"]["app_server"]["state"] == "not_created"
+    assert receipt["owners"]["app_server"]["identity"] is None
+    _prestate_consumer(config, run, paths, receipt_path)
+    result = supervisor.launch(config, "0003", command=_sleep_command(0.2),
+                               timeout="10s", kill_after="2s", skip_asset_gates=True,
+                               mode="resume", resumed_from="0002")
+    assert result["launch_seal"]["binding"]["resumed_from"] == "0002"
+    assert _wait(lambda: (run / "meta_session/supervision/0003/exit").is_file())
+
+
+@pytest.mark.parametrize("mutation", [
+    "state", "new_job", "new_turn", "wrong_error", "empty_log", "fake_app_server",
+    "previous_cleanup", "host",
+])
+def test_prestate_missing_key_fail_closed(
+        tmp_path, supervisor, reconciler, monkeypatch, mutation):
+    config, run, paths, gpu_obs, previous, attempt = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    if mutation == "state":
+        state_path = run / "meta_session/state.json"
+        state = json.loads(state_path.read_text())
+        state["last_turn_status"] = "changed-after-previous-cleanup"
+        state_path.write_text(json.dumps(state))
+    elif mutation == "new_job":
+        import shutil
+        shutil.copytree(run / "meta_session/jobs/run_parent_1",
+                        run / "meta_session/jobs/run_parent_2")
+    elif mutation == "new_turn":
+        _add_turn(run, "0001", "job_status", "read")
+    elif mutation == "wrong_error":
+        (attempt / "launcher.log").write_text("RuntimeError: some other launcher failure\n")
+    elif mutation == "empty_log":
+        (attempt / "launcher.log").write_text("")
+    elif mutation == "fake_app_server":
+        (attempt / "post-launch-identity.json").write_text(json.dumps({
+            "kind": "rsiflow_post_launch_identity", "owners": {"app_server": {"pid": 123}}}))
+    elif mutation == "previous_cleanup":
+        value = json.loads(previous.read_text())
+        value["status"] = "pending"
+        previous.write_text(json.dumps(value))
+    elif mutation == "host":
+        prelaunch_path = attempt / "prelaunch-seal.json"
+        prelaunch = json.loads(prelaunch_path.read_text())
+        prelaunch["host_identity"]["host"] = "different-host"
+        prelaunch_path.write_text(json.dumps(prelaunch))
+        launch_path = attempt / "launch.json"
+        launch = json.loads(launch_path.read_text())
+        launch["prelaunch_hash"] = supervisor._sha256(prelaunch_path)
+        launch_path.write_text(json.dumps(launch))
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt
+    assert receipt["registry"]["phase"] != "not_created_verified"
+
+
+def test_prestate_consumer_rejects_changed_state_and_new_turn(
+        tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu_obs, _, _ = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    assert json.loads(receipt_path.read_text())["status"] == "completed"
+    state_path = run / "meta_session/state.json"
+    original = state_path.read_bytes()
+    state = json.loads(original)
+    state["last_turn_status"] = "tampered"
+    state_path.write_text(json.dumps(state))
+    with pytest.raises(ValueError, match="prestate"):
+        _prestate_consumer(config, run, paths, receipt_path)
+    state_path.write_bytes(original)
+    _add_turn(run, "0001", "job_status", "read")
+    with pytest.raises(ValueError, match="prestate|evidence_hash"):
+        _prestate_consumer(config, run, paths, receipt_path)
+
+
+def test_prestate_observe_resume_preflight_uses_same_consumer(
+        tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu_obs, _, _ = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    cleanup = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                     skip_asset_gates=True)
+    assert json.loads(cleanup.read_text())["status"] == "completed"
+    canonical = importlib.import_module("reconcile_deepcoder_run")
+    monkeypatch.setattr(canonical, "_default_gpu_observer", lambda: gpu_obs)
+    monkeypatch.setattr(canonical, "_default_ports_observer",
+                        lambda: {"status": "closed", "closed_ports": [8271, 8272, 8273, 8274]})
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
+    provider = tmp_path / "prestate-provider.json"
+    provider.write_text(json.dumps({
+        "kind": "rsiflow_provider_probe", "http_status": 200,
+        "response": {"status": "completed", "model": "gpt-6-astra", "output": ["READY"]},
+        "endpoint": "http://token.acerobotics.com/v1/responses",
+        "config_hash": supervisor._sha256(config), "host_identity": supervisor.host_identity(),
+        "observed_at": time.time()}))
+    output = tmp_path / "prestate-resume-observation.json"
+    value = supervisor.observe_resume_preflight(config, provider, cleanup, output)
+    assert value["cleanup_receipt"]["sha256"] == supervisor._sha256(cleanup)
+    entry = {"path": str(output), "sha256": supervisor._sha256(output)}
+    verified = supervisor._verify_resume_receipt(
+        entry, expected_backend="linux_bwrap_seccomp_v1", run_dir=run, config_path=config)
+    assert verified["stage"] == "resume" and verified["status"] == "success"
+
+
+# --- independent review: durable artifacts, complete turn baseline, canonical traceback ---
+
+
+def _relink_prestate_previous(previous, attempt, supervisor):
+    prelaunch_path = attempt / "prelaunch-seal.json"
+    prelaunch = json.loads(prelaunch_path.read_text())
+    resume_path = Path(prelaunch["preflight_receipts"]["resume"]["path"])
+    resume = json.loads(resume_path.read_text())
+    resume["cleanup_receipt"]["sha256"] = supervisor._sha256(previous)
+    resume_path.write_text(json.dumps(resume))
+    prelaunch["preflight_receipts"]["resume"]["sha256"] = supervisor._sha256(resume_path)
+    prelaunch_path.write_text(json.dumps(prelaunch))
+    launch_path = attempt / "launch.json"
+    launch = json.loads(launch_path.read_text())
+    launch["prelaunch_hash"] = supervisor._sha256(prelaunch_path)
+    launch_path.write_text(json.dumps(launch))
+
+
+def _mutate_prestate_job_artifact(run, artifact):
+    job = json.loads((run / "meta_session/jobs/run_parent_1/job.json").read_text())
+    result_path = Path(job["result_path"])
+    path = result_path if artifact == "result" else result_path.parent / "request.json"
+    value = json.loads(path.read_text())
+    value["independent_review_mutation"] = True
+    path.write_text(json.dumps(value))
+
+
+@pytest.mark.parametrize("mutation", [
+    "job_result", "job_request", "backdated_new_turn", "mtime_preserved_turn",
+    "mixed_error", "ambiguous_traceback", "missing_turn_baseline",
+])
+def test_prestate_review_producer_fail_closed(
+        tmp_path, supervisor, reconciler, monkeypatch, mutation):
+    config, run, paths, gpu_obs, previous, attempt = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    if mutation in {"job_result", "job_request"}:
+        _mutate_prestate_job_artifact(run, "result" if mutation == "job_result" else "request")
+    elif mutation == "backdated_new_turn":
+        _add_turn(run, "0001", "job_status", "read")
+        old = previous.stat().st_mtime_ns - 1
+        turn = run / "meta_session/turns/0001"
+        for path in (turn / "command.json", turn / "receipt.json", turn):
+            os.utime(path, ns=(old, old))
+    elif mutation == "mtime_preserved_turn":
+        path = run / "meta_session/turns/0000/receipt.json"
+        stat = path.stat()
+        value = json.loads(path.read_text())
+        value["independent_review_mutation"] = True
+        path.write_text(json.dumps(value))
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    elif mutation == "mixed_error":
+        path = attempt / "launcher.log"
+        path.write_text("RuntimeError: an earlier unrelated error\n" + path.read_text())
+    elif mutation == "ambiguous_traceback":
+        path = attempt / "launcher.log"
+        lines = path.read_text().splitlines()
+        lines[-1:-1] = ['  File "/tmp/unexpected.py", line 1, in unexpected',
+                        '    raise ValueError("ambiguous")']
+        path.write_text("\n".join(lines) + "\n")
+    elif mutation == "missing_turn_baseline":
+        value = json.loads(previous.read_text())
+        value.get("protocol", {}).pop("turn_inventory", None)
+        previous.write_text(json.dumps(value))
+        _relink_prestate_previous(previous, attempt, supervisor)
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt
+
+
+@pytest.mark.parametrize("artifact", ["result", "request"])
+def test_prestate_review_consumer_rejects_job_artifact_mutation(
+        tmp_path, supervisor, reconciler, monkeypatch, artifact):
+    config, run, paths, gpu_obs, _, _ = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    assert json.loads(receipt_path.read_text())["status"] == "completed"
+    _mutate_prestate_job_artifact(run, artifact)
+    with pytest.raises(ValueError, match="prestate|job_terminal_binding|evidence_hash"):
+        _prestate_consumer(config, run, paths, receipt_path)
+
+
+# --- legacy previous cleanup: anchored causal proof + historical supervision prefix --------
+
+
+LEGACY_JOB_TURNS = (18, 35, 37, 42, 45, 49, 52, 61, 65)
+
+
+def _legacy_initial_history(run, config):
+    first = json.loads((run / "meta_session/jobs/run_parent_1/job.json").read_text())
+    for index in range(75):
+        turn = run / f"meta_session/turns/{index:04d}"
+        turn.mkdir(parents=True, exist_ok=True)
+        request = {"operation": "job_status", "round_number": 1}
+        (turn / "command.json").write_text(json.dumps({"action": "tool", "request": request}))
+        (turn / "receipt.json").write_text(json.dumps({
+            "operation": "job_status", "status": "read", "jobs": []}))
+    for index, turn_number in enumerate(LEGACY_JOB_TURNS):
+        job_id = f"run_parent_{index + 1}"
+        turn = run / f"meta_session/turns/{turn_number:04d}"
+        transport = run / f"controller_transport/{job_id}"
+        job_dir = run / f"meta_session/jobs/{job_id}"
+        transport.mkdir(parents=True, exist_ok=True)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        request = {"operation": "run_parent", "round_number": 1,
+                   "output_dir": str(run / "round_1/parent")}
+        result = {"operation": "run_parent", "status": "completed", "returncode": 0,
+                  "output_dir": str(run / "round_1/parent")}
+        (turn / "command.json").write_text(json.dumps({"action": "tool", "request": request}))
+        (turn / "receipt.json").write_text(json.dumps({
+            "operation": "run_parent", "status": "running", "job_id": job_id,
+            "result_path": str(transport / "result.json")}))
+        (transport / "request.json").write_text(json.dumps(request))
+        (transport / "result.json").write_text(json.dumps(result))
+        job = {**first, "job_id": job_id, "request": request, "pid": 40001 + index,
+               "result_path": str(transport / "result.json"), "turn_dir": str(turn)}
+        (job_dir / "job.json").write_text(json.dumps(job))
+    _legacy_complete_b1_history(run, config)
+
+
+def _legacy_complete_b1_history(run, config):
+    config_value = json.loads(config.read_text())
+    (run / "meta_session/workflow_policy.json").write_text(json.dumps({
+        "rounds": 5, "experiment_scope": config_value["experiment_scope"],
+        "retry_rejected_from_round": config_value["retry_rejected_from_round"],
+        "evaluation_schedule": config_value["evaluation_schedule"]}))
+    attempt = run / "round_1/attempts/attempt_1"
+    attempt.mkdir(parents=True, exist_ok=True)
+    evidence = attempt / "meta_evidence.json"
+    candidate = attempt / "candidate/candidate_state.json"
+    performance = attempt / "candidate/performance.json"
+    for path in (evidence, candidate, performance):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+    (attempt / "decision.json").write_text("{}")
+    selection = attempt / "selection.json"
+    selection.write_text(json.dumps({"accept_or_retain": "accept_candidate"}))
+    skills = run / "meta/skills.jsonl"
+    context = run / "meta/context.json"
+    skills.parent.mkdir(parents=True, exist_ok=True)
+    skills.write_text("")
+    context.write_text("{}")
+    snapshot = run / "snapshots/round_1_attempt_1"
+    snapshot.mkdir(parents=True, exist_ok=True)
+    (run / "snapshots/A0").mkdir(parents=True, exist_ok=True)
+    (run / "round_1/parent").mkdir(parents=True, exist_ok=True)
+
+    def emit(index, operation, request=None, receipt=None, round_number=1):
+        turn = run / f"meta_session/turns/{index:04d}"
+        request = {"operation": operation, "round_number": round_number, **(request or {})}
+        receipt = {"operation": operation, "status": "completed", **(receipt or {})}
+        (turn / "command.json").write_text(json.dumps({"action": "tool", "request": request}))
+        (turn / "receipt.json").write_text(json.dumps(receipt))
+
+    emit(0, "bootstrap", {"state_path": str(run / "active_task.json")},
+         {"state_path": str(run / "active_task.json")}, round_number=0)
+    emit(1, "snapshot_task_meta", {"destination": str(run / "snapshots/A0")},
+         {"status": "snapshotted", "destination": str(run / "snapshots/A0")}, round_number=0)
+    emit(2, "run_parent", {"output_dir": str(run / "round_1/parent")},
+         {"output_dir": str(run / "round_1/parent")})
+    emit(9, "prepare_meta_evidence", {"path": str(evidence)}, {"path": str(evidence)})
+    emit(10, "write_text", {"path": str(attempt / "decision.json")},
+         {"status": "written", "path": str(attempt / "decision.json")})
+    emit(11, "artifacts", {"candidate_state_path": str(candidate)},
+         {"candidate_state_path": str(candidate)})
+    emit(12, "run_candidate", {"performance_path": str(performance)},
+         {"performance_path": str(performance)})
+    emit(13, "compare_scores", {"before": str(performance), "after": str(performance)},
+         {"status": "compared", "before": str(performance), "after": str(performance),
+          "comparison_path": str(performance)})
+    emit(14, "write_text", {"path": str(selection), "content": selection.read_text()},
+         {"status": "written", "path": str(selection)})
+    emit(15, "append_skills", {"path": str(skills)},
+         {"status": "appended", "appended_count": 1, "path": str(skills)})
+    emit(16, "write_text", {"path": str(context)}, {"status": "written", "path": str(context)})
+    emit(17, "snapshot_task_meta", {"destination": str(snapshot), "context_path": str(context)},
+         {"status": "snapshotted", "destination": str(snapshot),
+          "context_reference": {"source": str(context), "sha256": "context"}})
+    from experiment_progress import ExperimentProgress
+    workflow = ExperimentProgress(run / "meta_session", rounds=5).rebuild()
+    assert workflow["current_stage"] == "B2" and workflow["observed_turns"] == 75
+
+
+def _legacy_keep_only_job_turn_snapshots(receipt):
+    keep = {f"/meta_session/turns/{turn:04d}/" for turn in LEGACY_JOB_TURNS}
+    for raw, reference in list(receipt["source_snapshots"].items()):
+        if "/meta_session/turns/" not in raw or any(marker in raw for marker in keep):
+            continue
+        receipt["source_snapshots"].pop(raw)
+        receipt["evidence_files_sha256"].pop(reference["path"], None)
+
+
+def _launch_additional_missing_key(config, run, previous, supervision, supervisor, monkeypatch,
+                                   *, reviewed_commit="a" * 40):
+    attempt_number = supervision
+    common = {"config_path": str(config.resolve()), "config_hash": supervisor._sha256(config),
+              "run_dir": str(run.resolve()), "supervision_attempt": attempt_number}
+    expected_gpus = [{"gpu": g, "uuid": f"GPU-{g}"} for g in range(4)]
+    resume_receipt = run / f"meta_session/supervision/{attempt_number}-resume-preflight.json"
+    resume_receipt.write_text(json.dumps({
+        "stage": "resume", "status": "success", **common,
+        "host": supervisor.host_identity()["host"],
+        "boot_id": supervisor.host_identity()["boot_id"],
+        "pid_namespace": supervisor.host_identity()["pid_namespace"],
+        "backend": "linux_bwrap_seccomp_v1", "provider": "gpt-6-astra",
+        "ports": [8271, 8272, 8273, 8274], "gpus": expected_gpus,
+        "cleanup_receipt": {"path": str(previous), "sha256": supervisor._sha256(previous)}}))
+    prelaunch = {
+        "kind": "rsiflow_prelaunch_seal", "reviewed_commit": reviewed_commit,
+        "backend": "linux_bwrap_seccomp_v1", "binding": {**common, "launch_mode": "resume"},
+        "host_identity": supervisor.host_identity(), "expected_gpus": expected_gpus,
+        "preflight_receipts": {"resume": {"path": str(resume_receipt),
+                                          "sha256": supervisor._sha256(resume_receipt)}}}
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    prior = f"{int(attempt_number) - 1:04d}"
+    supervisor.launch(
+        config, attempt_number,
+        command=[sys.executable, str(ROOT / "RSIFlow/launch_meta.py"),
+                 "--config", str(config), "--run-dir", str(run)],
+        timeout="10s", kill_after="2s", skip_asset_gates=True,
+        mode="resume", resumed_from=prior, prelaunch_evidence=prelaunch)
+    attempt = run / "meta_session/supervision" / attempt_number
+    with pytest.raises(RuntimeError, match="old/starting state"):
+        supervisor.collect_post_launch_identity(config, attempt_number, timeout=0.1)
+    supervisor.record_post_launch_pending(config, attempt_number, reason="old disconnected state")
+
+    def settled():
+        if not (attempt / "exit").is_file() or not (attempt / "reconcile.json").is_file():
+            return False
+        reconcile = json.loads((attempt / "reconcile.json").read_text())
+        return reconcile.get("status") == "complete" and reconcile.get("remaining") == []
+
+    assert _wait(settled)
+    assert (attempt / "exit").read_text().strip() == "1"
+    return attempt
+
+
+def test_prestate_legacy_a0_to_b2_real_schema_cleanup(
+        tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu_obs, previous, _ = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch, legacy=True)
+    old = json.loads(previous.read_text())
+    assert "turn_inventory" not in old["protocol"]
+    assert old["protocol"]["current_stage"] == "A0"
+    anchored = {p for p in old["source_snapshots"] if "/meta_session/turns/" in p}
+    assert len(anchored) == 18
+    assert {Path(p).parent.name for p in anchored} == {f"{n:04d}" for n in LEGACY_JOB_TURNS}
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "completed", receipt["blockers"]
+    proof = receipt["prestate_launch_evidence"]
+    assert len(proof["turns"]) == 75
+    assert proof["legacy_reconstruction"]["previous_stage"] == "A0"
+    assert proof["legacy_reconstruction"]["current_stage"] == "B2"
+    _prestate_consumer(config, run, paths, receipt_path)
+
+
+def test_prestate_consecutive_attempts_use_historical_prefix(
+        tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu_obs, _, _ = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    previous = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                      skip_asset_gates=True)
+    assert json.loads(previous.read_text())["status"] == "completed"
+    _launch_additional_missing_key(config, run, previous, "0003", supervisor, monkeypatch)
+    receipt_path = reconciler.cleanup_run(config, run, "0003", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "completed", receipt["blockers"]
+    _prestate_consumer(config, run, paths, receipt_path)
+
+
+@pytest.mark.parametrize("mutation", ["stage", "anchor_turn"])
+def test_prestate_legacy_rejects_unvalidated_history(
+        tmp_path, supervisor, reconciler, monkeypatch, mutation):
+    config, run, paths, gpu_obs, _, _ = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch, legacy=True)
+    if mutation == "stage":
+        path = run / "meta_session/workflow_state.json"
+        value = json.loads(path.read_text())
+        value["current_stage"] = "B3"
+        path.write_text(json.dumps(value))
+    else:
+        path = run / "meta_session/turns/0018/receipt.json"
+        value = json.loads(path.read_text())
+        value["unsupported_anchor_change"] = True
+        path.write_text(json.dumps(value))
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    assert json.loads(receipt_path.read_text())["status"] != "completed"
+
+
+def test_prestate_legacy_consecutive_attempts_recompute_historical_proof(
+        tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu_obs, _, _ = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch, legacy=True)
+    previous = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                      skip_asset_gates=True)
+    assert json.loads(previous.read_text())["status"] == "completed"
+    _launch_additional_missing_key(
+        config, run, previous, "0003", supervisor, monkeypatch,
+        reviewed_commit="beebd9b42b734c0f5a1dd6ba927931ee76b81f43")
+    receipt_path = reconciler.cleanup_run(config, run, "0003", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "completed", receipt["blockers"]
+    assert receipt["prestate_launch_evidence"]["legacy_reconstruction"] is None
+    _prestate_consumer(config, run, paths, receipt_path)
+
+
+@pytest.mark.parametrize("mutation", ["missing_anchor", "extra_anchor"])
+def test_prestate_legacy_requires_exact_previous_job_turn_snapshot_set(
+        tmp_path, supervisor, reconciler, monkeypatch, mutation):
+    config, run, paths, gpu_obs, previous, attempt = _seed_prestate_missing_key(
+        tmp_path, supervisor, reconciler, monkeypatch, legacy=True)
+    value = json.loads(previous.read_text())
+    if mutation == "missing_anchor":
+        raw = str(run / "meta_session/turns/0018/command.json")
+        reference = value["source_snapshots"].pop(raw)
+        value["evidence_files_sha256"].pop(reference["path"], None)
+    else:
+        raw_path = run / "meta_session/turns/0019/command.json"
+        captured = previous.parent / "sources/extra-anchor-command.json"
+        captured.write_bytes(raw_path.read_bytes())
+        digest = supervisor._sha256(captured)
+        value["source_snapshots"][str(raw_path)] = {"path": str(captured), "sha256": digest}
+        value["evidence_files_sha256"][str(captured)] = digest
+    previous.write_text(json.dumps(value))
+    _relink_prestate_previous(previous, attempt, supervisor)
+    receipt_path = reconciler.cleanup_run(config, run, "0002", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt

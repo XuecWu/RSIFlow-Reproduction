@@ -1119,8 +1119,12 @@ def _launch_locked(config_path, supervision: str, *, command, timeout=DEFAULT_TI
     effective_hash = None
     if not skip_asset_gates:
         effective_obj = _normalize_effective(paths, run_dir_resolved)
-        attempt_dir.mkdir(parents=True)  # exclusive; refuses existing
-        # R2: complete prelaunch asset/preflight seal verified BEFORE Popen.
+        # R2: complete prelaunch asset/preflight seal verified BEFORE the attempt directory is
+        # created. verify_prelaunch_seal creates the dir atomically (via its final write_once)
+        # only when EVERY gate passes; a rejection raises before that, leaving NO empty attempt
+        # dir behind (an empty dir would otherwise be mistaken for the current attempt and block
+        # the prior completed cleanup's resume preflight). _validate_launch_gates already refused
+        # any pre-existing attempt dir, so the number is fresh.
         verify_prelaunch_seal(prelaunch_evidence, expected_commit=expected_commit,
                               expected_backend="linux_bwrap_seccomp_v1", attempt_dir=attempt_dir,
                               run_dir=run_dir_resolved, config_path=paths["config_path"], mode=mode)

@@ -1810,6 +1810,129 @@ def test_resume_preflight_current_owner_alive_refused(tmp_path, supervisor, reco
         supervisor.observe_resume_preflight(config, provider, cleanup_path, tmp_path / "r.json")
 
 
+# --- prelaunch-rejected empty attempt: shared classification + reviewed marker producer -----
+
+def _cleanup_consumer_args(config, run, paths):
+    summarizer = _load("summarize_deepcoder_five_round")
+    cfg = json.loads(config.read_text()); cfg["_config_path"] = str(config.resolve())
+    active = json.loads((run / "active_task.json").read_text()) if (run / "active_task.json").is_file() else {}
+    return summarizer, cfg, active
+
+
+def test_preflight_rejected_empty_dir_restores_current_attempt(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text()); assert receipt["status"] == "completed"
+    summarizer, cfg, active = _cleanup_consumer_args(config, run, paths)
+    # an empty 0002 left by a preflight rejection makes the 0001 cleanup non-current
+    rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
+    sup = summarizer._supervision(run)
+    assert sup["attempts"] == ["0001", "0002"] and sup["rejected_attempts"] == []
+    with pytest.raises(ValueError, match="not_current_attempt"):
+        summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
+    # reviewed producer marks the genuine empty rejection from actual evidence (no delete/forge)
+    marker = reconciler.mark_preflight_rejected(config, run, "0002")
+    assert marker["kind"] == "rsiflow_preflight_rejected"
+    assert (rejected / "preflight-rejected.json").is_file() and not (rejected / "identity.json").exists()
+    sup = summarizer._supervision(run)
+    assert sup["attempts"] == ["0001"] and sup["rejected_attempts"] == ["0002"]
+    assert sup["all_attempts_accounted_for"] is True
+    # historical 0001 completed cleanup is current again and passes (incl. rejected re-proof)
+    summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
+    assert summarizer.next_supervision_number(run) == "0003"  # rejected number never reused
+
+
+def test_preflight_rejected_with_identity_is_real_attempt(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
+    (rejected / "identity.json").write_text(json.dumps({"pid": 1, "pgid": 1, "start_ticks": "1"}))
+    # identity present => never an empty rejection; producer refuses, classifier keeps it real
+    with pytest.raises(RuntimeError, match="real attempt files present"):
+        reconciler.mark_preflight_rejected(config, run, "0002")
+    summarizer, cfg, active = _cleanup_consumer_args(config, run, paths)
+    sup = summarizer._supervision(run)
+    assert sup["attempts"] == ["0001", "0002"] and sup["rejected_attempts"] == []
+    ok, proof = summarizer.preflight_rejected_proof(rejected, run)
+    assert ok is False and "identity.json" in proof["present_real_files"]
+
+
+def test_preflight_rejected_with_launch_product_is_real_attempt(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
+    (rejected / "launch.json").write_text(json.dumps({"kind": "rsiflow_launch"}))
+    with pytest.raises(RuntimeError, match="real attempt files present"):
+        reconciler.mark_preflight_rejected(config, run, "0002")
+    summarizer, _, _ = _cleanup_consumer_args(config, run, paths)
+    assert summarizer._supervision(run)["attempts"] == ["0001", "0002"]
+
+
+def test_preflight_rejected_marker_cannot_hide_failed_owner(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    rejected = run / "meta_session/supervision/0002"; rejected.mkdir()
+    reconciler.mark_preflight_rejected(config, run, "0002")
+    # a real exit/reconcile appears in the "rejected" dir => it is no longer an empty rejection
+    (rejected / "exit").write_text("1\n")
+    (rejected / "reconcile.json").write_text(json.dumps({"status": "complete", "remaining": ["job"]}))
+    summarizer, cfg, active = _cleanup_consumer_args(config, run, paths)
+    sup = summarizer._supervision(run)
+    assert sup["attempts"] == ["0001", "0002"] and sup["rejected_attempts"] == []
+    with pytest.raises(ValueError, match="not_current_attempt"):
+        summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
+
+
+def test_preflight_rejected_marker_immutable_and_absent_refused(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    with pytest.raises(RuntimeError, match="attempt directory absent"):
+        reconciler.mark_preflight_rejected(config, run, "0002")
+    (run / "meta_session/supervision/0002").mkdir()
+    reconciler.mark_preflight_rejected(config, run, "0002")
+    with pytest.raises(RuntimeError, match="already exists"):
+        reconciler.mark_preflight_rejected(config, run, "0002")
+
+
+def test_inspect_reports_rejected_and_next_supervision(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "meta_session/supervision/0002").mkdir()
+    reconciler.mark_preflight_rejected(config, run, "0002")
+    info = reconciler.inspect_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs))
+    assert info["supervision"]["attempts"] == ["0001"]
+    assert info["supervision"]["rejected_attempts"] == ["0002"]
+    assert info["supervision"]["next_supervision"] == "0003"
+
+
+def test_future_prelaunch_rejection_leaves_no_directory(tmp_path, supervisor):
+    output_root = tmp_path / "out"
+    config = _config(tmp_path, output_root, "run")
+    paths = supervisor.derive_paths(config)
+    paths["ready"].write_text(json.dumps({"ready": True}))
+    attempt_dir = paths["run_dir"] / "meta_session/supervision/0001"
+    command = [sys.executable, "-c", "pass"]
+    # real mode without prelaunch evidence => refused BEFORE the attempt dir is created
+    with pytest.raises(RuntimeError, match="prelaunch evidence missing"):
+        supervisor.launch(config, "0001", command=command, timeout="10s", kill_after="2s",
+                          skip_asset_gates=False, prelaunch_evidence=None, expected_commit="a" * 40)
+    assert not attempt_dir.exists()  # no empty attempt left behind
+
+
+def test_resume_preflight_after_rejected_attempt_uses_historical_cleanup(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, cleanup_path, provider, _ = _resume_preflight_live_setup(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    # an empty 0002 rejection exists; the completed 0001 cleanup must still serve resume preflight
+    (run / "meta_session/supervision/0002").mkdir()
+    reconciler.mark_preflight_rejected(config, run, "0002")
+    output = tmp_path / "resume-preflight.json"
+    value = supervisor.observe_resume_preflight(config, provider, cleanup_path, output)
+    assert value["stage"] == "resume" and value["status"] == "success"
+    entry = {"path": str(output), "sha256": supervisor._sha256(output)}
+    got = supervisor._verify_resume_receipt(entry, expected_backend="linux_bwrap_seccomp_v1",
+                                            run_dir=run, config_path=config)
+    assert got["stage"] == "resume"
+
+
 # --- R7: SFT product-level joint resume drill (controlled Meta transport) -----
 
 _RESUME_SCRIPT = '''

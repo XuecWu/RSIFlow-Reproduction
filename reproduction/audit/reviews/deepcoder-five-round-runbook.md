@@ -148,6 +148,25 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
 5. 原子封口：每次新 exclusive observation 目录（不覆盖历史 pending/failed/completed），临时文件+fsync+原子 rename；全成功才 completed，服务停止失败=failed，job 活/identity unknown=pending。**`not_created_verified` 路径**（在任何 job/service 创建前失败）：仅当 registry 从未创建（before/after hash 均 null、文件不存在）、无 job/training phase/inference service owner、launcher/app-server 已退出、两次 GPU 实测均无 compute apps 且 free_verified、端口 closed、可信 launch chain 齐全、且 `finish_allowed=False`（非正常完成）时才 completed，registry.phase 记 `not_created_verified`（不伪造 services_stopped）。**历史证明（producer/consumer 共用 `not_created_history_proof` helper）**：要求可信早期协议状态 `current_stage==A0` 且 A0.remaining 仍含 bootstrap（未完成）；连续、完整、可解析的有序 turn command/receipt（数字 turn 0000..N 无缺口、每 turn command+receipt 均可解析）；有序 turn 历史中无 compute/service 创建调用（含 `run_command`，因其为 LONG_OPERATION 会创建 durable job）；`workflow_events.jsonl` 非空、逐行可解析、与 turns 有序对应（每事件引用现存 turn、按 turn 非递减、覆盖全部 turn、operation 与 command 一致）。任何缺口/损坏/空 events/不一致 → pending。producer 将证明（含 `history_sha256`）封入 receipt.not_created_evidence；**consumer 不信摘要，从当前历史重算同一 helper 并比对 history_sha256**，摘要与当前历史不符 → 拒绝；restore 锁内继承该重算。五轮正常完成（finish_allowed=True）或存在 jobs/phases/services 而缺 registry → 仍阻断，不降格 not_created/stopped。pending/failed 绝不恢复 occupier。
 6. receipt 字段/绑定/hash 按 Codex 方案（schema_version/kind/status/blockers/writer/binding/supervision/protocol/owners/registry/gpu_observations/ports/actions/errors/evidence_files_sha256/occupier）。消费者逻辑：`run_complete = protocol_complete AND launcher_exited AND external_cleanup.completed AND 全部必需终态证据有效`；protocol complete 但 jobs/services pending → “协议完成，外部资源待调和”，不重启 complete run。
 
+### 6.3 prelaunch 拒绝留下的空 attempt 调和（`preflight_rejected`）
+
+preflight seal/资产验证拒绝**可能在 supervision 下留下空 attempt 目录**（无 identity/launch/exit/reconcile/进程/产品）。这种空目录会被误判为 current attempt，使上一轮 completed cleanup 在 resume preflight 被判 `not_current_attempt`。合同：
+
+- **未来预防**：real-mode launch 的 prelaunch seal+资产验证在**创建 attempt 目录之前**完成；`verify_prelaunch_seal` 仅在全部门通过后由其末尾 `write_once` 原子创建目录，拒绝不留空目录（`_validate_launch_gates` 已先拒绝任何已存在目录）。
+- **现有空目录调和**：不得由 agent 直接编 JSON、不得删除目录、不得伪造 identity。用经审阅的生产命令从**实际目录/进程/产品证据**生成不可变标记：
+
+```bash
+"$PYTHON" "$ROOT/reproduction/scripts/reconcile_deepcoder_run.py" mark-preflight-rejected \
+  --config "$CONFIG" --run-dir "$RUN_DIR" --supervision 0002
+# 拒绝（存在 identity/launch/exit/reconcile/seal/产品、活进程引用、或 job/training 产品绑定本 attempt）→ 非 0 退出，set -e 阻断。
+"$PYTHON" "$ROOT/reproduction/scripts/reconcile_deepcoder_run.py" inspect \
+  --config "$CONFIG" --run-dir "$RUN_DIR" --supervision 0001   # 读 rejected_attempts 与 next_supervision
+```
+
+- **共享分类**（producer/consumer 同一 `supervision_attempts`/`preflight_rejected_proof`）：仅当目录有绑定 run/attempt/config/host/observed_at 的 `rsiflow_preflight_rejected` 标记**且无任何真实 attempt 文件**时才归为 rejected；否则一律视为真实 attempt（即便未封口）。**任何 identity/job/product/进程存在都不得按空拒绝处理**，拒绝项绝不隐藏真实 failed owner。
+- supervision/cleanup 消费者把 rejected 排除出 real attempts（current-attempt/accounting/inventory 只对 real），但**独立重算每个 rejected 的证明**；历史 receipt 的 rejected 列表须为当前 genuine rejected 的**子集**（封口后新增的拒绝允许；receipt 列为拒绝但已变真实 attempt 则拒绝）。因此**历史 0001 completed cleanup 仍可用于 resume preflight**。
+- **编号**：rejected 目录仍占用其编号、绝不复用；`next_supervision_number` = 全部数字目录（含 rejected）max+1（如 0002 拒绝 → 下一个 0003）。新 resume preflight（§7.1）验证标记后以 next 编号启动。
+
 ## 7. 恢复（同 thread，已完成 SFT 不重做）
 
 恢复前封存旧 thread_id、active Task/hash、policy/config/backend、completed milestones、job/result/request、训练 marker。新 supervisor 用相同 config/run/code/backend，记录 `resumed_from`，启动后验证 thread_id 与旧值精确相同、只有新 supervision 编号变化。不删除 state/codex_home/policy/lock/history，不重放 seed，不复制旧单轮 thread。

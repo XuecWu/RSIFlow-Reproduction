@@ -161,9 +161,8 @@ def _observe_owner(identity, run_dir):
 
 
 def _supervision_history(run_dir):
-    sup_root = run_dir / "meta_session/supervision"
-    attempts = sorted((d for d in sup_root.iterdir() if d.is_dir() and d.name.isdigit()),
-                      key=lambda d: int(d.name)) if sup_root.is_dir() else []
+    from summarize_deepcoder_five_round import supervision_attempts
+    attempts, rejected, _ = supervision_attempts(run_dir)
     history = []
     all_accounted = True
     for attempt in attempts:
@@ -184,7 +183,7 @@ def _supervision_history(run_dir):
             record[name + "_hash"] = _sha256(attempt / file)
         record["exit_value"] = exit_value
         history.append(record)
-    return [a.name for a in attempts], history, all_accounted
+    return [a.name for a in attempts], history, all_accounted, [a.name for a in rejected]
 
 
 def _default_gpu_observer():
@@ -221,7 +220,8 @@ def inspect_run(config_path, run_dir, supervision, *, gpu_observer=None) -> dict
     config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
     state = _read_json(run_dir / "meta_session/state.json") or {}
     workflow = _read_json(run_dir / "meta_session/workflow_state.json") or {}
-    attempts, history, all_accounted = _supervision_history(run_dir)
+    attempts, history, all_accounted, rejected = _supervision_history(run_dir)
+    from summarize_deepcoder_five_round import next_supervision_number
     launch = _read_json(attempt_dir / "launch.json") or {}
     jobs = sorted((run_dir / "meta_session/jobs").glob("*/job.json"))
     phases = sorted(run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"))
@@ -230,7 +230,8 @@ def inspect_run(config_path, run_dir, supervision, *, gpu_observer=None) -> dict
     return {"mode": "inspect", "run_dir": str(run_dir), "supervision": supervision,
             "protocol": {"status": state.get("status"), "current_stage": workflow.get("current_stage"),
                          "finish_allowed": workflow.get("finish_allowed")},
-            "supervision": {"attempts": attempts, "all_accounted": all_accounted},
+            "supervision": {"attempts": attempts, "all_accounted": all_accounted,
+                            "rejected_attempts": rejected, "next_supervision": next_supervision_number(run_dir)},
             "owners": {"launcher": launch.get("owners", {}).get("launcher"),
                        "app_server": launch.get("owners", {}).get("app_server"),
                        "jobs": [str(j) for j in jobs], "training_phases": [str(p) for p in phases],
@@ -240,12 +241,81 @@ def inspect_run(config_path, run_dir, supervision, *, gpu_observer=None) -> dict
             "gpu": gpu}
 
 
+def mark_preflight_rejected(config_path, run_dir, supervision, *, lifecycle_lock=None) -> dict:
+    """Reviewed producer for an EXISTING empty prelaunch-rejected attempt dir. Generates the
+    rsiflow_preflight_rejected marker from ACTUAL directory/process/product evidence — never
+    agent-edited JSON, never deletes the dir, never forges an identity. Refuses if any real
+    attempt file (identity/launch/exit/reconcile/seal/product), live process reference, or
+    job/product bound to this attempt exists: such a dir is a real attempt, not an empty
+    rejection. The marker is immutable (write_once); a new resume preflight then re-verifies it
+    via the shared consumer. The rejected number is never reused (next_supervision_number)."""
+    import fcntl
+    from summarize_deepcoder_five_round import _REAL_ATTEMPT_FILES, PREFLIGHT_REJECTED_KIND
+    config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
+    if not attempt_dir.is_dir():
+        raise RuntimeError("attempt directory absent; nothing to mark preflight_rejected")
+    marker_path = attempt_dir / "preflight-rejected.json"
+    if marker_path.exists() or marker_path.is_symlink():
+        raise RuntimeError("preflight_rejected marker already exists; refusing to overwrite")
+    present = [n for n in _REAL_ATTEMPT_FILES if (attempt_dir / n).exists()]
+    if present:
+        raise RuntimeError("cannot mark preflight_rejected: real attempt files present: " + ",".join(present))
+    # No live process may reference this attempt dir (it never launched).
+    process_refs = 0
+    proc = Path("/proc")
+    if proc.is_dir():
+        target = str(attempt_dir.resolve())
+        for entry in proc.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+            except OSError:
+                continue
+            if target in cmdline:
+                process_refs += 1
+    if process_refs:
+        raise RuntimeError("cannot mark preflight_rejected: live process references this attempt")
+    # No job/training product may be bound within this attempt dir.
+    product_refs = 0
+    for jobpath in (run_dir / "meta_session/jobs").glob("*/job.json"):
+        job = _read_json(jobpath) or {}
+        for key in ("turn_dir", "result_path"):
+            value = job.get(key)
+            if value and str(Path(value).resolve()).startswith(str(attempt_dir.resolve()) + os.sep):
+                product_refs += 1
+    for phase in run_dir.glob("round_*/attempts/attempt_*/**/gpu_phase_receipt.json"):
+        value = _read_json(phase) or {}
+        request_dir = value.get("training_request_dir")
+        if request_dir and str(Path(request_dir).resolve()).startswith(str(attempt_dir.resolve()) + os.sep):
+            product_refs += 1
+    if product_refs:
+        raise RuntimeError("cannot mark preflight_rejected: job/training product bound to this attempt")
+    lock_path = Path(lifecycle_lock) if lifecycle_lock else GLOBAL_GPU_LIFECYCLE_LOCK
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock_file:
+        _acquire_global_lock(lock_file)
+        try:
+            marker = {"kind": PREFLIGHT_REJECTED_KIND, "run_dir": str(run_dir),
+                      "supervision_attempt": supervision, "config_path": str(config_path),
+                      "config_hash": _sha256(config_path), "host_identity": host_identity(),
+                      "observed_at": time.time(),
+                      "reason": "prelaunch seal/asset verification refused before any identity/process/product",
+                      "evidence": {"real_files_checked": list(_REAL_ATTEMPT_FILES),
+                                   "present_real_files": [], "live_process_references": process_refs,
+                                   "product_references": product_refs}}
+            write_once(marker_path, marker)
+            return marker
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_services_fn=None,
                 ports_observer=None, occupier=None, skip_asset_gates=False, lifecycle_lock=None) -> Path:
     started_wall = datetime.now(timezone.utc)
     started_mono = time.monotonic()
     config, config_path, output_root, run_dir, attempt_dir = _derive(config_path, run_dir, supervision)
-    attempts, history, all_accounted = _supervision_history(run_dir)
+    attempts, history, all_accounted, rejected = _supervision_history(run_dir)
     if not attempts or attempts[-1] != supervision:
         raise ValueError("cleanup must target the current supervision attempt")
     # H8: acquire the same target-host lifecycle lock serializing handoff/start/cleanup/
@@ -261,7 +331,7 @@ def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_se
         raise RuntimeError("lifecycle lock held by another operator; cleanup refused")
     try:
         return _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supervision,
-                               attempts, history, all_accounted, started_wall, started_mono,
+                               attempts, history, all_accounted, rejected, started_wall, started_mono,
                                gpu_observer=gpu_observer, stop_services_fn=stop_services_fn,
                                ports_observer=ports_observer, occupier=occupier,
                                skip_asset_gates=skip_asset_gates)
@@ -280,7 +350,7 @@ def _not_created_history_proof(run_dir, workflow):
 
 
 def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supervision,
-                    attempts, history, all_accounted, started_wall, started_mono, *,
+                    attempts, history, all_accounted, rejected, started_wall, started_mono, *,
                     gpu_observer=None, stop_services_fn=None, ports_observer=None,
                     occupier=None, skip_asset_gates=False) -> Path:
     obs_id = "obs-" + uuid.uuid4().hex[:12]
@@ -704,7 +774,8 @@ def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supe
                    "host": os.uname().nodename, "boot_id": _read_boot_id(),
                    "pid_namespace": host_identity()["pid_namespace"], "uid": os.getuid()},
         "binding": binding, "host_identity": host_identity(),
-        "supervision": {"all_previous_attempts_accounted_for": all_accounted, "attempts": history},
+        "supervision": {"all_previous_attempts_accounted_for": all_accounted, "attempts": history,
+                        "rejected_attempts": rejected},
         "protocol": {"state_path": str(run_dir / "meta_session/state.json"),
                      "state_hash": _sha256(run_dir / "meta_session/state.json"),
                      "observed_status": state.get("status"),
@@ -1186,7 +1257,7 @@ def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=Non
         if receipt is None:
             raise RuntimeError("no external cleanup receipt; occupier restore refused")
         _verify_cleanup_evidence(receipt, receipt_path, config_path, run_dir, supervision)
-        attempts, _, _ = _supervision_history(run_dir)
+        attempts, _, _, _ = _supervision_history(run_dir)
         if not attempts or attempts[-1] != supervision:
             raise RuntimeError("not the current supervision attempt; occupier restore refused")
         # re-check GPU/ports inside the lock before starting (injected offline; real prod)
@@ -1238,7 +1309,7 @@ def restore_occupier(config_path, run_dir, supervision, *, occupier_start_fn=Non
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["inspect", "cleanup", "restore"])
+    parser.add_argument("mode", choices=["inspect", "cleanup", "restore", "mark-preflight-rejected"])
     parser.add_argument("--config", required=True)
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--supervision", required=True)
@@ -1246,6 +1317,16 @@ def main(argv=None) -> int:
     if args.mode == "inspect":
         print(json.dumps(inspect_run(args.config, args.run_dir, args.supervision), indent=2))
         return 0
+    if args.mode == "mark-preflight-rejected":
+        # Reviewed producer: generate the empty-rejection marker from actual evidence. Refusal
+        # (real identity/job/product/process present) exits nonzero so `set -e` blocks downstream.
+        try:
+            marker = mark_preflight_rejected(args.config, args.run_dir, args.supervision)
+            print(json.dumps(marker, indent=2))
+            return 0
+        except RuntimeError as exc:
+            print(json.dumps({"mark_preflight_rejected_refused": str(exc)}, indent=2))
+            return 1
     if args.mode == "restore":
         # R8: real restore CLI; default no start helper => safe refusal until implemented.
         try:

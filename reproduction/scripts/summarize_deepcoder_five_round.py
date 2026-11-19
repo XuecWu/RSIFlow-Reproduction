@@ -1266,12 +1266,69 @@ def _jobs_validation(run_dir) -> dict:
             "invalid": invalid, "required_failed": required_failed}
 
 
+# A prelaunch rejection leaves an attempt directory with NO identity/launch/exit/reconcile/
+# seal/product and no process. Such a dir is marked by a reviewed rsiflow_preflight_rejected
+# observation (never agent-edited JSON, never deleted, never a forged identity). The shared
+# classifier lets producer/consumer ignore genuine rejections for current-attempt/accounting/
+# inventory while NEVER hiding a real attempt or failed owner: any real-attempt file present
+# => not a rejection.
+PREFLIGHT_REJECTED_KIND = "rsiflow_preflight_rejected"
+_REAL_ATTEMPT_FILES = ("identity.json", "launch.json", "prelaunch-seal.json", "exit",
+                       "reconcile.json", "launch-final.json", "post-launch-identity.json",
+                       "effective.json", "kind", "launcher.log", "identity-pending.json",
+                       "resumed-thread-seal.json")
+
+
+def preflight_rejected_proof(attempt_dir, run_dir):
+    """Validate that an attempt dir is a GENUINE prelaunch rejection: a bound
+    rsiflow_preflight_rejected marker AND no real-attempt file (identity/launch/exit/reconcile/
+    seal/product). Returns (ok, proof). Any identity/launch/product file => not a rejection
+    (fail closed), so a real failed owner can never be hidden behind an empty-rejection mark."""
+    attempt_dir, run_dir = Path(attempt_dir), Path(run_dir)
+    marker = _read_json(attempt_dir / "preflight-rejected.json")
+    present = [n for n in _REAL_ATTEMPT_FILES if (attempt_dir / n).exists()]
+    proof = {"attempt": attempt_dir.name, "marker_present": isinstance(marker, dict),
+             "present_real_files": present, "empty": not present, "binding_ok": False}
+    if not isinstance(marker, dict) or marker.get("kind") != PREFLIGHT_REJECTED_KIND or present:
+        return False, proof
+    binding_ok = (marker.get("run_dir") == str(run_dir)
+                  and marker.get("supervision_attempt") == attempt_dir.name
+                  and isinstance(marker.get("config_hash"), str) and bool(marker.get("config_hash"))
+                  and isinstance(marker.get("host_identity"), dict) and bool(marker.get("host_identity"))
+                  and marker.get("observed_at") is not None)
+    proof["binding_ok"] = bool(binding_ok)
+    return bool(binding_ok), proof
+
+
+def supervision_attempts(run_dir):
+    """Shared enumeration: (real_attempt_dirs, rejected_attempt_dirs, rejected_proofs).
+    A dir is rejected ONLY with a valid preflight_rejected proof; otherwise it is a real
+    attempt (even if incomplete/unaccounted). Producer and consumer use this same rule."""
+    run_dir = Path(run_dir)
+    sup = run_dir / "meta_session/supervision"
+    dirs = sorted((d for d in sup.iterdir() if d.is_dir() and d.name.isdigit()),
+                  key=lambda d: int(d.name)) if sup.is_dir() else []
+    real, rejected, proofs = [], [], {}
+    for d in dirs:
+        ok, proof = preflight_rejected_proof(d, run_dir)
+        if ok:
+            rejected.append(d); proofs[d.name] = proof
+        else:
+            real.append(d)
+    return real, rejected, proofs
+
+
+def next_supervision_number(run_dir) -> str:
+    """Next legal supervision number = max of ALL numeric dirs (including rejected, which
+    still occupy their number and are never reused) + 1, zero-padded to 4 digits."""
+    run_dir = Path(run_dir)
+    sup = run_dir / "meta_session/supervision"
+    numbers = [int(d.name) for d in sup.iterdir() if d.is_dir() and d.name.isdigit()] if sup.is_dir() else []
+    return f"{(max(numbers) + 1 if numbers else 1):04d}"
+
+
 def _supervision(run_dir) -> dict:
-    supervision_dir = run_dir / "meta_session/supervision"
-    attempts = []
-    if supervision_dir.is_dir():
-        attempts = sorted((d for d in supervision_dir.iterdir() if d.is_dir() and d.name.isdigit()),
-                          key=lambda d: int(d.name))
+    attempts, rejected, _ = supervision_attempts(run_dir)
     all_accounted = True
     latest_reconcile = False
     latest_exit = False
@@ -1295,6 +1352,7 @@ def _supervision(run_dir) -> dict:
             latest_exit = exit_value == "0"
             latest_identity = identity_ok
     return {"present": bool(attempts), "attempts": [a.name for a in attempts],
+            "rejected_attempts": [a.name for a in rejected],
             "all_attempts_accounted_for": all_accounted and bool(attempts),
             "latest_identity_bound": latest_identity,
             "reconcile_complete": latest_reconcile, "exit_zero": latest_exit}
@@ -1477,6 +1535,16 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
         for name, file in (("identity", "identity.json"), ("exit", "exit"), ("reconcile", "reconcile.json")):
             require(record.get(name + "_path") == str(directory / file), "supervision_path")
             sealed(directory / file, record.get(name + "_hash"))
+    # Preflight-rejected attempts are excluded from the real inventory above, but the consumer
+    # independently re-verifies each is a GENUINE empty rejection (bound marker + no identity/
+    # launch/product file), so a rejection can never hide a real attempt or failed owner. A
+    # historical receipt may predate later rejections: its rejected list must be a SUBSET of the
+    # current genuine rejections (a receipt-listed dir that became a real attempt fails here).
+    rejected = supervision.get("rejected_attempts") or []
+    require(set(sup.get("rejected_attempts", [])) <= set(rejected), "supervision_rejected_inventory")
+    for name in rejected:
+        ok, _ = preflight_rejected_proof(run / "meta_session/supervision" / name, run)
+        require(ok, "preflight_rejected_invalid")
     registry_path = output / "services/four_gpu_services.json"
     registry = receipt.get("registry") or {}
     require(registry.get("path") == str(registry_path), "registry_binding")

@@ -33,10 +33,11 @@ parent-row hashes, candidate state, edited artifact payloads and unchanged basel
 their zero candidate calls do not require Qwen per-call receipts. Direct performance is
 explicitly attributed to Meta-assisted output repair, never Task policy improvement.
 Selection/compare/activate receipts bind exact paths/hashes with strictly positive gain
-for acceptance. ARTIFACTS hash-verified snapshots use A0 or the previous selected B
-snapshot as the parent source, with sealed original component sources reconstructing the
-parent rollout state. All components retain full Task content identity across the
-snapshot/active chain. Protocol values
+for acceptance; retain_parent is terminal without activation. Production ARTIFACTS and
+MODEL hash-verified snapshots use A0 or the previous selected B snapshot as the parent
+source, with the sealed selected parent/candidate chain reconstructing the exact original
+rollout state even when component bytes are deduplicated. All components retain full Task
+content identity across the snapshot/active chain. Protocol values
 such as `infrastructure_error` are preserved verbatim; process anomalies are layered
 (all-row mentions vs zero-call negative subset vs called/success-with-error) and associated
 with per-task transitions without re-scoring.
@@ -488,7 +489,7 @@ def _selection_decision(selection, component):
     value = selection.get("decision")
     if value in TERMINAL_DECISIONS:
         return value
-    if component == "ARTIFACTS":
+    if component in {"ARTIFACTS", "MODEL"}:
         value = selection.get("selection", selection.get("accept_or_retain"))
         return {"accept": "accept_candidate", "accepted": "accept_candidate",
                 "accept_candidate": "accept_candidate", "retain": "retain_parent",
@@ -504,7 +505,8 @@ def _snapshot_dir(run_dir, number):
 
 
 def _parent_state_source(run_dir, number, attempt, component):
-    if component == "ARTIFACTS":
+    production_model = component == "MODEL" and (attempt / "candidate_rollout").is_dir()
+    if component == "ARTIFACTS" or production_model:
         previous = "A0" if number == 1 else f"B{number - 1}_attempt_1"
         return run_dir / "snapshots" / previous / "task/task_state_snapshot.json"
     return attempt / "before/parent_task.json"
@@ -516,7 +518,8 @@ def _snapshot_original_state(state_path):
     receipt = _read_json(snap / "snapshot_receipt.json")
     if not isinstance(receipt, dict) or receipt.get("status") != "snapshotted":
         raise ValueError("parent snapshot receipt unavailable")
-    item = (receipt.get("combinations") or {}).get("selected") or {}
+    combinations = receipt.get("combinations") or {}
+    item = combinations.get("selected") or {}
     seals = receipt.get("files_sha256") or {}
     if (receipt.get("destination") != str(snap) or item.get("state_path") != str(state_path)
             or seals.get("task/task_state_snapshot.json") != _sha256(state_path)
@@ -526,6 +529,21 @@ def _snapshot_original_state(state_path):
     state = _read_json(state_path)
     if not isinstance(index, dict) or not isinstance(state, dict):
         raise ValueError("parent snapshot versions unavailable")
+
+    def signature(value):
+        return {k: (value or {}).get(k) for k in ("model", "harness", "artifacts")}
+
+    candidate = combinations.get("candidate")
+    parent = combinations.get("parent")
+    if candidate and signature(item) == signature(candidate):
+        original = _read_json(candidate.get("source_state"))
+        if not _identity_equal(original, state):
+            raise ValueError("selected candidate source identity mismatch")
+        return original, item.get("source_state")
+    if parent and signature(item) == signature(parent):
+        original, _ = _snapshot_original_state(parent.get("source_state"))
+        return original, item.get("source_state")
+
     from component_versions import content_hash
     harness = next((e for e in index.get("harness", []) if e.get("id") == item.get("harness")), None)
     if not harness or not harness.get("source") or _sha256(harness["source"]) != harness.get("sha256"):
@@ -1070,7 +1088,8 @@ def _model_round_evidence(run_dir, number, parent_state):
     if (gpu.get("status") != "completed" or gpu.get("gpus") != [0, 1, 2, 3]
             or gpu.get("replica_gpus") != [0, 1, 2, 3] or gpu.get("restored_checkpoint") != child["checkpoint_path"]):
         return failed
-    rows = _verified_rows(attempt / "candidate/train_trajectories.jsonl", attempt / "rollout_cache")
+    candidate_dir = attempt / ("candidate_rollout" if (attempt / "candidate_rollout").is_dir() else "candidate")
+    rows = _verified_rows(candidate_dir / "train_trajectories.jsonl", attempt / "rollout_cache")
     if not rows or any(r.get("model_ref") != child["model_ref"]
                        or r.get("parent_policy_hash") != _fingerprint(child["checkpoint_manifest"]) for r in rows):
         return failed
@@ -1109,7 +1128,9 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
     selection = _read_json(attempt / "selection.json")
     component = (decision or {}).get("component")
     direct = component == "ARTIFACTS"
-    candidate_dir = attempt / ("candidate_rollout" if direct else "candidate")
+    production_model = component == "MODEL" and (attempt / "candidate_rollout").is_dir()
+    production = direct or production_model
+    candidate_dir = attempt / ("candidate_rollout" if production else "candidate")
     candidate_rows = _verified_rows(candidate_dir / "train_trajectories.jsonl", attempt / "rollout_cache")
     parent_performance = _read_json(round_dir / "parent/performance.json")
     candidate_performance = _read_json(candidate_dir / "performance.json")
@@ -1119,7 +1140,7 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
     direct_info = None
     parent_rollout_state = parent_state
     parent_rollout_source = None
-    if direct:
+    if production:
         try:
             parent_rollout_state, parent_rollout_source = _snapshot_original_state(parent_state_path)
         except (OSError, TypeError, ValueError, KeyError):
@@ -1165,7 +1186,7 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
         blockers.append("per-task/per-call persisted receipt reconciliation failed"
                         if not direct else "parent rollout or direct-submission receipt reconciliation failed")
 
-    if direct:
+    if production:
         run_parent = _receipt_for_round(_find_transport_receipts(run_dir, "run_parent"),
                                         number, ("output_dir", "state_path"))
         expected_parent_run = {"status": "completed", "output_dir": str(round_dir / "parent"),
@@ -1206,9 +1227,9 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
     if not terminal:
         blockers.append(f"selection decision {decision_value!r} not terminal")
     if isinstance(selection, dict):
-        if direct and selection.get("same_id_set") is not True:
+        if production and selection.get("same_id_set") is not True:
             blockers.append("selection same_id_set is not True")
-        if direct and selection.get("source_hash_mismatches") != 0:
+        if production and selection.get("source_hash_mismatches") != 0:
             blockers.append("selection source_hash_mismatches != 0")
         for key, expected in [("before", parent["macro_success"]), ("after", candidate["macro_success"]),
                               ("delta", delta), ("paired_tasks", EXPECTED_COHORT),
@@ -1282,9 +1303,9 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
     snap_ok, snap_states = _snapshot_valid(snapshot_receipt, attempt, parent_source=parent_state_path)
     snapshot_value = _read_json(snapshot_receipt) or {}
     observed_parent_source = ((snapshot_value.get("combinations") or {}).get("parent") or {}).get("source_state")
-    if direct and observed_parent_source != str(parent_state_path):
+    if production and observed_parent_source != str(parent_state_path):
         blockers.append("snapshot parent source not bound to successful A0/previous selected snapshot chain")
-    if direct and not any(
+    if production and not any(
             turn["operation"] == "snapshot_task_meta" and turn["round_number"] == number
             and turn["status"] == "snapshotted"
             and turn["request"].get("destination") == str(snapshot_receipt.parent)

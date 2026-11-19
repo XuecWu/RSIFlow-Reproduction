@@ -1217,18 +1217,20 @@ def _fixture_journal(run, config_path, complete):
         common = {"config_path": str(config_path)}
         component = json.loads((at / "decision.json").read_text())["component"]
         direct = component == "ARTIFACTS"
+        production_model = component == "MODEL" and (at / "candidate_rollout").is_dir()
+        production = direct or production_model
         parent_state = (run / "snapshots/A0/task/task_state_snapshot.json" if direct and n == 1 else
-                        run / f"snapshots/B{n - 1}_attempt_1/task/task_state_snapshot.json" if direct else
+                        run / f"snapshots/B{n - 1}_attempt_1/task/task_state_snapshot.json" if production else
                         at / "before/parent_task.json")
-        candidate_dir = at / ("candidate_rollout" if direct else "candidate")
+        candidate_dir = at / ("candidate_rollout" if production else "candidate")
         parent_command_state = parent_state
-        if direct:
+        if production:
             parent_snapshot = json.loads((parent_state.parent.parent / "snapshot_receipt.json").read_text())
             parent_command_state = parent_snapshot["combinations"]["selected"]["source_state"]
         for op, state, output in (("run_parent", parent_command_state, rd / "parent"),):
             parent_receipt = {"status": "completed", "state_path": str(state), "output_dir": str(output),
                               "performance_path": str(output / "performance.json")}
-            if direct:
+            if production:
                 performance = json.loads((output / "performance.json").read_text())
                 parent_receipt.update(trajectories_path=str(output / "train_trajectories.jsonl"),
                                       tasks_observed=16, macro_success=performance["macro_success"],
@@ -1243,8 +1245,11 @@ def _fixture_journal(run, config_path, complete):
              {"status": "written", "path": str(at / "decision.json")})
         if component == "MODEL":
             result = json.loads((run / f"controller_transport/sft_{n}/result.json").read_text())
-            emit("sft", n, {**common, "state_path": str(at / "before/parent_task.json"),
-                            "parent_rollout_dir": str(rd / "parent"), "output_dir": str(at / "candidate")},
+            sft_state = (run / f"round_{n - 1}/attempts/attempt_1/build/candidate_state.json"
+                         if production_model else at / "before/parent_task.json")
+            sft_output = at / ("build" if production_model else "candidate")
+            emit("sft", n, {**common, "state_path": str(sft_state),
+                            "parent_rollout_dir": str(rd / "parent"), "output_dir": str(sft_output)},
                  result, f"sft_{n}")
         else:
             emit("rsiflow", n, {"output_dir": str(at / "build")},
@@ -1252,7 +1257,7 @@ def _fixture_journal(run, config_path, complete):
         candidate_receipt = {"status": "completed", "state_path": str(at / "build/candidate_state.json"),
                              "output_dir": str(candidate_dir),
                              "performance_path": str(candidate_dir / "performance.json")}
-        if direct:
+        if production:
             performance = json.loads((candidate_dir / "performance.json").read_text())
             candidate_receipt.update(trajectories_path=str(candidate_dir / "train_trajectories.jsonl"),
                                      tasks_observed=16, macro_success=performance["macro_success"],
@@ -1277,7 +1282,7 @@ def _fixture_journal(run, config_path, complete):
              {"status": "appended", "appended_count": 1, "path": str(run / "meta/skills.jsonl")})
         emit("write_text", n, {"path": str(run / "meta/context.json")},
              {"status": "written", "path": str(run / "meta/context.json")})
-        snap_name = f"B{n}_attempt_1" if direct else f"round_{n}_attempt_1"
+        snap_name = f"B{n}_attempt_1" if production else f"round_{n}_attempt_1"
         snap = run / f"snapshots/{snap_name}/snapshot_receipt.json"
         emit("snapshot_task_meta", n, {"destination": str(snap.parent)}, json.loads(snap.read_text()))
     if complete:
@@ -2413,18 +2418,171 @@ def test_f5_completed_cleanup_binding_valid_completes(tmp_path):
 # --- F6: production MODEL/SFT schema ---------------------------------------
 
 
-def _add_model_round(run, ctx, n=2, *, mutate=None):
+def _build_model_retain_run(tmp_path):
+    import shutil
+
+    run, ctx = _build_artifacts_run(tmp_path)
+    extra_root = tmp_path / "model-release-input"
+    extra_release, extra_manifests, _ = _build_release(extra_root, 2)
+    release = ctx["release"]
+    shutil.copytree(extra_release / "B2", release / "B2")
+    b2_tasks = copy.deepcopy(extra_manifests[2]["tasks"])
+    for task in b2_tasks:
+        task["record_file"] = task["record_file"].replace(str(extra_release), str(release))
+    manifests = {1: ctx["manifests"][1], 2: make_manifest("train_evolution", 2, b2_tasks)}
+    (release / "B2/manifest.json").write_text(
+        json.dumps(manifests[2], sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    ctx["manifests"] = manifests
+    parent_state = json.loads(
+        (run / "round_1/attempts/attempt_1/build/candidate_state.json").read_text())
+    manifest = manifests[2]
+    protocol_hash = _fixture_protocol(ctx["config_path"])
+    parent_scope = _make_scope(2, manifest["manifest_hash"], "parent_pre_update",
+                               parent_state, protocol_hash)
+    parent_state_hash = _fingerprint_fixture(parent_scope)
+    round_dir = run / "round_2"
+    attempt = round_dir / "attempts/attempt_1"
+    attempt.mkdir(parents=True)
+    parent_rows = []
+    call_plan = dict(zip(TASK_IDS[:6], [7, 7, 7, 7, 7, 5]))
+    for tid in TASK_IDS:
+        row = _trajectory(
+            tid, success=tid in set(TASK_IDS[:4]), calls=call_plan.get(tid, 0), round_n=2,
+            state_hash=parent_state_hash, branch="parent", manifest_hash=manifest["manifest_hash"],
+            task_source_hash=manifest["tasks"][0]["record_sha256"],
+            collection_stage="parent_pre_update", scope=parent_scope,
+            checkpoint_manifest=parent_state["checkpoint_manifest"], model_ref=parent_state["model_ref"])
+        row["artifact_input_manifest"] = parent_state["artifacts"]["manifest"]
+        parent_rows.append(row)
+    _write_side(round_dir / "parent", round_dir / "rollout_cache", parent_rows,
+                parent_state_hash, 2, manifest["manifest_hash"], parent_scope, manifest)
+    (attempt / "decision.json").write_text(json.dumps({
+        "component": "MODEL", "round": 2, "attempt": 1, "relevant_skill_ids": [],
+        "rationale": "positive-only SFT", "prediction": {},
+    }), encoding="utf-8")
+    (attempt / "selection.json").write_text(json.dumps({
+        "selection": "retain_parent", "component": "MODEL", "round": 2, "attempt": 1,
+        "before": 0.25, "after": 0.1875, "delta": -0.0625, "paired_tasks": 16,
+        "same_id_set": True, "source_hash_mismatches": 0, "new_success": 2, "new_regression": 3,
+    }), encoding="utf-8")
+    (attempt / "skill_use.json").write_text(json.dumps({"used_skill_ids": []}), encoding="utf-8")
+    (attempt / "task_differences").mkdir()
+    _add_model_round(run, ctx, 2, production=True)
+    return run, ctx
+
+
+def test_summarizer_real_shaped_model_retain_round_is_terminal_without_activation(tmp_path):
+    run, ctx = _build_model_retain_run(tmp_path)
+
+    result = _summarize(run, ctx)
+
+    rounds = _rounds(result)
+    assert rounds[1]["products_complete"] is True
+    assert rounds[2]["product_blockers"] == []
+    assert rounds[2]["products_complete"] is True
+    assert rounds[2]["terminal"] is True
+    assert rounds[2]["activated"] is False
+    assert rounds[2]["parent"]["successes"] == 4
+    assert rounds[2]["candidate"]["successes"] == 3
+    assert rounds[2]["parent"]["trajectory_calls"] == 40
+    assert rounds[2]["candidate"]["trajectory_calls"] == 118
+    assert rounds[2]["transitions"] == {
+        "new_success": 2, "new_regression": 3, "retained_failure": 10, "retained_success": 1,
+    }
+    assert result["model_sft"]["status"] == "completed"
+    assert rounds[2]["snapshot_states"]["selected"] == rounds[2]["snapshot_states"]["parent"]
+    assert rounds[2]["snapshot_states"]["selected"]["checkpoint_manifest"] == (
+        rounds[2]["parent_state"]["checkpoint_manifest"])
+    assert rounds[2]["snapshot_states"]["candidate"]["checkpoint_manifest"] != (
+        rounds[2]["snapshot_states"]["selected"]["checkpoint_manifest"])
+    assert not any(blocker.startswith("B2 ") and "active chain" in blocker
+                   for blocker in _blockers(result))
+
+
+@pytest.mark.parametrize("case", [
+    "candidate_hash", "selection_score", "compare_hash", "false_accept_activation",
+    "candidate_selected", "wrong_previous_snapshot", "incomplete_sft", "failed_sft",
+])
+def test_summarizer_model_retain_tampering_fails_closed(tmp_path, case):
+    run, ctx = _build_model_retain_run(tmp_path)
+    attempt = run / "round_2/attempts/attempt_1"
+    if case == "candidate_hash":
+        path = attempt / "candidate_rollout/train_trajectories.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines() if line]
+        rows[0]["task_source_hash"] = "0" * 64
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    elif case == "selection_score":
+        path = attempt / "selection.json"
+        value = json.loads(path.read_text())
+        value["after"] = 0.25
+        path.write_text(json.dumps(value), encoding="utf-8")
+    elif case == "compare_hash":
+        path = run / "controller_transport/compare_2/result.json"
+        value = json.loads(path.read_text())
+        value["after_sha256"] = "0" * 64
+        path.write_text(json.dumps(value), encoding="utf-8")
+    elif case == "false_accept_activation":
+        path = attempt / "selection.json"
+        value = json.loads(path.read_text())
+        value["selection"] = "accept"
+        path.write_text(json.dumps(value), encoding="utf-8")
+        candidate = attempt / "build/candidate_state.json"
+        digest = file_hash(candidate)
+        _transport_receipt(run, "activate_2", {
+            "operation": "activate_task", "status": "activated_as_requested",
+            "source_state": str(candidate), "active_state": str(run / "active_task.json"),
+            "source_sha256": digest, "active_sha256": digest,
+        })
+    elif case == "candidate_selected":
+        parent = json.loads((run / "snapshots/B1_attempt_1/task/task_state_snapshot.json").read_text())
+        child = json.loads((attempt / "build/candidate_state.json").read_text())
+        _fixture_snapshot(run, run / "snapshots/B2_attempt_1", parent, child, child,
+                          attempt=attempt,
+                          parent_source=run / "snapshots/B1_attempt_1/task/task_state_snapshot.json")
+    elif case == "wrong_previous_snapshot":
+        for path in (run / "snapshots/B2_attempt_1/snapshot_receipt.json",
+                     run / "snapshots/B2_attempt_1/versions.json"):
+            value = json.loads(path.read_text())
+            value["combinations"]["parent"]["source_state"] = str(
+                run / "snapshots/A0/task/task_state_snapshot.json")
+            path.write_text(json.dumps(value), encoding="utf-8")
+    elif case in {"incomplete_sft", "failed_sft"}:
+        path = run / "controller_transport/sft_2/result.json"
+        value = json.loads(path.read_text())
+        value["status"] = "running" if case == "incomplete_sft" else "tool_error"
+        path.write_text(json.dumps(value), encoding="utf-8")
+
+    result = _summarize(run, ctx)
+    round_result = _rounds(result)[2]
+
+    assert round_result["products_complete"] is False
+    if case == "wrong_previous_snapshot":
+        assert any("snapshot parent source" in blocker for blocker in round_result["product_blockers"])
+    if case in {"incomplete_sft", "failed_sft"}:
+        assert result["model_sft"]["status"] in {"selected_pending", "selected_failed"}
+
+
+# --- F6: production MODEL/SFT schema ---------------------------------------
+
+
+def _add_model_round(run, ctx, n=2, *, mutate=None, production=False):
     attempt = run / f"round_{n}/attempts/attempt_1"
     decision_path = attempt / "decision.json"
     decision = json.loads(decision_path.read_text())
     decision["component"] = "MODEL"
     decision_path.write_text(json.dumps(decision), encoding="utf-8")
-    parent_state = json.loads((attempt / "before/parent_task.json").read_text())
+    previous_snapshot = run / f"snapshots/B{n - 1}_attempt_1/task/task_state_snapshot.json"
+    if production:
+        parent_state = json.loads(
+            (run / f"round_{n - 1}/attempts/attempt_1/build/candidate_state.json").read_text())
+    else:
+        parent_state = json.loads((attempt / "before/parent_task.json").read_text())
     manifest = ctx["manifests"][n]
     manifest_hash = manifest["manifest_hash"]
     task_source_hash = manifest["tasks"][0]["record_sha256"]
     protocol_hash = _fixture_protocol(ctx["config_path"])
-    out = attempt / "candidate"
+    out = attempt / ("build" if production else "candidate")
+    rollout_dir = attempt / "candidate_rollout" if production else out
     model_update = out / "model_update"
     model_update.mkdir(parents=True, exist_ok=True)
     from rsiflow.task_meta.storage import checkpoint_manifest
@@ -2437,6 +2595,8 @@ def _add_model_round(run, ctx, n=2, *, mutate=None):
     child["checkpoint_path"] = trained_checkpoint
     child["model_ref"] = trained_checkpoint
     child["checkpoint_manifest"] = trained_weights
+    if production:
+        child["artifacts"] = copy.deepcopy(parent_state["artifacts"])
     from rsiflow.task_meta.sft import select_positive_rows
     selection_report = {"input_rows": 4, "unique_rows": 4, "duplicates": [], "deduplication_applied": True}
     metrics = {
@@ -2469,30 +2629,35 @@ def _add_model_round(run, ctx, n=2, *, mutate=None):
     # rebuild the evaluated candidate side so the trained child IS the rolled-out Task
     candidate_scope = _make_scope(n, manifest_hash, "child_post_update", child, protocol_hash)
     candidate_state_hash = _fingerprint_fixture(candidate_scope)
-    candidate_success = set(TASK_IDS[3:7])
-    zero_call = set(TASK_IDS[9:16])
+    candidate_success = {TASK_IDS[0], TASK_IDS[4], TASK_IDS[5]} if production else set(TASK_IDS[3:7])
+    call_plan = dict(zip(TASK_IDS[:6], [20, 20, 20, 20, 20, 18])) if production else {}
+    zero_call = set(TASK_IDS[6:16]) if production else set(TASK_IDS[9:16])
     candidate_rows = []
     for tid in TASK_IDS:
-        calls = 0 if tid in zero_call else 7
-        candidate_rows.append(_trajectory(
+        calls = call_plan.get(tid, 0) if production else (0 if tid in zero_call else 7)
+        row = _trajectory(
             tid, success=tid in candidate_success, calls=calls, round_n=n,
             state_hash=candidate_state_hash, branch="candidate", manifest_hash=manifest_hash,
             task_source_hash=task_source_hash, collection_stage="child_post_update",
             scope=candidate_scope, checkpoint_manifest=child["checkpoint_manifest"],
-            model_ref=child["model_ref"]))
+            model_ref=child["model_ref"])
+        if production:
+            row["artifact_input_manifest"] = child["artifacts"]["manifest"]
+        candidate_rows.append(row)
     import shutil
     shutil.rmtree(attempt / "rollout_cache", ignore_errors=True)
-    _write_side(out, attempt / "rollout_cache", candidate_rows, candidate_state_hash, n,
+    _write_side(rollout_dir, attempt / "rollout_cache", candidate_rows, candidate_state_hash, n,
                 manifest_hash, candidate_scope, manifest)
     (attempt / "build/candidate_state.json").write_text(json.dumps(child), encoding="utf-8")
     (out / "candidate_state.json").write_text(json.dumps(child), encoding="utf-8")
-    # refresh snapshot candidate state + seal to the trained child
-    snap = run / "snapshots" / f"round_{n}_attempt_1"
-    (snap / "task/candidate_state.json").write_text(json.dumps(child), encoding="utf-8")
-    receipt_path = snap / "snapshot_receipt.json"
-    receipt = json.loads(receipt_path.read_text())
-    receipt["files_sha256"]["task/candidate_state.json"] = file_hash(snap / "task/candidate_state.json")
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    snap = run / "snapshots" / (f"B{n}_attempt_1" if production else f"round_{n}_attempt_1")
+    if not production:
+        # refresh snapshot candidate state + seal to the trained child
+        (snap / "task/candidate_state.json").write_text(json.dumps(child), encoding="utf-8")
+        receipt_path = snap / "snapshot_receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        receipt["files_sha256"]["task/candidate_state.json"] = file_hash(snap / "task/candidate_state.json")
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
     (model_update / "training_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
     (model_update / "gpu_phase_receipt.json").write_text(json.dumps(gpu), encoding="utf-8")
     (model_update / "checkpoint_trained.json").write_text(json.dumps(trained), encoding="utf-8")
@@ -2508,17 +2673,42 @@ def _add_model_round(run, ctx, n=2, *, mutate=None):
         "training_metrics_path": str(model_update / "training_metrics.json"),
         "checkpoint_path": trained_checkpoint, "positive_samples": 4,
     })
-    selected = json.loads((attempt / "before/parent_task.json").read_text())
-    _fixture_snapshot(run, snap, selected, child, selected)
-    final = json.loads((run / "round_5/attempts/attempt_1/build/candidate_state.json").read_text())
-    (run / "active_task.json").write_text(json.dumps(final))
+    if production:
+        selected = json.loads(previous_snapshot.read_text())
+        _fixture_snapshot(run, snap, selected, child, selected, attempt=attempt,
+                          parent_source=previous_snapshot)
+        parent_performance = run / f"round_{n}/parent/performance.json"
+        candidate_performance = rollout_dir / "performance.json"
+        _transport_receipt(run, f"compare_{n}", {
+            "operation": "compare_scores", "status": "compared", "metric": "macro_success",
+            "before": 0.25, "after": 0.1875, "delta": -0.0625,
+            "before_path": str(parent_performance), "after_path": str(candidate_performance),
+            "before_sha256": file_hash(parent_performance), "after_sha256": file_hash(candidate_performance),
+        })
+        (attempt / "selection.json").write_text(json.dumps({
+            "selection": "retain_parent", "component": "MODEL", "round": n, "attempt": 1,
+            "before": 0.25, "after": 0.1875, "delta": -0.0625, "paired_tasks": 16,
+            "same_id_set": True, "source_hash_mismatches": 0, "new_success": 2, "new_regression": 3,
+        }), encoding="utf-8")
+        (attempt / "task_differences/summary.json").write_text(json.dumps({
+            "status": "compared", "paired_tasks": 16, "same_id_set": True,
+            "counts": {"retained_failure": 10, "new_success": 2, "new_regression": 3, "retained_success": 1},
+            "source_mismatches": [], "duplicates": {"before": [], "after": []},
+            "missing_in_after": [], "extra_in_after": [], "notes": [],
+        }), encoding="utf-8")
+        (run / "active_task.json").write_text(json.dumps(selected))
+    else:
+        selected = json.loads((attempt / "before/parent_task.json").read_text())
+        _fixture_snapshot(run, snap, selected, child, selected)
+        final = json.loads((run / "round_5/attempts/attempt_1/build/candidate_state.json").read_text())
+        (run / "active_task.json").write_text(json.dumps(final))
     request = {"model_ref": parent_state["model_ref"], "checkpoint_path": parent_state["checkpoint_path"],
                "rollouts": "rollouts.jsonl", "sft_positive": "sft_positive.jsonl", "sft_profile": "multidomain",
                "training_method": "positive_sft_lora", "positive_samples": 4,
                "length_eligibility": {"excluded": [], "truncation_applied": False}}
     (model_update / "training_request.json").write_text(json.dumps(request))
     (model_update / "rollouts.jsonl").write_text((run / f"round_{n}/parent/train_trajectories.jsonl").read_text())
-    _fixture_journal(run, ctx["config_path"], True)
+    _fixture_journal(run, ctx["config_path"], not production)
     if ctx.get("cleanup_path"):
         ctx["cleanup_path"] = _cleanup_receipt(run, ctx["output_root"], ctx["config_path"])
     return metrics

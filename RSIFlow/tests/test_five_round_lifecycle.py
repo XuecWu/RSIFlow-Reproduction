@@ -191,6 +191,42 @@ def test_stop_identity_term_exit_143(tmp_path, supervisor):
     assert reconcile["status"] == "complete"
 
 
+def test_stop_no_resignal_after_identity_change(tmp_path, supervisor, monkeypatch):
+    # I3: once the owned identity changes (PID reuse), stop must fail closed and never
+    # killpg again. Only the first validated signal may be sent.
+    output_root = tmp_path / "out"
+    config = _config(tmp_path, output_root, "run")
+    supervisor.launch(config, "0001", command=_sleep_command(30),
+                      timeout="60s", kill_after="2s", skip_asset_gates=True)
+    attempt = supervisor.derive_paths(config)["run_dir"] / "meta_session/supervision/0001"
+    assert _wait(lambda: (attempt / "identity.json").is_file())
+    identity = json.loads((attempt / "identity.json").read_text())
+    real_stat = supervisor._proc_stat(identity["pid"])
+    stat_calls = {"n": 0}
+
+    def fake_stat(pid):
+        stat_calls["n"] += 1
+        if stat_calls["n"] <= 2:  # entry validation + first validated signal
+            return list(real_stat)
+        changed = list(real_stat)
+        changed[19] = str(int(real_stat[19]) + 999999)  # reused PID, different start
+        return changed
+
+    killpg_calls = []
+    monkeypatch.setattr(supervisor, "_proc_stat", fake_stat)
+    monkeypatch.setattr(supervisor.os, "killpg", lambda *a: killpg_calls.append(a))
+    try:
+        with pytest.raises(RuntimeError, match="identity changed"):
+            supervisor.stop(config, "0001", grace=5)
+        assert len(killpg_calls) == 1  # no re-send after the identity changed
+    finally:
+        monkeypatch.undo()
+        try:
+            os.killpg(identity["pid"], signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def test_stop_refuses_identity_mismatch(tmp_path, supervisor):
     output_root = tmp_path / "out"
     config = _config(tmp_path, output_root, "run")
@@ -524,6 +560,87 @@ def test_not_created_consumer_and_restore_reject_non_a0_proof(tmp_path, supervis
         reconciler.restore_occupier(config, run, "0001",
                                     occupier_start_fn=lambda: started.append(1) or {},
                                     shared_identity_path=tmp_path / "consumer-restore-identity.json",
+                                    gpu_observer=_gpu_observer(gpu_obs))
+    assert started == []
+
+
+def _rebuild_workflow(run):
+    from experiment_progress import ExperimentProgress
+    return ExperimentProgress(run / "meta_session", rounds=5).rebuild()
+
+
+def _add_turn(run, name, operation, receipt_status="completed"):
+    turn = run / "meta_session/turns" / name
+    turn.mkdir(parents=True, exist_ok=True)
+    (turn / "command.json").write_text(json.dumps({"action": "tool", "request": {"operation": operation}}))
+    (turn / "receipt.json").write_text(json.dumps({"operation": operation, "status": receipt_status}))
+
+
+def test_not_created_run_command_turn_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    # run_command is a LONG_OPERATION that creates a durable job => creation history.
+    _add_turn(run, "0003", "run_command")
+    _rebuild_workflow(run)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt
+    assert receipt["registry"]["phase"] != "not_created_verified"
+    assert any("not_created" in b for b in receipt["blockers"])
+
+
+def test_not_created_turn_gap_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    import shutil
+    shutil.rmtree(run / "meta_session/turns/0001")  # gap: 0000, 0002
+    _rebuild_workflow(run)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt
+    assert any("not_created" in b for b in receipt["blockers"])
+
+
+def test_not_created_corrupt_events_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "meta_session/workflow_events.jsonl").write_text("{bad json\n")
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt
+    assert any("not_created" in b for b in receipt["blockers"])
+
+
+def test_not_created_empty_events_stays_pending(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    (run / "meta_session/workflow_events.jsonl").write_text("")
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] != "completed", receipt
+
+
+def test_not_created_consumer_rejects_stale_summary_after_history_change(tmp_path, supervisor, reconciler):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    receipt_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "completed", receipt["blockers"]
+    # Change the actual history AFTER the receipt was sealed; the summary is now stale.
+    rec_path = run / "meta_session/turns/0000/receipt.json"
+    rec = json.loads(rec_path.read_text()); rec["tampered"] = True
+    rec_path.write_text(json.dumps(rec))
+    summarizer = _load("summarize_deepcoder_five_round")
+    cfg = json.loads(config.read_text()); cfg["_config_path"] = str(config.resolve())
+    active = json.loads((run / "active_task.json").read_text())
+    sup = summarizer._supervision(run)
+    with pytest.raises(ValueError, match="not_created"):
+        summarizer._validate_cleanup(receipt, receipt_path, run, cfg, paths["output_root"], sup, active)
+    started = []
+    with pytest.raises(RuntimeError, match="cleanup evidence"):
+        reconciler.restore_occupier(config, run, "0001",
+                                    occupier_start_fn=lambda: started.append(1) or {},
+                                    shared_identity_path=tmp_path / "stale-restore-identity.json",
                                     gpu_observer=_gpu_observer(gpu_obs))
     assert started == []
 

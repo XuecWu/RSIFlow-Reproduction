@@ -212,6 +212,34 @@ def _validate_identity(identity: dict, pid: int, run_dir: Path, attempt_dir: Pat
         raise RuntimeError("supervisor argv does not bind run/attempt")
 
 
+def _signal_owned(identity, run_dir, attempt_dir, sig):
+    """I3: re-validate the saved owner identity against /proc BEFORE every signal. Returns
+    True if signaled, False if the process is gone/zombie (no signal). Raises RuntimeError
+    (fail closed, never signal) if the identity changed/was reused or is unreadable, so a
+    recycled numeric PID/PGID can never receive a signal meant for this run."""
+    pid = identity["pid"]
+    try:
+        stat = _proc_stat(pid)
+    except FileNotFoundError:
+        return False
+    except (PermissionError, OSError) as exc:
+        raise RuntimeError("owner identity unreadable; refusing to signal") from exc
+    if int(stat[2]) != identity["pgid"] or stat[19] != str(identity["start_ticks"]):
+        raise RuntimeError("owner identity changed (PID reuse?); refusing to signal")
+    if stat[0] == "Z":
+        return False
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except FileNotFoundError:
+        return False
+    except (PermissionError, OSError) as exc:
+        raise RuntimeError("owner argv unreadable; refusing to signal") from exc
+    if str(run_dir).encode() not in cmdline or str(attempt_dir).encode() not in cmdline:
+        raise RuntimeError("owner argv does not bind run/attempt; refusing to signal")
+    os.killpg(pid, sig)
+    return True
+
+
 # The child wrapper: write identity, then WAIT for the parent ACK before executing the
 # experiment (H2: nothing runs until the parent has validated identity/gates). On cancel
 # or ACK timeout it writes a failed-start receipt and exits without running the launcher.
@@ -1003,10 +1031,8 @@ def stop(config_path, supervision: str, *, grace=90.0) -> dict:
     tmp = attempt_dir / "stop-requested.tmp"
     tmp.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
     os.replace(tmp, attempt_dir / "stop-requested")
-    try:
-        os.killpg(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
+    # I3: every signal (initial and each re-send) re-validates the owned identity first.
+    _signal_owned(identity, run_dir, attempt_dir, signal.SIGTERM)
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline:
         reconcile = _read_json(attempt_dir / "reconcile.json")
@@ -1016,10 +1042,9 @@ def stop(config_path, supervision: str, *, grace=90.0) -> dict:
         # The wrapper ignores TERM and may not have spawned the timeout child yet when the
         # first TERM was sent (spawn race). Re-signal the owned PGID each poll so a late-born
         # child still receives TERM; this is a conditional wait on exit/reconcile, not a sleep.
-        try:
-            os.killpg(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+        # _signal_owned re-checks PID=PGID/start_ticks/run/attempt argv before each re-send and
+        # fails closed (raises) if the identity changed/was reused; gone => no signal, just wait.
+        _signal_owned(identity, run_dir, attempt_dir, signal.SIGTERM)
         time.sleep(0.1)
     raise RuntimeError("launcher PGID/exit/reconcile not complete; cleanup/resume remain blocked")
 

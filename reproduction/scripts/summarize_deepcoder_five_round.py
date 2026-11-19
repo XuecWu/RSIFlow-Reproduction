@@ -1138,6 +1138,83 @@ def _finish_valid(run_dir) -> tuple[bool, list[str]]:
     return not reasons, reasons
 
 
+# I2: operations whose invocation creates a compute job or GPU service (run_command included
+# because it is a LONG_OPERATION that spawns a durable job). Their presence in the ordered
+# turn history proves the run entered a creation stage, so it is NOT a not_created failure.
+COMPUTE_SERVICE_OPERATIONS = {
+    "run_parent", "run_candidate", "sft", "evaluate", "rollout", "run_command",
+    "prepare_evaluation", "prepare_validation_snapshot", "deploy_candidate",
+}
+
+
+def not_created_history_proof(run_dir, workflow):
+    """I2 shared producer/consumer helper: prove the run NEVER entered a job/service creation
+    stage from the actual sealed history, not from a receipt summary. Requires a trusted early
+    protocol state (A0, bootstrap incomplete), a contiguous complete parseable ordered turn
+    history (command+receipt) with no compute/service creation call, and a non-empty parseable
+    workflow event log ordered-consistent with the turns. Any gap/corruption/inconsistency =>
+    not proven. Returns (ok, proof) where proof carries a history_sha256 the consumer recomputes
+    to reject a receipt summary that no longer matches the current history."""
+    run_dir = Path(run_dir)
+    current_stage = (workflow or {}).get("current_stage")
+    stages = (workflow or {}).get("stages") or []
+    a0 = next((s for s in stages if s.get("id") == "A0"), {})
+    bootstrap_complete = "bootstrap" not in (a0.get("remaining_milestones") or [])
+    turns_dir = run_dir / "meta_session/turns"
+    turn_dirs = sorted((d for d in turns_dir.iterdir() if d.is_dir() and d.name.isdigit()),
+                       key=lambda d: int(d.name)) if turns_dir.is_dir() else []
+    turn_names = [d.name for d in turn_dirs]
+    continuity_ok = bool(turn_dirs) and [int(n) for n in turn_names] == list(range(len(turn_dirs)))
+    creations, history_parts, parseable = [], [], True
+    cmd_by_turn = {}
+    for d in turn_dirs:
+        cmd_path, rec_path = d / "command.json", d / "receipt.json"
+        cmd, rec = _read_json(cmd_path), _read_json(rec_path)
+        if not isinstance(cmd, dict) or not isinstance(rec, dict):
+            parseable = False
+            continue
+        try:
+            history_parts.append(cmd_path.read_bytes())
+            history_parts.append(rec_path.read_bytes())
+        except OSError:
+            parseable = False
+            continue
+        op = (cmd.get("request") or {}).get("operation")
+        cmd_by_turn[d.name] = op
+        if isinstance(op, str) and "(" in op:
+            op = op.split("(", 1)[0].strip()
+        if op in COMPUTE_SERVICE_OPERATIONS:
+            creations.append({"turn": d.name, "operation": op})
+    events_path = run_dir / "meta_session/workflow_events.jsonl"
+    events_ok, events_bytes, event_turns = False, b"", []
+    if events_path.is_file():
+        try:
+            events_bytes = events_path.read_bytes()
+            lines = [l for l in events_bytes.decode("utf-8").splitlines() if l.strip()]
+            parsed = [json.loads(l) for l in lines]
+            if parsed and all(isinstance(e, dict) for e in parsed):
+                event_turns = [e.get("turn") for e in parsed]
+                # ordered correspondence: every event references an existing turn, events are
+                # non-decreasing by turn, every turn is covered, and operation matches command.
+                referenced_ok = all(t in cmd_by_turn for t in event_turns)
+                ordered_ok = all(event_turns[i] <= event_turns[i + 1] for i in range(len(event_turns) - 1))
+                covered_ok = set(turn_names) <= set(event_turns)
+                consistent_ok = all(
+                    (e.get("operation") == cmd_by_turn.get(e.get("turn")))
+                    for e in parsed if e.get("turn") in cmd_by_turn)
+                events_ok = referenced_ok and ordered_ok and covered_ok and consistent_ok
+        except (OSError, ValueError, TypeError, UnicodeError):
+            events_ok = False
+    history_sha256 = hashlib.sha256(b"".join(history_parts) + events_bytes).hexdigest()
+    proof = {"current_stage": current_stage, "bootstrap_complete": bootstrap_complete,
+             "compute_service_creations": creations, "ordered_turns": len(turn_dirs),
+             "turn_continuity_ok": continuity_ok, "turns_parseable": parseable,
+             "workflow_events_ok": events_ok, "history_sha256": history_sha256}
+    ok = (current_stage == "A0" and not bootstrap_complete and not creations
+          and continuity_ok and parseable and events_ok)
+    return ok, proof
+
+
 def _jobs_validation(run_dir) -> dict:
     jobs_dir = run_dir / "meta_session/jobs"
     missing, invalid, required_failed = [], [], []
@@ -1418,14 +1495,23 @@ def _validate_cleanup(receipt, path, run, config, output, supervision, active):
         require(owners.get("jobs") == [] and owners.get("training_phases") == []
                 and owners.get("inference_services") == [], "not_created_owner_inventory")
         require(not (receipt.get("protocol") or {}).get("finish_allowed"), "not_created_run_completed")
-        # I2: the historical proof must show a trusted early stage (A0, bootstrap incomplete)
-        # and an ordered history with no compute/service creation; empty current inventory
-        # alone cannot distinguish "never created" from "creation evidence lost".
+        # I2: recompute the historical proof from the ACTUAL sealed history (shared helper),
+        # never trust the receipt summary alone. The receipt's not_created_evidence must match
+        # the recomputed proof (history_sha256), so a changed current history with a stale
+        # A0/empty-creations summary is rejected.
         evidence = receipt.get("not_created_evidence") or {}
         require(evidence.get("current_stage") == "A0", "not_created_stage_not_a0")
-        require(evidence.get("bootstrap_complete") is False, "not_created_bootstrap_complete")
-        require(not evidence.get("compute_service_creations"), "not_created_compute_history")
-        require(evidence.get("workflow_events_present") is True, "not_created_events_missing")
+        workflow = _read_json(run / "meta_session/workflow_state.json") or {}
+        history_ok, recomputed = not_created_history_proof(run, workflow)
+        require(history_ok, "not_created_history_proof_incomplete")
+        require(recomputed.get("current_stage") == "A0", "not_created_recomputed_stage")
+        require(recomputed.get("bootstrap_complete") is False, "not_created_bootstrap_complete")
+        require(not recomputed.get("compute_service_creations"), "not_created_compute_history")
+        require(recomputed.get("turn_continuity_ok") is True, "not_created_turn_continuity")
+        require(recomputed.get("turns_parseable") is True, "not_created_turns_parseable")
+        require(recomputed.get("workflow_events_ok") is True, "not_created_events_missing")
+        require(evidence.get("history_sha256") == recomputed.get("history_sha256"),
+                "not_created_summary_history_mismatch")
         services = []
     else:
         actual_registry = _read_json(sealed(registry_path, registry.get("after_hash"))) or {}

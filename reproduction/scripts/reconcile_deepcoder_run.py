@@ -270,39 +270,13 @@ def cleanup_run(config_path, run_dir, supervision, *, gpu_observer=None, stop_se
         lock_file.close()
 
 
-# Operations whose invocation creates a compute job or GPU service. Their presence in the
-# ordered turn history proves the run entered a creation stage, so it is NOT a not_created
-# failure even if the job/phase/registry inventory was later lost.
-_COMPUTE_SERVICE_OPERATIONS = {
-    "run_parent", "run_candidate", "sft", "evaluate", "rollout",
-    "prepare_evaluation", "prepare_validation_snapshot", "deploy_candidate",
-}
-
-
+# I2: the not_created historical proof is shared with the consumer (single source of truth).
+# The producer seals the proof into the receipt; the consumer recomputes it from the actual
+# history and rejects a summary that no longer matches. run_command is included because it is
+# a LONG_OPERATION that spawns a durable job.
 def _not_created_history_proof(run_dir, workflow):
-    """I2: prove the run NEVER entered a job/service creation stage, not merely that the
-    inventory is currently empty. Requires a trusted early protocol state (A0, bootstrap
-    incomplete), an ordered turn history with no compute/service creation call, and the
-    presence of the ordered workflow event log. Any missing history => not proven."""
-    current_stage = (workflow or {}).get("current_stage")
-    stages = (workflow or {}).get("stages") or []
-    a0 = next((s for s in stages if s.get("id") == "A0"), {})
-    bootstrap_complete = "bootstrap" not in (a0.get("remaining_milestones") or [])
-    turns = sorted((run_dir / "meta_session/turns").glob("*/command.json"))
-    creations = []
-    for cmd_path in turns:
-        cmd = _read_json(cmd_path) or {}
-        op = (cmd.get("request") or {}).get("operation")
-        if isinstance(op, str) and "(" in op:
-            op = op.split("(", 1)[0].strip()
-        if op in _COMPUTE_SERVICE_OPERATIONS:
-            creations.append({"turn": cmd_path.parent.name, "operation": op})
-    events_present = (run_dir / "meta_session/workflow_events.jsonl").is_file()
-    proof = {"current_stage": current_stage, "bootstrap_complete": bootstrap_complete,
-             "compute_service_creations": creations, "workflow_events_present": events_present,
-             "ordered_turns": len(turns)}
-    ok = (current_stage == "A0" and not bootstrap_complete and not creations and events_present)
-    return ok, proof
+    from summarize_deepcoder_five_round import not_created_history_proof
+    return not_created_history_proof(run_dir, workflow)
 
 
 def _cleanup_locked(config, config_path, output_root, run_dir, attempt_dir, supervision,

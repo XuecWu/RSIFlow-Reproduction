@@ -587,6 +587,58 @@ def test_normalize_handles_escaped_quotes_nested_commas_and_explicit_bare_string
     assert normalized['content'] == 'quote: "x,y"; data=[1,{"n":2}]'
 
 
+def test_normalize_bare_word_rejected_for_non_string_field():
+    from persistent_meta import _normalize_dynamic_request
+    # I1: a non-string field (wait_job.seconds: number) must reject a bare word.
+    with pytest.raises(ValueError):
+        _normalize_dynamic_request({'operation': 'wait_job(job_id=j1,seconds=not_a_number)'})
+    with pytest.raises(ValueError):
+        _normalize_dynamic_request({'operation': 'run_parent(round_number=abc)'})
+    # a valid JSON literal for the number field is still accepted
+    ok = _normalize_dynamic_request({'operation': 'wait_job(job_id=j1,seconds=60)'})
+    assert ok['seconds'] == 60 and type(ok['seconds']) is int
+    # path/string fields keep whitespace-free bare strings
+    paths = _normalize_dynamic_request({'operation': 'bootstrap(config_path=/x.json,state_path=/y.json)'})
+    assert paths['config_path'] == '/x.json' and paths['state_path'] == '/y.json'
+
+
+def test_normalize_double_quoted_json_decode_and_illegal_escape():
+    from persistent_meta import _normalize_dynamic_request
+    # M1: double-quoted values decode as JSON strings (proper Unicode escape handling).
+    decoded = _normalize_dynamic_request({'operation': 'write_text(path=/p,content="a\\u0041b")'})
+    assert decoded['content'] == 'aAb'
+    # illegal JSON escape (\d) must fail closed, not silently drop the backslash
+    with pytest.raises(ValueError):
+        _normalize_dynamic_request({'operation': 'write_text(path=/p,content="\\d")'})
+    # illegal Unicode escape fails closed
+    with pytest.raises(ValueError):
+        _normalize_dynamic_request({'operation': 'write_text(path=/p,content="\\uZZZZ")'})
+
+
+def test_normalize_single_quoted_unknown_escape_preserves_backslash():
+    from persistent_meta import _normalize_dynamic_request
+    # M1: single-quoted unknown escape keeps the backslash literally (no silent drop).
+    preserved = _normalize_dynamic_request({'operation': "write_text(path=/p,content='\\d+')"})
+    assert preserved['content'] == '\\d+'
+
+
+def test_forwarding_non_string_bare_word_never_calls_executor(tmp_path):
+    seen = []
+
+    class Executor:
+        def execute(self, request):
+            seen.append(request)
+            return {'status': 'unexpected'}
+
+    run = tmp_path / 'run'
+    tools = NativeExperimentTools(project=tmp_path, run=run, executor=Executor(),
+                                  progress=ExperimentProgress(run / 'meta_session'))
+    tools('experiment', {'request': {'operation': 'wait_job(job_id=j1,seconds=not_a_number)'}})
+    receipt = json.loads((run / 'meta_session/turns/0000/receipt.json').read_text())
+    assert receipt['status'] == 'tool_error'
+    assert seen == []
+
+
 def test_forwarding_inline_bootstrap_reaches_executor_with_full_params(tmp_path):
     # End-to-end through NativeExperimentTools.__call__ with the native event shape
     # arguments.request.operation inline; the executor must receive every named argument.

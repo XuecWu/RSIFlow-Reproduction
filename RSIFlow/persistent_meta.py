@@ -344,24 +344,60 @@ def dynamic_tools():
             for name, description, properties, required in definitions]
 
 
-def _parse_arg_value(value):
-    """Recover a native type for an inline argument. Quoted strings are unquoted with
-    backslash escapes decoded; structured literals ([...], {...}) must parse as valid JSON
-    (a malformed structure fails closed, never degraded to a bare string); bare values are
-    JSON literals (number/bool/null) or whitespace-free path/identifier strings. Original
-    separate-field types are never coerced."""
+# I1: explicit per-operation argument schema deciding whether a bare (unquoted) string is
+# legal. Path/string fields accept whitespace-free bare strings; non-string fields (number,
+# integer, boolean, array, object) reject bare words and require a matching JSON literal.
+# Fields/operations not listed default to string-like (the experiment tool is dynamic).
+_INLINE_ARG_SCHEMA = {
+    "bootstrap": {"config_path": "string", "state_path": "string"},
+    "wait_job": {"job_id": "string", "seconds": "number"},
+    "job_status": {"job_id": "string"},
+    "finish_experiment": {"summary": "string"},
+    "write_text": {"path": "string", "content": "string"},
+    "read_json": {"path": "string"},
+    "read_text": {"path": "string"},
+    "append_skills": {"path": "string", "content": "string"},
+    "run_command": {"command": "string", "output_dir": "string", "timeout_seconds": "number"},
+    "run_parent": {"round_number": "integer", "output_dir": "string"},
+    "run_candidate": {"round_number": "integer", "output_dir": "string"},
+    "sft": {"round_number": "integer", "output_dir": "string"},
+    "evaluate": {"round_number": "integer", "output_dir": "string"},
+    "rollout": {"round_number": "integer", "output_dir": "string"},
+}
+_NON_STRING_TYPES = {"number", "integer", "boolean", "array", "object"}
+
+
+def _parse_arg_value(value, operation=None, key=None):
+    """Recover a native type for an inline argument. Double-quoted values are decoded as
+    JSON strings (proper \\uXXXX/escape handling, illegal escapes rejected); single-quoted
+    values decode known escapes and preserve unknown escapes literally (never silently drop
+    a backslash). Structured literals ([...], {...}) must parse as valid JSON or fail closed.
+    Bare values are JSON literals, or whitespace-free strings only for string-like fields
+    (non-string fields reject bare words per the operation schema)."""
     if not value:
         return ""
-    if value[0] in "'\"":
-        if len(value) < 2 or value[-1] != value[0]:
+    if value[0] == '"':
+        try:
+            decoded = json.loads(value)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("invalid double-quoted tool argument (illegal escape/Unicode): " + value) from exc
+        if not isinstance(decoded, str):
+            raise ValueError("double-quoted tool argument must decode to a string: " + value)
+        return decoded
+    if value[0] == "'":
+        if len(value) < 2 or value[-1] != "'":
             raise ValueError("unterminated quoted tool argument: " + value)
         inner = value[1:-1]
-        escapes = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", '"': '"', "'": "'"}
+        escapes = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "'": "'", '"': '"'}
         out, i = [], 0
         while i < len(inner):
             ch = inner[i]
             if ch == "\\" and i + 1 < len(inner):
-                out.append(escapes.get(inner[i + 1], inner[i + 1]))
+                nxt = inner[i + 1]
+                if nxt in escapes:
+                    out.append(escapes[nxt])
+                else:
+                    out.append("\\" + nxt)  # M1: preserve unknown escape, never drop backslash
                 i += 2
             else:
                 out.append(ch)
@@ -375,15 +411,19 @@ def _parse_arg_value(value):
     try:
         return json.loads(value)
     except (ValueError, TypeError):
+        field_type = (_INLINE_ARG_SCHEMA.get(operation) or {}).get(key)
+        if field_type in _NON_STRING_TYPES:
+            raise ValueError(f"bare word not allowed for non-string field {operation}.{key} ({field_type}): " + value)
         if any(c.isspace() for c in value):
             raise ValueError("bare tool argument with whitespace not allowed: " + value)
         return value
 
 
-def _parse_call_args(argstr):
+def _parse_call_args(argstr, operation=None):
     """Parse top-level comma-separated key=value pairs with a paired bracket stack and
     backslash-escape handling inside quotes. Mismatched brackets/unbalanced quotes/illegal
-    structure fail closed (never silently drops or coerces args)."""
+    structure fail closed (never silently drops or coerces args). Bare-string legality is
+    decided per operation+argument schema."""
     args = {}
     if not argstr.strip():
         return args
@@ -430,7 +470,7 @@ def _parse_call_args(argstr):
             raise ValueError("invalid tool argument name: " + key)
         if key in args:
             raise ValueError("duplicate tool argument: " + key)
-        args[key] = _parse_arg_value(value.strip())
+        args[key] = _parse_arg_value(value.strip(), operation, key)
     return args
 
 
@@ -450,7 +490,7 @@ def _normalize_dynamic_request(request):
     match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$", operation, re.DOTALL)
     if match:
         name, argstr = match.group(1), match.group(2)
-        parsed = _parse_call_args(argstr)
+        parsed = _parse_call_args(argstr, name)
         for key, value in parsed.items():
             request.setdefault(key, value)
         request["operation"] = name

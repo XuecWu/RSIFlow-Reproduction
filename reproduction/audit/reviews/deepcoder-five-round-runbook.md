@@ -163,6 +163,40 @@ writer 顺序（实际测量，不接受 `--completed`/`--stopped`）：
 
 恢复演练（无 API/GPU）至少覆盖 B1 accept→B2 retain 跨轮边界，以及成功 SFT result 已存在/训练未封口两路径（见 `test_five_round_lifecycle.py` 与汇总器恢复测试）。4h 不自动续开新四小时窗口。
 
+### 7.1 resume 专用当前 preflight（替代过期 stage1/2，无需 occupier handoff）
+
+资源已 cleanup completed（occupier restore 可能仍 pending）时，**不得为新鲜 resume 重跑不安全的 occupier 恢复，也不得复用过期 stage1/2 provider 证据**。resume 必须采一份**当前** preflight receipt：
+
+```bash
+# dev4 bash；元组按 §0 重设。先有本 attempt 的 completed cleanup receipt（§6.2）。
+set -euo pipefail
+export RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1
+AUDIT_DIR="$ROOT/reproduction/logs/five-round-resume-preflight-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir "$AUDIT_DIR"
+# 当前 provider 200/completed/gpt-6-astra 探针（凭据安全注入，不记录 key）
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" probe-provider \
+  --config "$CONFIG" --output "$AUDIT_DIR/provider-probe.json"
+# 当前 resume preflight：绑当前 provider/host/boot/ns + 空闲 GPU/ports 实测 + 已有 completed cleanup receipt
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" observe-resume-preflight \
+  --config "$CONFIG" --provider-report "$AUDIT_DIR/provider-probe.json" \
+  --cleanup-receipt "$CLEANUP_RECEIPT" --output "$AUDIT_DIR/resume-preflight.json"
+# prelaunch input 用 --resume-preflight 替代 --stage1/--stage2（fresh 仍必须原两阶段）
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" preflight-input \
+  --config "$CONFIG" --resume-preflight "$AUDIT_DIR/resume-preflight.json" \
+  --output "$AUDIT_DIR/prelaunch-input.json"
+# resume launch（同 thread/config/backend；其余 resume 门全保留）
+"$PYTHON" "$ROOT/reproduction/scripts/deepcoder_five_round_supervisor.py" launch \
+  --config "$CONFIG" --supervision 0002 --launch-mode resume --resumed-from 0001 \
+  --timeout 4h --kill-after 5m --preflight-seal "$AUDIT_DIR/prelaunch-input.json"
+```
+
+合同（`observe-resume-preflight`/`_validate_resume_preflight`/`verify_prelaunch_seal(mode="resume")`）：
+- resume receipt 绑**当前** provider 200/completed/model（探针 `observed_at` 须在 1800s 内）、host/boot_id/pid_namespace、空闲 GPU（无 compute apps、free_verified）与 closed ports 实测、当前 config_hash/run_dir。
+- 绑已有 **completed** external cleanup receipt（kind/status/binding run+config 匹配）；**cleanup consumer 必须对当前 run/history/owners 重算通过**（不信摘要），且 receipt 所绑 launcher/app-server/jobs/services/training 当前 owner **逐项 live 复核仍 exited**。
+- **无需 occupier running/handoff**（资源已清理）；不重跑 occupier restore，不改时间戳/不伪造观测。
+- `verify_prelaunch_seal` 保留全部资产/reviewed HEAD/backend 门；**fresh 模式拒绝 resume receipt**（必须原两阶段），resume+stage 混用拒绝；resume 无 resume receipt 时仍须满足两阶段门（无通用绕过）。seal binding 记 `launch_mode`。
+- 过期/未完成 cleanup、当前 owner 仍活、缺/过期 provider 一律拒绝（实验命令不执行）。早期 A0 无 active 的 resume 另受 §7 `_early_a0_no_active_proof` 约束。
+
 ## 8. occupier 恢复（仅在 cleanup completed 后）
 
 只有本 attempt **真实资源 cleanup receipt completed** 且 GPU/owner 再检查通过后恢复 occupier；恢复另写 observation，关联 cleanup hash，记录新 PID/PGID/start_ticks/精确 argv，原子更新 identity，再验证四 rank/GPU 负载。资源 unknown/job pending → receipt 保持 pending，occupier 保持未恢复并明确交接持续看护 owner，绝不重复启动。occupier 恢复后 GPU 被授权占用不使历史空卡 cleanup 无效，但**绝不拿 occupier 恢复后的读数填“无 compute apps”**。

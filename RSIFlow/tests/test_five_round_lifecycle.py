@@ -1638,6 +1638,178 @@ def test_launch_real_mode_requires_prelaunch_seal(tmp_path, supervisor):
     assert not marker.exists()  # experiment command never executed
 
 
+# --- resume-specific current preflight (replaces stale stage1/2; no occupier handoff) -----
+
+def _resume_evidence(tmp_path, *, commit="a" * 40, backend="linux_bwrap_seccomp_v1",
+                     cleanup_status="completed", add_stages=False):
+    import hashlib as _hl
+    assets = {}
+    for name in REQUIRED_ASSETS:
+        p = tmp_path / f"asset_{name}"; p.write_text(f"content-{name}")
+        assets[name] = {"path": str(p), "sha256": _hl.sha256(p.read_bytes()).hexdigest()}
+    run_dir, config_hash = str(tmp_path / "run"), "c" * 64
+    field_base = {"status": "success", "stage": "resume", "run_dir": run_dir, "config_hash": config_hash,
+                  "host": "dev4", "boot_id": "boot-1", "pid_namespace": "host",
+                  "gpus": [{"gpu": g, "uuid": f"GPU-{g}"} for g in range(4)],
+                  "provider": "gpt-6-astra", "ports": [8271, 8272, 8273, 8274], "backend": backend}
+    cleanup = tmp_path / "cleanup.json"
+    cleanup.write_text(json.dumps({"kind": "rsiflow_external_cleanup", "status": cleanup_status,
+                                   "binding": {"run_dir": run_dir, "config_hash": config_hash}}))
+    resume = tmp_path / "preflight_resume.json"
+    resume.write_text(json.dumps({**field_base, "cleanup_receipt": {
+        "path": str(cleanup), "sha256": _hl.sha256(cleanup.read_bytes()).hexdigest()}}))
+    receipts = {"resume": {"path": str(resume), "sha256": _hl.sha256(resume.read_bytes()).hexdigest()}}
+    if add_stages:
+        s1 = tmp_path / "preflight_stage1.json"
+        s1.write_text(json.dumps({**field_base, "stage": 1, "occupier_running": True}))
+        receipts["stage1"] = {"path": str(s1), "sha256": _hl.sha256(s1.read_bytes()).hexdigest()}
+    return {"reviewed_commit": commit, "backend": backend, "required_assets": REQUIRED_ASSETS,
+            "assets": assets, "preflight_receipts": receipts}
+
+
+def test_prelaunch_seal_resume_positive(tmp_path, supervisor):
+    attempt = tmp_path / "attempt"; attempt.mkdir()
+    seal = supervisor.verify_prelaunch_seal(_resume_evidence(tmp_path), expected_commit="a" * 40,
+                                            expected_backend="linux_bwrap_seccomp_v1",
+                                            attempt_dir=attempt, mode="resume")
+    assert seal["kind"] == "rsiflow_prelaunch_seal"
+    assert seal["binding"]["launch_mode"] == "resume"
+    assert seal["expected_gpus"] == [{"gpu": g, "uuid": f"GPU-{g}"} for g in range(4)]
+    assert "resume" in seal["preflight_receipts"] and "stage1" not in seal["preflight_receipts"]
+
+
+def test_prelaunch_seal_fresh_refuses_resume_receipt(tmp_path, supervisor):
+    attempt = tmp_path / "attempt"; attempt.mkdir()
+    with pytest.raises(RuntimeError, match="fresh launch requires two-stage"):
+        supervisor.verify_prelaunch_seal(_resume_evidence(tmp_path), expected_commit="a" * 40,
+                                         expected_backend="linux_bwrap_seccomp_v1",
+                                         attempt_dir=attempt, mode="fresh")
+    assert not (attempt / "prelaunch-seal.json").exists()
+
+
+def test_prelaunch_seal_resume_refuses_mixed_receipts(tmp_path, supervisor):
+    attempt = tmp_path / "attempt"; attempt.mkdir()
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        supervisor.verify_prelaunch_seal(_resume_evidence(tmp_path, add_stages=True),
+                                         expected_commit="a" * 40,
+                                         expected_backend="linux_bwrap_seccomp_v1",
+                                         attempt_dir=attempt, mode="resume")
+
+
+def test_prelaunch_seal_resume_incomplete_cleanup_refused(tmp_path, supervisor):
+    attempt = tmp_path / "attempt"; attempt.mkdir()
+    with pytest.raises(RuntimeError, match="cleanup not completed"):
+        supervisor.verify_prelaunch_seal(_resume_evidence(tmp_path, cleanup_status="pending"),
+                                         expected_commit="a" * 40,
+                                         expected_backend="linux_bwrap_seccomp_v1",
+                                         attempt_dir=attempt, mode="resume")
+
+
+def test_prelaunch_seal_resume_without_receipt_requires_stages(tmp_path, supervisor):
+    attempt = tmp_path / "attempt"; attempt.mkdir()
+    evidence = _resume_evidence(tmp_path); evidence["preflight_receipts"] = {}
+    # no resume receipt => still must satisfy the original two-stage gate (no general bypass)
+    with pytest.raises(RuntimeError, match="stage1 receipt missing"):
+        supervisor.verify_prelaunch_seal(evidence, expected_commit="a" * 40,
+                                         expected_backend="linux_bwrap_seccomp_v1",
+                                         attempt_dir=attempt, mode="resume")
+
+
+def test_preflight_input_selects_resume_receipt(tmp_path, supervisor):
+    r = tmp_path / "resume.json"; r.write_text("{}")
+    receipts = supervisor._select_preflight_receipts(None, None, r)
+    assert set(receipts) == {"resume"} and receipts["resume"]["sha256"] == supervisor._sha256(r)
+
+
+def test_preflight_input_fresh_requires_both_stages(tmp_path, supervisor):
+    s1 = tmp_path / "s1.json"; s1.write_text("{}")
+    with pytest.raises(RuntimeError, match="both stage1 and stage2"):
+        supervisor._select_preflight_receipts(s1, None, None)
+    with pytest.raises(RuntimeError, match="both stage1 and stage2"):
+        supervisor._select_preflight_receipts(None, None, None)
+    s2 = tmp_path / "s2.json"; s2.write_text("{}")
+    assert set(supervisor._select_preflight_receipts(s1, s2, None)) == {"stage1", "stage2"}
+
+
+def test_preflight_input_refuses_mixed_and_missing(tmp_path, supervisor):
+    r = tmp_path / "resume.json"; r.write_text("{}"); s1 = tmp_path / "s1.json"; s1.write_text("{}")
+    with pytest.raises(RuntimeError, match="cannot be combined"):
+        supervisor._select_preflight_receipts(s1, None, r)
+    with pytest.raises(RuntimeError, match="resume receipt missing"):
+        supervisor._select_preflight_receipts(None, None, tmp_path / "absent.json")
+
+
+def _resume_preflight_live_setup(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, gpu_obs, _ = _seed_not_created_run(tmp_path, supervisor, reconciler)
+    cleanup_path = reconciler.cleanup_run(config, run, "0001", gpu_observer=_gpu_observer(gpu_obs),
+                                          skip_asset_gates=True)
+    assert json.loads(cleanup_path.read_text())["status"] == "completed"
+    # canonical script module (supervisor imports reconcile/summarize by name at call time)
+    rmod = importlib.import_module("reconcile_deepcoder_run")
+    monkeypatch.setattr(rmod, "_default_gpu_observer", lambda: gpu_obs)
+    monkeypatch.setattr(rmod, "_default_ports_observer",
+                        lambda: {"status": "closed", "closed_ports": [8271, 8272, 8273, 8274]})
+    monkeypatch.setenv("RSIFLOW_SANDBOX_BACKEND", "linux_bwrap_seccomp_v1")
+    provider = tmp_path / "provider.json"
+    provider.write_text(json.dumps({
+        "kind": "rsiflow_provider_probe", "http_status": 200,
+        "response": {"status": "completed", "model": "gpt-6-astra", "output": ["READY"]},
+        "endpoint": "http://token.acerobotics.com/v1/responses",
+        "config_hash": supervisor._sha256(config), "host_identity": supervisor.host_identity(),
+        "observed_at": time.time()}))
+    return config, run, paths, cleanup_path, provider, rmod
+
+
+def test_observe_resume_preflight_positive_and_consumer_recompute(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, cleanup_path, provider, _ = _resume_preflight_live_setup(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    output = tmp_path / "resume-preflight.json"
+    value = supervisor.observe_resume_preflight(config, provider, cleanup_path, output)
+    assert value["stage"] == "resume" and value["status"] == "success"
+    assert value["cleanup_receipt"]["sha256"] == supervisor._sha256(cleanup_path)
+    # the seal consumer independently recomputes the cleanup contract in real mode
+    entry = {"path": str(output), "sha256": supervisor._sha256(output)}
+    got = supervisor._verify_resume_receipt(entry, expected_backend="linux_bwrap_seccomp_v1",
+                                            run_dir=run, config_path=config)
+    assert got["stage"] == "resume"
+
+
+def test_resume_preflight_expired_provider_refused(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, cleanup_path, provider, _ = _resume_preflight_live_setup(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    p = json.loads(provider.read_text()); p["observed_at"] = time.time() - 3600
+    provider.write_text(json.dumps(p))
+    with pytest.raises(RuntimeError, match="provider completion evidence invalid"):
+        supervisor.observe_resume_preflight(config, provider, cleanup_path, tmp_path / "r.json")
+
+
+def test_resume_preflight_missing_provider_refused(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, cleanup_path, provider, _ = _resume_preflight_live_setup(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    provider.unlink()
+    with pytest.raises(RuntimeError, match="provider_response"):
+        supervisor.observe_resume_preflight(config, provider, cleanup_path, tmp_path / "r.json")
+
+
+def test_resume_preflight_incomplete_cleanup_refused(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, cleanup_path, provider, _ = _resume_preflight_live_setup(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    pending = tmp_path / "pending-cleanup.json"
+    pending.write_text(json.dumps({"kind": "rsiflow_external_cleanup", "status": "pending",
+                                   "binding": {"run_dir": str(run), "config_hash": supervisor._sha256(config)}}))
+    with pytest.raises(RuntimeError, match="cleanup not completed"):
+        supervisor.observe_resume_preflight(config, provider, pending, tmp_path / "r.json")
+
+
+def test_resume_preflight_current_owner_alive_refused(tmp_path, supervisor, reconciler, monkeypatch):
+    config, run, paths, cleanup_path, provider, rmod = _resume_preflight_live_setup(
+        tmp_path, supervisor, reconciler, monkeypatch)
+    # sealed cleanup evidence still says exited (consumer passes), but the CURRENT owner is alive
+    monkeypatch.setattr(rmod, "_observe_owner", lambda identity, run_dir: {"state": "alive"})
+    with pytest.raises(RuntimeError, match="current owner still active"):
+        supervisor.observe_resume_preflight(config, provider, cleanup_path, tmp_path / "r.json")
+
+
 # --- R7: SFT product-level joint resume drill (controlled Meta transport) -----
 
 _RESUME_SCRIPT = '''

@@ -732,6 +732,161 @@ def _observe_preflight_locked(config_path, phase, provider_report, occupier_iden
     return value
 
 
+def _validate_resume_preflight(value, cleanup_path, *, expected_backend, run_dir, config_path, live):
+    """Shared resume-preflight contract (producer AND seal consumer). A resume receipt binds
+    a CURRENT provider 200/completed/model probe, host/boot/ns, idle GPU/ports measurement,
+    current config/run, and an existing COMPLETED external cleanup receipt whose consumer
+    recompute passes and whose current owners are all exited. No occupier running/handoff is
+    required because the resources were already cleaned. Structural checks always run; the
+    live field measurements, cleanup consumer recompute and current-owner exit re-observation
+    run when ``live`` (real mode with config_path). Never forges observations or timestamps."""
+    if value.get("stage") != "resume" or value.get("status") != "success":
+        raise RuntimeError("resume preflight receipt not a successful resume snapshot")
+    for field in REQUIRED_STAGE_FIELDS:
+        if field not in value:
+            raise RuntimeError(f"resume preflight missing field {field}")
+    if run_dir is not None and value.get("run_dir") != str(run_dir):
+        raise RuntimeError("resume preflight run_dir mismatch")
+    if config_path is not None and value.get("config_hash") != _sha256(config_path):
+        raise RuntimeError("resume preflight config_hash mismatch")
+    if (any(not isinstance(value.get(k), str) or not value[k].strip()
+            for k in ("host", "boot_id", "pid_namespace"))
+            or value.get("provider") != "gpt-6-astra"
+            or value.get("ports") != [8271, 8272, 8273, 8274]):
+        raise RuntimeError("resume preflight invalid host/provider/ports evidence")
+    try:
+        validate_gpu_inventory(value.get("gpus"))
+    except ValueError as exc:
+        raise RuntimeError("resume preflight invalid GPU evidence") from exc
+    if value.get("backend") != expected_backend:
+        raise RuntimeError("resume preflight backend mismatch")
+    cleanup_ref = value.get("cleanup_receipt") or {}
+    cleanup_path = Path(cleanup_path)
+    if cleanup_path.is_symlink() or not cleanup_ref.get("sha256") or _sha256(cleanup_path) != cleanup_ref["sha256"]:
+        raise RuntimeError("resume preflight cleanup receipt evidence missing/changed")
+    cleanup = _read_json(cleanup_path) or {}
+    if cleanup.get("kind") != "rsiflow_external_cleanup" or cleanup.get("status") != "completed":
+        raise RuntimeError("resume preflight cleanup not completed")
+    binding = cleanup.get("binding") or {}
+    if run_dir is not None and binding.get("run_dir") != str(run_dir):
+        raise RuntimeError("resume preflight cleanup run_dir mismatch")
+    if config_path is not None and binding.get("config_hash") != _sha256(config_path):
+        raise RuntimeError("resume preflight cleanup config_hash mismatch")
+    if not live:
+        return
+    # Live: current provider/GPU/ports field measurements (fresh probe, idle cards, closed ports).
+    _validate_stage_measurements(value, require_idle=True)
+    # Live: the cleanup consumer must recompute against the CURRENT run/history/owners, never
+    # trust the receipt summary alone (same contract as resume/cleanup acceptance).
+    from summarize_deepcoder_five_round import _validate_cleanup, _supervision
+    cfg = _read_json(config_path) or {}
+    cfg["_config_path"] = str(Path(config_path).resolve())
+    output_root = derive_paths(config_path)["output_root"]
+    active = _read_json(Path(run_dir) / "active_task.json") or {}
+    try:
+        _validate_cleanup(cleanup, cleanup_path, Path(run_dir), cfg, output_root,
+                          _supervision(Path(run_dir)), active)
+    except (ValueError, RuntimeError) as exc:
+        raise RuntimeError(f"resume preflight cleanup consumer recompute failed: {exc}") from exc
+    # Live: every current owner bound by the cleanup receipt must STILL be exited now.
+    from reconcile_deepcoder_run import _observe_owner
+    owners = cleanup.get("owners") or {}
+    identities = [owners[g]["identity"] for g in ("launcher", "app_server")
+                  if isinstance(owners.get(g), dict) and owners[g].get("identity")]
+    for key in ("jobs", "inference_services", "training_phases"):
+        identities += [o["identity"] for o in (owners.get(key) or []) if o.get("identity")]
+    for identity in identities:
+        if _observe_owner(identity, Path(run_dir))["state"] != "exited":
+            raise RuntimeError("resume preflight current owner still active/unknown")
+    if any(value.get(k) != v for k, v in host_identity().items()):
+        raise RuntimeError("resume preflight actual host/namespace mismatch")
+    if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != expected_backend:
+        raise RuntimeError("resume preflight actual sandbox backend mismatch")
+
+
+def _verify_resume_receipt(entry, *, expected_backend, run_dir, config_path):
+    """Seal-consumer entry point: verify the resume receipt ref/hash then the shared contract.
+    Live recompute runs only in real mode (config_path given); structural mode still binds the
+    completed cleanup receipt. Returns the resume receipt value."""
+    if not isinstance(entry, dict) or not entry.get("path") or not entry.get("sha256"):
+        raise RuntimeError("prelaunch resume receipt missing; experiment not executed")
+    path = Path(entry["path"])
+    if not path.is_file():
+        raise RuntimeError("prelaunch resume receipt path absent; experiment not executed")
+    if _sha256(path) != entry["sha256"]:
+        raise RuntimeError("prelaunch resume receipt hash mismatch; experiment not executed")
+    value = _read_json(path) or {}
+    cleanup_path = Path((value.get("cleanup_receipt") or {}).get("path", "/missing"))
+    _validate_resume_preflight(value, cleanup_path, expected_backend=expected_backend, run_dir=run_dir,
+                               config_path=config_path, live=config_path is not None)
+    return value
+
+
+def observe_resume_preflight(config_path, provider_report, cleanup_receipt, output):
+    """Operator-only CURRENT resume preflight (no occupier handoff). Resources were already
+    cleaned; this binds a fresh provider probe + idle GPU/ports + the completed cleanup receipt
+    (consumer recompute + current owners exited). Never re-runs occupier restore."""
+    import fcntl
+    with GLOBAL_GPU_LIFECYCLE_LOCK.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return _observe_resume_preflight_locked(config_path, provider_report, cleanup_receipt, output)
+
+
+def _observe_resume_preflight_locked(config_path, provider_report, cleanup_receipt, output):
+    from reconcile_deepcoder_run import _default_gpu_observer, _default_ports_observer
+    config_path, output = Path(config_path).resolve(), Path(output).resolve()
+    cleanup_receipt = Path(cleanup_receipt).resolve()
+    paths = derive_paths(config_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    def ref(path):
+        path = Path(path).resolve()
+        return {"path": str(path), "sha256": _sha256(path)}
+    gpu = _default_gpu_observer()
+    ports = _default_ports_observer()
+    gpu_path, ports_path = output.with_suffix(".gpu.json"), output.with_suffix(".ports.json")
+    write_once(gpu_path, gpu); write_once(ports_path, ports)
+    value = {"stage": "resume", "status": "success", "run_dir": str(paths["run_dir"]),
+             "config_path": str(config_path), "config_hash": _sha256(config_path), **host_identity(),
+             "backend": os.environ.get("RSIFLOW_SANDBOX_BACKEND"),
+             "gpus": [{"gpu": g["gpu"], "uuid": g["uuid"]} for g in gpu["per_gpu"]],
+             "provider": "gpt-6-astra", "ports": paths["config"]["ports"],
+             "provider_response": ref(provider_report), "gpu_observation": ref(gpu_path),
+             "ports_observation": ref(ports_path), "cleanup_receipt": ref(cleanup_receipt)}
+    _validate_resume_preflight(value, cleanup_receipt, expected_backend="linux_bwrap_seccomp_v1",
+                               run_dir=paths["run_dir"], config_path=config_path, live=True)
+    write_once(output, value)
+    return value
+
+
+def _select_preflight_receipts(stage1, stage2, resume_preflight):
+    """preflight-input receipt selection: a resume receipt replaces stage1/stage2 for resume;
+    fresh still requires BOTH stages. Mixing resume with stages, or a missing resume file, is
+    refused (no general bypass)."""
+    def ref(path):
+        path = Path(path).resolve()
+        return {"path": str(path), "sha256": _sha256(path)}
+    if resume_preflight is not None:
+        if stage1 is not None or stage2 is not None:
+            raise RuntimeError("preflight-input: resume receipt cannot be combined with stage1/stage2")
+        if not Path(resume_preflight).is_file():
+            raise RuntimeError("preflight-input: resume receipt missing")
+        return {"resume": ref(resume_preflight)}
+    if stage1 is None or stage2 is None:
+        raise RuntimeError("preflight-input: fresh requires both stage1 and stage2 receipts")
+    return {"stage1": ref(stage1), "stage2": ref(stage2)}
+
+
+def build_prelaunch_input(config_path, output, *, stage1=None, stage2=None, resume_preflight=None,
+                          reviewed_commit):
+    """Package the prelaunch evidence: reviewed commit + actual backend + the full trusted
+    asset set + the selected preflight receipts (two-stage fresh OR resume)."""
+    receipts = _select_preflight_receipts(stage1, stage2, resume_preflight)
+    write_once(output, {"reviewed_commit": reviewed_commit,
+                        "backend": os.environ.get("RSIFLOW_SANDBOX_BACKEND"),
+                        "assets": trusted_prelaunch_assets(config_path),
+                        "preflight_receipts": receipts})
+
+
 def handoff_occupier(stage1_path, output):
     import fcntl
     from reconcile_deepcoder_run import _observe_topology, _terminate_owned_group, _validate_topology
@@ -816,13 +971,16 @@ def trusted_prelaunch_assets(config_path):
 
 
 def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backend, attempt_dir,
-                          run_dir=None, config_path=None):
+                          run_dir=None, config_path=None, mode="fresh"):
     """R2/F2: verify the complete prelaunch asset/preflight seal BEFORE Popen. The required
     asset set is fixed by code (caller input cannot shrink it). Verifies reviewed commit,
-    every required asset bytes/hash, two-stage field receipts (success + run/config/host/
-    namespace/GPU/provider/ports/occupier binding, stage2 references stage1), and actual
-    backend. Missing/wrong => raise (experiment command never executes). Writes an
-    immutable prelaunch-seal.json; refuses overwrite of sealed history."""
+    every required asset bytes/hash, preflight field receipts and actual backend. Fresh mode
+    requires the original two-stage receipts (success + run/config/host/namespace/GPU/provider/
+    ports/occupier binding, stage2 references stage1); a resume receipt is refused for fresh.
+    Resume mode accepts a current resume receipt (provider/GPU/ports + completed cleanup
+    consumer recompute + current owners exited) IN PLACE OF stage1/2, or the two stages.
+    Missing/wrong => raise (experiment command never executes). Writes an immutable
+    prelaunch-seal.json; refuses overwrite of sealed history."""
     seal_path = Path(attempt_dir) / "prelaunch-seal.json"
     if seal_path.exists():
         raise RuntimeError("prelaunch seal already exists; refusing to overwrite sealed history")
@@ -847,61 +1005,77 @@ def verify_prelaunch_seal(prelaunch_evidence, *, expected_commit, expected_backe
         if _sha256(entry["path"]) != entry["sha256"]:
             raise RuntimeError(f"prelaunch asset {name} hash mismatch; experiment not executed")
     receipts = prelaunch_evidence.get("preflight_receipts") or {}
-    stage_values = {}
-    for stage in ("stage1", "stage2"):
-        entry = receipts.get(stage)
-        if not isinstance(entry, dict) or not entry.get("path") or not entry.get("sha256"):
-            raise RuntimeError(f"prelaunch {stage} receipt missing; experiment not executed")
-        if not Path(entry["path"]).is_file():
-            raise RuntimeError(f"prelaunch {stage} receipt path absent; experiment not executed")
-        if _sha256(entry["path"]) != entry["sha256"]:
-            raise RuntimeError(f"prelaunch {stage} receipt hash mismatch; experiment not executed")
-        value = _read_json(entry["path"]) or {}
-        stage_values[stage] = value
-        # F2: field receipt must be a successful, bound现场 snapshot, not just a hash.
-        if value.get("status") != "success":
-            raise RuntimeError(f"prelaunch {stage} status not success; experiment not executed")
-        for field in REQUIRED_STAGE_FIELDS:
-            if field not in value:
-                raise RuntimeError(f"prelaunch {stage} missing field {field}; experiment not executed")
-        if run_dir is not None and value.get("run_dir") != str(run_dir):
-            raise RuntimeError(f"prelaunch {stage} run_dir mismatch; experiment not executed")
-        if config_path is not None and value.get("config_hash") != _sha256(config_path):
-            raise RuntimeError(f"prelaunch {stage} config_hash mismatch; experiment not executed")
-        if (any(not isinstance(value.get(k), str) or not value[k].strip()
-                for k in ("host", "boot_id", "pid_namespace"))
-                or value.get("provider") != "gpt-6-astra"
-                or value.get("ports") != [8271, 8272, 8273, 8274]):
-            raise RuntimeError("prelaunch invalid host/provider/ports evidence")
-        try:
-            validate_gpu_inventory(value.get("gpus"))
-        except ValueError as exc:
-            raise RuntimeError("prelaunch invalid GPU evidence") from exc
-        if value.get("backend") != expected_backend:
-            raise RuntimeError(f"prelaunch {stage} backend mismatch; experiment not executed")
-    # stage2 (post-occupier) must reference the sealed stage1 receipt and confirm handoff.
-    if stage_values["stage2"].get("stage1_receipt_hash") != receipts["stage1"]["sha256"]:
-        raise RuntimeError("prelaunch stage2 does not reference stage1; experiment not executed")
-    if stage_values["stage2"].get("occupier_stopped") is not True:
-        raise RuntimeError("prelaunch stage2 occupier not stopped; experiment not executed")
-    if stage_values["stage1"].get("occupier_running") is not True:
-        raise RuntimeError("prelaunch stage1 occupier not running; experiment not executed")
-    for field in ("run_dir", "config_hash", "host", "boot_id", "pid_namespace", "gpus", "provider", "ports"):
-        if stage_values["stage1"][field] != stage_values["stage2"][field]:
-            raise RuntimeError("prelaunch stage continuity: " + field)
-    if config_path is not None:
-        validate_field_receipts(stage_values, receipts, config_path, run_dir)
-        observed_host = host_identity()
-        if any(stage_values["stage2"].get(k) != v for k, v in observed_host.items()):
-            raise RuntimeError("prelaunch actual host/namespace mismatch")
-        if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != expected_backend:
-            raise RuntimeError("prelaunch actual sandbox backend mismatch")
+    has_resume = "resume" in receipts
+    has_stages = "stage1" in receipts or "stage2" in receipts
+    if has_resume and has_stages:
+        raise RuntimeError("prelaunch ambiguous receipts (resume + stages); experiment not executed")
+    if mode == "fresh" and has_resume:
+        raise RuntimeError("fresh launch requires two-stage preflight; resume receipt refused")
+    if has_resume:
+        # Resume: a current resume receipt replaces stage1/2 (resources already cleaned). All
+        # asset/reviewed-commit/backend gates above still apply; the cleanup consumer recompute
+        # and current-owner exit checks run in real mode (config_path given).
+        resume_value = _verify_resume_receipt(receipts["resume"], expected_backend=expected_backend,
+                                              run_dir=run_dir, config_path=config_path)
+        expected_gpus = resume_value["gpus"]
+    else:
+        stage_values = {}
+        for stage in ("stage1", "stage2"):
+            entry = receipts.get(stage)
+            if not isinstance(entry, dict) or not entry.get("path") or not entry.get("sha256"):
+                raise RuntimeError(f"prelaunch {stage} receipt missing; experiment not executed")
+            if not Path(entry["path"]).is_file():
+                raise RuntimeError(f"prelaunch {stage} receipt path absent; experiment not executed")
+            if _sha256(entry["path"]) != entry["sha256"]:
+                raise RuntimeError(f"prelaunch {stage} receipt hash mismatch; experiment not executed")
+            value = _read_json(entry["path"]) or {}
+            stage_values[stage] = value
+            # F2: field receipt must be a successful, bound现场 snapshot, not just a hash.
+            if value.get("status") != "success":
+                raise RuntimeError(f"prelaunch {stage} status not success; experiment not executed")
+            for field in REQUIRED_STAGE_FIELDS:
+                if field not in value:
+                    raise RuntimeError(f"prelaunch {stage} missing field {field}; experiment not executed")
+            if run_dir is not None and value.get("run_dir") != str(run_dir):
+                raise RuntimeError(f"prelaunch {stage} run_dir mismatch; experiment not executed")
+            if config_path is not None and value.get("config_hash") != _sha256(config_path):
+                raise RuntimeError(f"prelaunch {stage} config_hash mismatch; experiment not executed")
+            if (any(not isinstance(value.get(k), str) or not value[k].strip()
+                    for k in ("host", "boot_id", "pid_namespace"))
+                    or value.get("provider") != "gpt-6-astra"
+                    or value.get("ports") != [8271, 8272, 8273, 8274]):
+                raise RuntimeError("prelaunch invalid host/provider/ports evidence")
+            try:
+                validate_gpu_inventory(value.get("gpus"))
+            except ValueError as exc:
+                raise RuntimeError("prelaunch invalid GPU evidence") from exc
+            if value.get("backend") != expected_backend:
+                raise RuntimeError(f"prelaunch {stage} backend mismatch; experiment not executed")
+        # stage2 (post-occupier) must reference the sealed stage1 receipt and confirm handoff.
+        if stage_values["stage2"].get("stage1_receipt_hash") != receipts["stage1"]["sha256"]:
+            raise RuntimeError("prelaunch stage2 does not reference stage1; experiment not executed")
+        if stage_values["stage2"].get("occupier_stopped") is not True:
+            raise RuntimeError("prelaunch stage2 occupier not stopped; experiment not executed")
+        if stage_values["stage1"].get("occupier_running") is not True:
+            raise RuntimeError("prelaunch stage1 occupier not running; experiment not executed")
+        for field in ("run_dir", "config_hash", "host", "boot_id", "pid_namespace", "gpus", "provider", "ports"):
+            if stage_values["stage1"][field] != stage_values["stage2"][field]:
+                raise RuntimeError("prelaunch stage continuity: " + field)
+        if config_path is not None:
+            validate_field_receipts(stage_values, receipts, config_path, run_dir)
+            observed_host = host_identity()
+            if any(stage_values["stage2"].get(k) != v for k, v in observed_host.items()):
+                raise RuntimeError("prelaunch actual host/namespace mismatch")
+            if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != expected_backend:
+                raise RuntimeError("prelaunch actual sandbox backend mismatch")
+        expected_gpus = stage_values["stage2"]["gpus"]
     seal = {"kind": "rsiflow_prelaunch_seal", "reviewed_commit": expected_commit,
             "backend": expected_backend, "required_assets": list(required),
             "assets": {name: assets[name] for name in required},
             "binding": {"config_path": str(config_path), "config_hash": _sha256(config_path) if config_path else None,
-                        "run_dir": str(run_dir), "supervision_attempt": Path(attempt_dir).name},
-            "host_identity": host_identity(), "expected_gpus": stage_values["stage2"]["gpus"],
+                        "run_dir": str(run_dir), "supervision_attempt": Path(attempt_dir).name,
+                        "launch_mode": mode},
+            "host_identity": host_identity(), "expected_gpus": expected_gpus,
             "preflight_receipts": receipts,
             "sealed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     write_once(seal_path, seal)
@@ -949,7 +1123,7 @@ def _launch_locked(config_path, supervision: str, *, command, timeout=DEFAULT_TI
         # R2: complete prelaunch asset/preflight seal verified BEFORE Popen.
         verify_prelaunch_seal(prelaunch_evidence, expected_commit=expected_commit,
                               expected_backend="linux_bwrap_seccomp_v1", attempt_dir=attempt_dir,
-                              run_dir=run_dir_resolved, config_path=paths["config_path"])
+                              run_dir=run_dir_resolved, config_path=paths["config_path"], mode=mode)
         _atomic_write(effective_path, effective_obj.model_dump())
         effective_hash = _sha256(effective_path)
         # Handoff and launch can be separate invocations. Recheck the actual live
@@ -1120,13 +1294,20 @@ def main(argv=None) -> int:
     observe.add_argument("--stage1")
     observe.add_argument("--stop-receipt")
     observe.add_argument("--output", required=True)
+    resume_obs = sub.add_parser("observe-resume-preflight")
+    resume_obs.add_argument("--config", required=True)
+    resume_obs.add_argument("--provider-report", required=True)
+    resume_obs.add_argument("--cleanup-receipt", required=True)
+    resume_obs.add_argument("--output", required=True)
     handoff = sub.add_parser("handoff")
     handoff.add_argument("--stage1", required=True)
     handoff.add_argument("--output", required=True)
     package = sub.add_parser("preflight-input")
     package.add_argument("--config", required=True)
-    package.add_argument("--stage1", required=True)
-    package.add_argument("--stage2", required=True)
+    package.add_argument("--stage1")
+    package.add_argument("--stage2")
+    package.add_argument("--resume-preflight",
+                         help="resume-only current preflight receipt replacing stage1/stage2")
     package.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     if args.mode == "probe-provider":
@@ -1136,16 +1317,17 @@ def main(argv=None) -> int:
         observe_preflight(args.config, args.phase, args.provider_report, args.occupier_identity,
                           args.output, stage1=args.stage1, stop_receipt=args.stop_receipt)
         return 0
+    if args.mode == "observe-resume-preflight":
+        observe_resume_preflight(args.config, args.provider_report, args.cleanup_receipt, args.output)
+        return 0
     if args.mode == "handoff":
         handoff_occupier(args.stage1, args.output)
         return 0
     if args.mode == "preflight-input":
         root = Path(__file__).resolve().parents[2]
         commit = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-        write_once(args.output, {"reviewed_commit": commit, "backend": os.environ.get("RSIFLOW_SANDBOX_BACKEND"),
-                   "assets": trusted_prelaunch_assets(args.config), "preflight_receipts": {
-                       name: {"path": str(Path(path).resolve()), "sha256": _sha256(path)}
-                       for name, path in (("stage1", args.stage1), ("stage2", args.stage2))}})
+        build_prelaunch_input(args.config, args.output, stage1=args.stage1, stage2=args.stage2,
+                              resume_preflight=args.resume_preflight, reviewed_commit=commit)
         return 0
     if args.mode == "launch":
         root = Path(args.config).resolve().parents[2]

@@ -99,6 +99,32 @@ class WebsiteTests(unittest.TestCase):
         self.assertTrue(process.get("is_snapshot"))
         self.assertIn("sequence", read_text("process.js"))
 
+    def test_process_snapshot_includes_completed_five_round(self):
+        process = read_json("data/process.json")
+        self.assertGreaterEqual(process.get("as_of_sequence", 0), 1443)
+        self.assertIn("deepcoder-five-round-final", {row.get("phase") for row in process["timeline"]})
+        self.assertIn("00001444-final_delivery_complete", {row["result_id"] for row in process["key_results"]})
+        results = {row["metric"]: row["value"] for row in process["key_results"]}
+        expected_fragments = {
+            "B1_ARTIFACTS_direct_receipts": ("parent 2/16", "candidate 3/16", "new_Qwen_calls=0"),
+            "B2_model_retain_parent_raw_receipts": ("parent=4/16 candidate=3/16", "retain_parent", "no activation"),
+            "B3_artifacts_accept_raw_receipts": ("2/16 to 3/16", "accept_candidate and activated"),
+            "B4_artifacts_accept_raw_receipts": ("2/16 to 3/16", "accept_candidate/activated"),
+            "five_round_engineering_complete": ("completed_rounds=5", "run_complete=true", "B5 4→5 accept ARTIFACTS"),
+            "final_full_suite_and_delivery_gate": ("1031 passed, 2 skipped", "Ready Yes"),
+        }
+        for metric, fragments in expected_fragments.items():
+            self.assertIn(metric, results)
+            for fragment in fragments:
+                self.assertIn(fragment, results[metric])
+        run = process["runs"][-1]
+        self.assertEqual("deepcoder_function_16_five_round_workspace_v1", run["run_id"])
+        self.assertEqual("run_complete", run["status"])
+        self.assertEqual(5, run["completed_rounds"])
+        self.assertEqual(16, run["unique_tasks"])
+        self.assertEqual(2, run["initial_successes"])
+        self.assertEqual(5, run["final_successes"])
+
     def test_protocol_and_gpu_facts_match_source(self):
         protocol = self.repository.get("protocol", {})
         self.assertEqual(5, protocol.get("rounds"))
@@ -130,7 +156,8 @@ class WebsiteTests(unittest.TestCase):
             self.assertIsNotNone(by_id[identifier]["evidence"])
         self.assertEqual("297 passed, 2 skipped", by_id["offline_tests"]["test_counts"])
         self.assertEqual("156 passed", by_id["offline_tests"]["focused_counts"])
-        self.assertEqual("historical_precheck_current_694_check_pending", by_id["launch_preflight"]["status"])
+        self.assertEqual("current_694_launch_check_passed_other_gates_remain", by_id["launch_preflight"]["status"])
+        self.assertEqual("reproduction/audit/daily/2026-11-16.md", by_id["launch_preflight"]["evidence"])
         self.assertEqual("legacy_landlock_unavailable_bwrap_validated", by_id["sco_gpu_probe"]["status"])
         self.assertEqual("completed_gpu_diagnostic_only", by_id["model_service_smoke"]["status"])
         self.assertEqual("completed_real_codex_bwrap_resume_smoke", by_id["meta_api_smoke"]["status"])

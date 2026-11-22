@@ -7,15 +7,18 @@
 - `index.html`：核心中文展示，禁用 JavaScript 也可阅读。
 - `styles.css`：响应式布局、键盘焦点和 reduced-motion 支持。
 - `app.js`：导航当前位置与命令复制，不加载动态实验结果。
+- `process.html`、`process.js`：操作时间线、关键结果和真实 run 快照。
 - `data/repository.json`：commit、模块、协议、GPU 和有效 SFT 等源码事实。
-- `data/reproduction.json`：后续实验阶段状态；当前全部为 `not_run_pending_approval`。
-- `REPRODUCTION.md`：后续完整复现命令与停止条件，命令未执行。
+- `data/reproduction.json`：实验阶段状态；当前固定 16 条单域五轮已完成，正式五域和独立评估仍未运行。
+- `data/process.json`：由主 checkout 审计账本生成的脱敏静态快照，更新后需重新生成。
+- `REPRODUCTION.md`：完整复现命令、已接受证据与停止条件。
 - `ENVIRONMENT.md`：本机观察和 SCO 资源建议。
 - `ASSETS.md`：外部资产、许可证/hash 要求与缺口。
-- `RESULTS.md`：本次实际交付和验证结论。
+- `RESULTS.md`：实际交付和验证结论。
 - `OPERATIONS.md`：追加式操作 ledger，包含失败与决策。
-- `tests/test_web.py`：事实、结构、链接、状态和凭据安全测试。
-- `logs/`：本地 HTTP/cpolar 运行日志与 PID，不包含认证配置。
+- `tests/test_web.py`：事实、结构、链接、状态、五轮快照和凭据安全测试。
+- 仓库学习专题位于 `reproduction/STUDY_GUIDE.md`，不作为静态站的单独公开文件。
+- 原始 HTTP/cpolar 日志与 PID 位于公开根目录外的 `web-runtime/logs/`。
 
 ## 验证
 
@@ -32,29 +35,26 @@ node --check web/app.js
 
 ```bash
 cd /data/wuxuecheng/Hierarchical_level/RSI-Flow
-python3 -m http.server 8000 --bind 127.0.0.1 --directory web
+python3 -m http.server 18000 --bind 127.0.0.1 --directory web
 ```
 
-若 8000 被占用，使用 18000，并同步替换下方命令。服务只监听回环地址，公网入口由 cpolar 提供。
+服务只监听回环地址。当前公网入口不再依赖随机 cpolar 地址，而是通过共享 webshow 站点发布。
 
-## cpolar 发布
+## webshow 发布
 
-```bash
-cpolar http 8000 -log=stdout -log-level=INFO
-```
+共享固定入口为 `https://webshow.vip.cpolar.top`，其既有静态服务监听 `127.0.0.1:9900`。本次通过 `/data/wuxuecheng/ace-wam/webshow/rsiflow` 指向主工作树 `web/` 的挂载发布，公开路径为 `https://webshow.vip.cpolar.top/rsiflow/`。
 
-通常从 `http://127.0.0.1:4040/api/tunnels` 获取 HTTPS `public_url`。本机既有配置可能改用其他 inspect 端口：本次实际 web interface 为 `127.0.0.1:4048`，其 API 返回空响应，因此以 `web-runtime/logs/cpolar.log` 中 `Tunnel established at https://...` 为准，并用真实公网请求验收。不要把 authtoken 写入命令、文件或网页。临时公网地址可能在隧道重启后变化，应以当前隧道日志和 `RESULTS.md` 为准。
+新增挂载前必须确认目标不存在且来源确为本仓库 `web/`；不要覆盖已有链接或目录，不要重启、停止或修改共享静态服务及其 cpolar 隧道。挂载后用真实公网请求验收首页、过程页、JS、CSS 和 JSON。不要把 authtoken、原始隧道日志或 client metadata 放入公开根目录。
 
 ## 停止与重启
 
-先核对 PID 文件对应的命令行确实是本网站的 `http.server` 或 `cpolar http <port>`，再停止：
+只停止本任务拥有的本地 HTTP 服务。先核对 PID 文件对应的命令行确实是本网站的 `http.server 18000`，再停止：
 
 ```bash
 kill "$(cat web-runtime/logs/http-server.pid)"
-kill "$(cat web-runtime/logs/cpolar.pid)"
 ```
 
-重启时使用上面的启动命令，并重新记录 PID、日志和公网 URL。不要使用模糊进程匹配，以免影响其他服务。
+重启后重新记录 PID、日志和本地验证结果。共享 webshow 的静态服务与 cpolar 隧道不属于本网站专有进程，不使用这里的 PID 文件或模糊进程匹配停止它们。当前服务归属与历史入口见 `RESULTS.md`。
 
 ## 内容更新规则
 
@@ -64,3 +64,4 @@ kill "$(cat web-runtime/logs/cpolar.pid)"
 4. 更新后运行完整网站测试、JS 语法检查、本地与公网 HTTP 验证。
 5. 公开前检查所有文本和日志，不加入凭据、私有轨迹、原始数据集或 checkpoint。
 6. 重要操作追加到 `OPERATIONS.md`，最终结论同步到 `RESULTS.md`。
+7. 审计账本或 `runs.json` 更新后，用 `reproduction/scripts/build_status.py` 从主 checkout 审计根重建 `data/process.json`，并运行五轮快照契约测试。

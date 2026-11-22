@@ -29,6 +29,7 @@ RSI-Flow 用持久化 Meta agent 迭代改进 Task agent。Task 状态由模型 
 - `third_party/`：评测工具与 Codex provenance；保留对应许可证和 notices。
 - `reproduction/PROGRESS.md`、`reproduction/REPRODUCTION.md`：复现进度与显式 bwrap 隔离/smoke 手册（命令与已接受证据）。
 - `reproduction/RETROSPECTIVE.md`：本次调研、隔离修复、SCO 排障与交付复盘——阶段历程与 ruling、真实证据与计数归属、失败根因（区分已确认根因与外部 provider/控制面故障）、可复用经验、五轮前置门与追踪方式。
+- `reproduction/STUDY_GUIDE.md`：面向新同学的学习专题入口，提供分层路线、代码阅读顺序、真实五轮案例、证据核验和离线练习；新增实验时同步更新对应章节与导航。
 - `reproduction/LEARNING.md`：持续维护的 Task/Meta 机制学习问答与完整流程图；后续学习结论按主题更新，代码机制变化时与正文、图示和维护日志同步修订，不冒充实验结果报告。
 - `reproduction/audit/`：追加式 `operations.jsonl`/`key_results.jsonl`、`daily/`、`reviews/`、`evidence-hashes.json` 与 release 对账文件。**审计单根在主 checkout**；其他工作树内的同名账本可能已分叉（同号 sequence 不同语义），引用前需逐条对账，禁止覆盖或拼接。
 - `reproduction/scripts/`：`audit_exec.py`/`record_operation.py`/`record_result.py` 审计包装、`build_status.py` 过程页快照、`install_bwrap.py` 与各最小 smoke 入口。
@@ -150,7 +151,8 @@ cd RSIFlow
 PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
 cd ..
 
-# 当前 694 配置预检仍是五轮前门槛，尚未通过。必须显式传绝对机器配置并使用 rsiflow 解释器；
+# 当前 694 配置 --check 已于 2026-11-16 实测 exit 0（关键结果 00001277-current_694_launch_check）。
+# 该配置预检仍是正式五域五轮前门槛之一；后续配置变化后须重新执行，并显式传绝对机器配置、使用 rsiflow 解释器；
 # 裸 `python RSIFlow_4B/launch.py --check` 会落到 RSIFlow/configs/train_4b.json 占位配置（skip_acebench=false、eval744、v1），不能证明 694。
 /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python RSIFlow_4B/launch.py \
   --config /data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/train_4b.json --check

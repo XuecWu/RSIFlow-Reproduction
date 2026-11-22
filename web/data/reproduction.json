@@ -316,8 +316,8 @@
     },
     {
       "id": "launch_preflight",
-      "status": "historical_precheck_current_694_check_pending",
-      "evidence": "reproduction/audit/reviews/custom-provider-main.md"
+      "status": "current_694_launch_check_passed_other_gates_remain",
+      "evidence": "reproduction/audit/daily/2026-11-16.md"
     },
     {
       "id": "frozen_data",

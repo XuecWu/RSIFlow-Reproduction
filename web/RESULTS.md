@@ -4,12 +4,13 @@
 
 - 源码调研：已完成，上游调研基线 `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。
 - **已合并、已备份**：隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入 `reproduction/4b-main8`。**合并与初次备份点为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`），推送当时 `ls-remote` 两个远端复现分支同为该 SHA。承载本次发布文档更新的提交在该点**之后**由主 agent 纳入后续文档提交，因此**当前分支 HEAD 与远端 SHA 一律以 `git log` / `git ls-remote` 实测为准**，本文不写死后续 SHA。**当前不再是"只本地 commit、未 push"状态。**
-- 远程与备份边界：`origin` 仍是 GitHub 上游且未向其推送；`gitlab` 指向内部项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow 。GitLab 既有 `main` 仍为 `0c47d98df09327ba09f4fad9aaa9914837ffa280`，与本地历史无共同提交，**未强推、未覆盖、未建 MR**；GitLab CI 未验证。
+- 远程与备份边界：`origin` 仍是 GitHub 上游且未向其推送；`gitlab` 指向内部项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow 。GitLab `main` 的合并前基线为 `0c47d98df09327ba09f4fad9aaa9914837ffa280`，与本地历史无共同提交；其后已通过合并提交接入复现交付，本次更新前实测为 `16e75f5529fdd3e9a950096ef5f26d7ce9cf2087`。**未强推、未覆盖历史、未建 MR**；GitLab CI 未验证。最新 SHA 以 `git ls-remote` 实测为准。
 - 当前范围：Qwen3-4B、公开数据同协议重构、Meta `OpenAI/gpt-6-astra`。正式实验规划仍为主分区 8×A800 仅用 GPU 0–3。
 - **固定同一 16 条 DeepCoder function 的单域五轮及 B2 positive-only SFT 已完成；正式五域五轮和最终 694/744 评估仍未运行，没有独立模型 benchmark 分数。ACE 50、8B 和持久正式 Qwen 服务也未启动。**
-- **公网首页：** https://75f371f2.r61.cpolar.top
-- **过程审计：** https://75f371f2.r61.cpolar.top/process.html
+- **公网首页：** https://webshow.vip.cpolar.top/rsiflow
+- **过程审计：** https://webshow.vip.cpolar.top/rsiflow/process.html
 - **本地地址：** http://127.0.0.1:18000/ （由主工作树 `web/` 提供）
+- 学习专题：`reproduction/STUDY_GUIDE.md`（分层学习路线、代码阅读顺序、真实五轮案例、证据核验与离线练习）。
 - 交付复盘：`reproduction/RETROSPECTIVE.md`（历程、ruling、真实证据、失败根因、经验与五轮前置门；已通过独立复审）。
 
 ## 已验证的准备结果
@@ -77,12 +78,13 @@
 
 ## 运行服务
 
-当前服务（HTTP 于 2026-11-16 恢复；cpolar 原进程于 2026-11-17 重连，源目录为主工作树 `web/`）：
+当前服务（2026-11-20 改挂共享 webshow 固定域名，源目录为主工作树 `web/`）：
 
 | 服务 | 后台任务 | PID | 地址 | 原始日志（不公开） |
 | --- | --- | ---: | --- | --- |
-| 静态 HTTP | `bash-8s79760l` | 3697240 | `127.0.0.1:18000` | `web-runtime/logs/http-server.log` |
-| cpolar | `bash-be8pblb5` | 3697621 | `https://75f371f2.r61.cpolar.top` | `web-runtime/logs/cpolar.log` |
+| 本地静态 HTTP | `bash-8s79760l` | 3697240 | `127.0.0.1:18000` | `web-runtime/logs/http-server.log` |
+| 共享 webshow 静态服务 | 既有服务，非本会话启动 | 2721517 | `127.0.0.1:9900/rsiflow/` | 既有服务，本次未修改 |
+| 共享 webshow cpolar | 既有隧道，非本会话启动 | 4081489 | `https://webshow.vip.cpolar.top/rsiflow/` | 既有隧道，本次未修改 |
 
 历史服务（**已停止，仅留档，不可作为当前入口**）：
 
@@ -90,5 +92,7 @@
 | --- | --- | ---: | --- | --- |
 | 静态 HTTP | `bash-38l47xmz` | 2157843 | `127.0.0.1:18000`（源为最终审阅工作树） | 会话关闭后终止 |
 | cpolar | `bash-09cysqyj` | 2000586 | `https://5340b001.r36.cpolar.top` | 会话关闭后终止，旧 URL 返回 404 |
+| 随机域名 cpolar | `bash-be8pblb5` | 3697621 | `https://75f371f2.r61.cpolar.top` | 2026-11-20 停止；重连后随机地址变化，旧 URL 404 |
+| 普通子域临时 cpolar | `bash-b44n2rdl` | 3319891 | `webshow.cpolar.top` | 2026-11-20 停止；未建立隧道，未替换既有站点 |
 
-更早的 `https://4a63b603.r36.cpolar.top`、`https://49a63412.r36.cpolar.top` 及对应 PID 同样只是历史入口。cpolar 临时地址会变化，进程重启后必须重新读取实际 URL 并重新实测，不能沿用旧地址。公开目录仅包含脱敏静态页面；原始操作证据和私有轨迹不放入 web 根目录。
+更早的 `https://4a63b603.r36.cpolar.top`、`https://49a63412.r36.cpolar.top` 及对应 PID 同样只是历史入口。当前固定入口通过 `/data/wuxuecheng/ace-wam/webshow/rsiflow` 到主工作树 `web/` 的挂载发布，共享站点其他路径和既有隧道均未修改。公开目录仅包含脱敏静态页面；原始操作证据和私有轨迹不放入 web 根目录。

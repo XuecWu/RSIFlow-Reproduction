@@ -247,3 +247,38 @@
 - 随后用户明确授权直接启动。主 agent 重新实测四卡无 compute app、每卡 1 MiB 后，在 `tmux` 会话 `rsiflow-idle-occupier` 中执行 `bash run.sh --mem-mb 2500 --log-interval 20`。四个 rank 均持续训练，日志各约 2519 MB，`nvidia-smi` 各约 3085 MiB、46–48% 利用率；日志为 `/data/wuxuecheng/z-occupier-ready/runtime/dev4/tmux-occupier-20261119.log`。这是 cleanup 后独立资源操作，不伪造自动恢复 receipt。
 - 限制：ENOENT/EAGAIN 与零调用重叠限制归因；ARTIFACTS 不是 Task policy 改进，B2 SFT 不是模型质量结果。没有正式五域 3000、held-out、694/744、独立 benchmark、作者复现或通用能力结论。
 - 新建 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`，同步 `AGENTS.md`、`reproduction/PROGRESS.md`、`reproduction/REPRODUCTION.md`、`web/data/reproduction.json` 和 `web/RESULTS.md`。最终修复后完整套件为 **1031 passed, 2 skipped in 723.43s**，exit 0；主 agent 另复核 21 个终审专项测试、真实最终汇总 SHA256 不变、网站 11/11、node/JSON/diff-check、密钥形态零命中和合并前 10 个 HTTP 资源全部 200。独立 scoped re-review 为 Ready=Yes、Critical/Important=0。详见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。
+
+
+## 2026-11-20
+
+### RSI-Flow 挂载到共享 webshow 固定域名
+
+- 用户报告旧公网入口 404。实测本地 `http://127.0.0.1:18000/` 为 200，而 `https://75f371f2.r61.cpolar.top/` 为 404；原 cpolar 日志显示随机域名在重连后已切换为其他地址，确认旧随机入口失效，网页源文件和本地 HTTP 服务没有故障。
+- 停止原随机域名 cpolar 任务 `bash-be8pblb5` / PID `3697621`。随后尝试普通 `-subdomain=webshow`，任务 `bash-b44n2rdl` / PID `3319891` 已认证但未建立隧道；实测该普通域名已有 ACE-WAM 内容，因此停止此临时任务，不继续占用或替换该站点。
+- 查明用户所指共享固定入口实际为 `https://webshow.vip.cpolar.top`，由既有 cpolar PID `4081489` 转发到既有静态服务 PID `2721517` 的 `127.0.0.1:9900`。未重启或修改这两个既有服务。
+- 新增挂载 `/data/wuxuecheng/ace-wam/webshow/rsiflow` -> `/data/wuxuecheng/Hierarchical_level/RSI-Flow/web`，公开路径为 `https://webshow.vip.cpolar.top/rsiflow/`。共享站点的其他路径保持不变。
+- 本地共享服务与公网 `/rsiflow/` 均返回 200；公网首页 SHA256 与主工作树 `web/index.html` 一致，为 `3ae55e4861cb6f9f33c2130a93757e7ea99e35ed8754ede260c3c67d99560109`。
+- 公网 `/`、`/process.html`、`/styles.css`、`/app.js`、`/data/repository.json`、`/data/reproduction.json`、`/REPRODUCTION.md`、`/RESULTS.md`、`/README.md`、`/OPERATIONS.md` 共 10 个资源均返回 200。
+- 一次额外 JSON 内容断言误用了未在该公开 JSON 中发布的完整 run 路径而失败；随后按实际 schema 改验 `deepcoder_five_round.run_complete=true`、`completed_rounds=5` 和 `protocol_complete=true`。该断言失败不影响上述 HTTP 与首页一致性证据。
+- 已同步 `web/RESULTS.md` 与 `reproduction/PROGRESS.md` 的当前入口。原始日志仍位于公开根目录外的 `web-runtime/logs/`；本次未运行实验、未提交或推送 Git。
+
+
+### 过程页同步真实五轮结果
+
+- 用户指出过程页“关键结果与证据”顶部仍是早期 `final-independent-review`。核实 `web/data/process.json` 为 2026-11-15 静态快照：1140 operations、101 results、sequence 1257；`web/process.js` 会渲染全部关键结果，但后续五轮尚未进入快照。
+- 新增 `test_process_snapshot_includes_completed_five_round`，要求公开快照包含 B1–B5、B2 retain/not activated、五轮完成、1031/2 最终套件和真实 run 元数据。RED 实测：`1257 not greater than or equal to 1443`。
+- 在 `reproduction/audit/runs.json` 保留早期诊断 run，并追加真实 `deepcoder_function_16_five_round_workspace_v1`：固定 16 个唯一任务、5 轮、80 rollout positions、初始 2/16、最终 5/16、B2 MODEL 未激活、最终为 base Qwen3-4B + 四个累计 ARTIFACTS；最终汇总 SHA256 沿用已接受证据 `3675d1fa07892afd879838d84bf253787322fa30058f7b12cfea3e4ed134d671`。
+- 使用既有生成器从**主 checkout 审计根**重建 `web/data/process.json`：`1282 operations / 145 results / sequence 1443`。新增专项测试 GREEN；完整网站套件与公网核验见下方最终验证记录。
+- 同步更新 `reproduction/RETROSPECTIVE.md` 的当前快照和测试计数说明。本次只更新公开数据、运行元数据、测试与文档，不重跑实验、不修改生产控制流、不提交或推送 Git。
+- 最终验证：website **12/12 OK**；`node --check web/app.js` 与 `web/process.js`、两个 JSON 解析和 scoped `git diff --check` 均通过。公网过程页、process.js、process.json、首页、RESULTS、OPERATIONS 均为 HTTP 200；公网 process.json 的 1282/145/sequence 1443、B1–B5、1031/2、真实 run 与 2/16→5/16 语义断言全部 PASS。
+
+
+### 学习专题与五轮证据 GitLab 归档（2026-11-22）
+
+- 用户批准在现有 `reproduction/4b-main8` 上执行，不新建分支；完成后快进 five-round 并合入内部 GitLab main。
+- 新增 `reproduction/STUDY_GUIDE.md`：20 分钟/60–90 分钟/半天学习路线、Task/Meta 机制、真实 B1–B5、复现历程、代码阅读顺序、证据核验、结果边界与离线练习。
+- 根 README、LEARNING v0.5、AGENTS、PROGRESS、web README/RESULTS 已同步学习入口和当前状态；新文档相对链接无缺失。
+- 审查 91 个原未跟踪审计文件：84 个原始证据/审阅文件纳入，7 个含完整 provider Responses 的 probe 不入库；保留原件 SHA256 并生成脱敏状态摘要。归档清单为 `reproduction/audit/evidence/five-round-evidence-archive-20261122.json`。
+- 主审计 operation `1445` 已记录；最终验证、独立复核、提交与远端回读在完成后记录。本次没有重跑实验或调用 GPU/Meta API。
+- 独立 agent-65 全量复核：Critical=0、Important=3、Minor=2，初始 Ready=With fixes。已修正 RETROSPECTIVE 的五轮/SFT 当前口径、RESULTS 的旧 GitLab main 和 AGENTS/RETROSPECTIVE/reproduction.json 的 694 `--check` 旧状态；两项 Minor  deferred，报告为 `reproduction/audit/reviews/study-guide-delivery-review-20261122.md`。
+- 主审计已追加 operation `1446` 与关键结果 `00001447-study_guide_and_evidence_archive`。修复后 website 12/12、JS/JSON/diff-check 通过；最终 process 快照按新账本重新生成。

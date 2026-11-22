@@ -1,9 +1,10 @@
 # RSI-Flow 学习笔记：Task / Meta 双层改进闭环
 
-- 版本：v0.4
-- 整理日期：2026-11-17
-- 代码基线：`a74cf95c77ab197ab8f3e924984bb3d1dcb4a05b`（`reproduction/4b-preflight`；本次真实结果发布不改生产代码）
+- 版本：v0.5
+- 整理日期：2026-11-22
+- 代码基线：`9dd6b1dd68ed2e0bd190c491b256313a1721a641`（`reproduction/4b-main8`；本次学习文档更新不改生产代码）
 - 适用范围：当前仓库的 4B、skill-based variant；不是对未发布变体或未来实现的泛化描述。
+- 系统学习入口：`reproduction/STUDY_GUIDE.md`；本文继续承担 Task/Meta 机制连续问答。
 
 ## 文档目的与维护约定
 
@@ -433,7 +434,13 @@ A0 保存初始状态（不做 baseline validation）
 
 这个 canary 不是五轮、3000 任务或最终 694/744，也不产生独立 benchmark 分数。**真实受限闭环现已完成**：Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 3/16=0.1875→4/16=0.25，delta +0.0625，并完成 accept/activate、skills/context/snapshot 和 cleanup。
 
-结果必须连同限制一起理解：4 个新成功伴随 3 个回归，原 3 个成功全部回归；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败，过程异常使 Harness 因果归因受限。MODEL 未选择，SFT 未运行；五轮、694/744、独立 benchmark 和作者原始实验复现仍未运行。当前完整离线套件为 **522 passed, 2 skipped**。执行与证据要求见 `reproduction/audit/reviews/deepcoder-canary-runbook.md`，真实结果见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。
+结果必须连同限制一起理解：4 个新成功伴随 3 个回归，原 3 个成功全部回归；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败，过程异常使 Harness 因果归因受限。该单轮 canary 的 MODEL 未选择、SFT 未运行；522 passed/2 skipped 是当时的历史测试计数。执行与证据要求见 `reproduction/audit/reviews/deepcoder-canary-runbook.md`，真实结果见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。
+
+### 8.2 后续独立单域五轮已经完成
+
+在上述单轮 canary 之后，另一个独立 run 已在**同一批 16 条** DeepCoder/TACO function 上完成 A0+B1–B5：B1/B3/B4/B5 的 ARTIFACTS 均获接受并激活，B2 MODEL 真实完成 20 samples、4 ranks、1 epoch、3 optimizer steps 的 positive-only SFT，但因 4/16→3/16 而 retain_parent、未激活。最终 active 为 base Qwen3-4B + 四个累计 artifacts，固定批总体口径为 2/16→5/16。
+
+这是 80 rollout positions、16 个唯一任务的单域工程闭环，不是正式五域 3000、held-out、694/744 或作者原始实验复现。五轮功能工作树最终完整离线套件为 **1031 passed, 2 skipped**；逐轮证据和限制见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`，学习入口见 `reproduction/STUDY_GUIDE.md`。
 
 ## 9. 数据与证据边界
 
@@ -442,7 +449,7 @@ A0 保存初始状态（不做 baseline validation）
 - 独立最终评估只用于报告，不进入训练、候选接受或 Meta 经验学习。
 - 当前数据属于公开数据的同协议重构，不能直接宣称精确复现作者原始任务队列或报告分数。
 - Meta 经验增长、离线测试通过、工具返回 completed，都不等于正式能力增益。
-- 当前文档解释代码机制，不代表五轮正式演化、正式 SFT 或最终评估已经完成。
+- 当前文档解释代码机制；真实五轮状态以本节和结果报告为准，不能把单域工程完成扩张解释为正式五域或最终评估完成。
 
 ## 10. 推荐代码阅读顺序
 
@@ -456,6 +463,12 @@ A0 保存初始状态（不做 baseline validation）
 8. `reproduction/configs/train_4b_v5.json`：当前机器配置，包括空的技能种子设置。
 
 ## 11. 维护日志
+
+### v0.5 — 2026-11-22
+
+- 新增 `reproduction/STUDY_GUIDE.md` 作为系统学习入口，本文继续维护机制问答。
+- 补充独立单域五轮已经完成、B1–B5 决策、B2 SFT 未激活和最终 2/16→5/16 的准确口径。
+- 保留单轮 canary 与旧测试计数的历史语义；正式五域、held-out、694/744 和作者原始实验复现仍未运行。
 
 ### v0.4 — 2026-11-17
 

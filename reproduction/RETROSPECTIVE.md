@@ -246,14 +246,14 @@ ordinal 1: http_status=200, completed=False, error_type=ValueError,
 
 ### 5.1 明确未运行 / 未验证
 
-- **未运行**：五轮演化（A0 + B1–B5）、SFT、最终 694/744 评估、ACE 50、8B 全流程、正式 Qwen 四卡服务。**没有任何模型 benchmark 分数。**
+- **后续已完成**：固定同一 16 条 DeepCoder function 的单域五轮（A0+B1–B5）及其中 B2 positive-only SFT 已完成，B2 候选因 4/16→3/16 未激活；最终 active 为 base Qwen3-4B + 四个累计 artifacts。**截至 2026-11-22 仍未运行**：正式五域 3000-task 五轮、最终 694/744 评估、ACE 50、8B 全流程和持久正式 Qwen 四卡服务。**没有任何独立模型 benchmark 分数。**
 - **未验证**：Codex native-shell descendant hygiene。当前只有 `shell_tool=false` 的 construction-level gate；要关闭该缺口需另行批准 inner/outer sandbox 设计，不得放宽 seccomp 或使用 `danger-full-access`。
 - **未重跑**：EvalPlus 在 `313b6bc` 及最终 HEAD；BFCL/Candidate 的历史 accepted 证据属各自 commit，最终 A100 gates 已覆盖 candidate/Harness/BFCL/Meta 受影响路径。
 - **未解决**：A800 启动前失败与两次 SUSPENDED 的控制面根因；不存在 A800 Meta pass。
 - **保留 Minor**：非 UTF-8 `installation_id` 的异常类型（`RSIFlow/launch_meta.py:186-193`，诊断性）；十项 deferred minor 已 triage 为可接受延后，其中值得后续处理的包括：negative 矩阵应要求精确命名键集、returncode -9/scratch 清理不直接证明所有内层后代退出、外层 smoke 输入/配置/JSON 错误应结构化而非 traceback、异常 `thread.start` 失败可能泄漏 RPC FD、persistent-mount 缺专用真实探针、dynamic-tool completion 事件未逐个按 call ID/tool/arguments hash fail-closed 匹配、共享 `codex_host.toml` 的 shell 关闭可改为 smoke-private 模板。
 - **Ruff**：18 个既有 legacy findings，未做无关 lint 重写，不宣称 clean。
 - **数据保留意见**：`clean_independence_audited=false`、`exposure_unknown`、`reconstructed-v1`、EnvScaler 191 个共享环境定义（上游 `failed_overlap`）、两次隔离重建历史。这些必须随 `frozen_data` 一起公开，不能只写 completed。
-- **配置预检**：`launch_preflight` 当前状态是 `historical_precheck_current_694_check_pending`，当前 694 配置的 `--check` 尚未在本轮重新执行。
+- **配置预检**：当前 694 配置的 `--check` 已于 2026-11-16 实测 exit 0（关键结果 `00001277-current_694_launch_check`）；公开状态为 `current_694_launch_check_passed_other_gates_remain`。该检查不证明完整 694 协议、GPU、API、评测器或正式五域五轮已通过，后续配置变化后仍须重新执行。
 
 ### 5.2 五轮前四道强制门（缺一不可）
 
@@ -320,8 +320,8 @@ aa912b0 feat: isolate persistent Codex with credential-free relay
 ### 6.4 网页与公开交付
 
 - `web/data/reproduction.json`：阶段状态、`remaining_experiment_gates`、`not_run`、`blocking_decisions`、`bwrap_isolation.final_a100_gates`（combined FAILED + 三阶段 exit 0 + Meta retry SUCCEEDED + `root_mapping=false` + EvalPlus 未重跑）。
-- `web/data/process.json`：由 `python3 reproduction/scripts/build_status.py --audit-root <主 checkout audit> --output web/data/process.json` 生成的**静态快照**，带 `generated_at`、`as_of_sequence`、`is_snapshot`、`snapshot_note`；当前快照 1140 operations / 101 results / sequence 1257，之后有新操作需重新生成。
-- `web/tests/test_web.py` 11 项契约把公开口径钉死：297/156 计数、combined 整体 FAILED 与三阶段 exit 0、Meta retry SUCCEEDED/worker Succeeded、`root_mapping=false`、生产 0644/owner 不变量、EvalPlus 未在 `313b6bc` 重跑、host OpenAI 与另行批准的 ACE 用户模拟凭据区分、secret scan 与 raw-log/client-metadata 不公开。
+- `web/data/process.json`：由 `python3 reproduction/scripts/build_status.py --audit-root <主 checkout audit> --output web/data/process.json` 生成的**静态快照**，带 `generated_at`、`as_of_sequence`、`is_snapshot`、`snapshot_note`；2026-11-20 已从主审计根重建为 1282 operations / 145 results / sequence 1443，包含真实五轮与最终交付结果，之后有新操作仍需重新生成。
+- `web/tests/test_web.py` 12 项契约把公开口径钉死：297/156 历史计数、五轮 B1–B5 与 1031/2 最终结果、combined 整体 FAILED 与三阶段 exit 0、Meta retry SUCCEEDED/worker Succeeded、`root_mapping=false`、生产 0644/owner 不变量、EvalPlus 未在 `313b6bc` 重跑、host OpenAI 与另行批准的 ACE 用户模拟凭据区分、secret scan 与 raw-log/client-metadata 不公开。
 - **历史发布入口与历史 PID（写作时已不可用，不是当前入口）**：公网 `https://5340b001.r36.cpolar.top` 及其 `/process.html`、本地 `http://127.0.0.1:18000/`，以及 HTTP PID `2157843`、cpolar PID `2000586`，全部只是 **2026-11-15 交付当时**的入口与进程号。
   - 写作时只读核对：`ps -p 2157843` 与 `ps -p 2000586` 均**进程不存在**；`curl -m 4 http://127.0.0.1:18000/` 返回 **`http_code=000`（不可达）**。因此本文不得把它们写成当前可用服务，`web/RESULTS.md`/`web/OPERATIONS.md` 中的同名 URL/PID 也应读作历史交付记录。
   - cpolar 临时地址本身会变化，即使进程恢复，旧 URL 也不保证有效；**当前无可用公开入口**。

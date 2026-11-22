@@ -8,6 +8,10 @@ The framework connects Task improvement with Meta experience. Each attempt contr
 
 This repository contains the Task runtimes, Meta controllers, harness-generation templates, skill-memory tools, experiment configurations, and evaluation interfaces. The released workflows cover tool use, code generation, and multi-hop question answering. Model checkpoints, datasets, retrieval indexes, and API credentials are supplied separately.
 
+## Reproduction Learning Guide
+
+面向新同学的中文学习入口见 [RSI-Flow 学习专题](reproduction/STUDY_GUIDE.md)：包含 Task/Meta 机制、代码阅读顺序、真实单域五轮结果、复现过程、证据核验方法和离线练习。机制连续问答见 [LEARNING.md](reproduction/LEARNING.md)，当前进度见 [PROGRESS.md](reproduction/PROGRESS.md)。
+
 ## Repository Structure
 
 ```text

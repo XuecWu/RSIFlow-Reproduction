@@ -1,0 +1,3986 @@
+{
+  "schema_version": 3,
+  "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+  "expected_rounds": 5,
+  "completed_rounds": 5,
+  "trusted_config": true,
+  "protocol_complete": true,
+  "protocol_complete_blockers": [],
+  "launcher_exited": true,
+  "external_cleanup": {
+    "status": "completed",
+    "ok": true,
+    "blockers": [],
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0008/external-cleanup/obs-64d0d9fd40a6/receipt.json",
+    "sha256": "2edb6da598746c0c2905af7bb901565669656b597c6d347ad41ce8f09c79c621"
+  },
+  "run_complete": true,
+  "run_complete_blockers": [],
+  "rounds": [
+    {
+      "round": 1,
+      "component": "ARTIFACTS",
+      "attempt_count": 1,
+      "selection": {
+        "selection": "accept",
+        "component": "ARTIFACTS",
+        "round": 1,
+        "attempt": 1,
+        "before": 0.125,
+        "after": 0.1875,
+        "delta": 0.0625,
+        "paired_tasks": 16,
+        "same_id_set": true,
+        "source_hash_mismatches": 0,
+        "new_success": 1,
+        "new_regression": 0,
+        "rationale": "Complete paired positive gain. Direct-submission protocol explicitly measures Meta output repair, not independent policy gain.",
+        "comparison_receipt": "meta_session/turns/0068/receipt.json",
+        "differences": "round_1/attempts/attempt_1/task_differences/summary.json"
+      },
+      "activated": true,
+      "terminal": true,
+      "products_complete": true,
+      "product_blockers": [],
+      "parent": {
+        "denominator": 16,
+        "successes": 2,
+        "macro_success": 0.125,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "bac88fd991813222a04812ceb6dd3c6491f7c08d391816e170ac42a475a29ca7"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 87,
+        "transport_calls": 87,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 2
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 9,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 9,
+            "enoent": 2,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 2,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 87
+      },
+      "candidate": {
+        "denominator": 16,
+        "successes": 3,
+        "macro_success": 0.1875,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "bac88fd991813222a04812ceb6dd3c6491f7c08d391816e170ac42a475a29ca7"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 0,
+        "transport_calls": 0,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 3
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 9,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 16
+      },
+      "parent_state": {
+        "generation": 0,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+        "artifacts": {
+          "directory": null,
+          "manifest": []
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "candidate_state": {
+        "generation": 1,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_1/attempts/attempt_1/build/child/rsiflow_base_manifest.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_1/attempts/attempt_1/build/child/artifacts",
+          "manifest": [
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "snapshot_states": {
+        "parent": {
+          "generation": 0,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": null,
+            "manifest": []
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "candidate": {
+          "generation": 1,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "selected": {
+          "generation": 1,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        }
+      },
+      "direct_submission": {
+        "evaluation_protocol": "direct_submission_same_tasks_v1",
+        "attribution": "meta_assisted_output_quality_not_task_policy_improvement",
+        "receipts_valid": 16,
+        "new_model_calls": 0,
+        "edited_targets": [
+          "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json"
+        ],
+        "inherited_targets": [],
+        "reused_baseline_results": 15,
+        "ids_order_match": true,
+        "source_hashes_match": true
+      },
+      "denominator_match": true,
+      "ids_match": true,
+      "source_hashes_match": true,
+      "calls": {
+        "parent": {
+          "trajectory_calls": 87,
+          "transport_calls": 87,
+          "persisted_receipts": 87
+        },
+        "candidate": {
+          "trajectory_calls": 0,
+          "transport_calls": 0,
+          "persisted_receipts": 16
+        },
+        "cross_check_ok": true
+      },
+      "verification": {
+        "parent": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 2
+        },
+        "candidate": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 3
+        }
+      },
+      "errors": {
+        "parent": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 9,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 9,
+            "enoent": 2,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 2,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "candidate": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 9,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        }
+      },
+      "delta": 0.0625,
+      "transitions": {
+        "new_success": 1,
+        "new_regression": 0,
+        "retained_failure": 13,
+        "retained_success": 2
+      },
+      "zero_call_overlap": {
+        "new_success_zero_call": 1,
+        "new_regression_zero_call": 0
+      },
+      "task_transitions": [
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1085",
+          "transition": "retained_failure",
+          "parent_calls": 15,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1943",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2308",
+          "transition": "retained_failure",
+          "parent_calls": 8,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2510",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2660",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2673",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2865",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-3139",
+          "transition": "new_success",
+          "parent_calls": 38,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-398",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4007",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4200",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4477",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5470",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5475",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-6928",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-879",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        }
+      ],
+      "snapshot_present": true,
+      "evidence_hashes": {
+        "parent_trajectories": "542710095c3a07dfc08ba8135e76d563245b800b08cad5786854a03d51276b13",
+        "parent_performance": "8bda712bf5a33aeb45e0d1ce093b3c4c224d4adf94661edb621d696ff2576974",
+        "candidate_trajectories": "a90654b7b82e832910c2620f50acf87aa977fc587c92c787a94189b2915bcbb3",
+        "candidate_performance": "756912d5ebde9579e4add9326afb6183c4db006f8797edc3e252e54bde475d00",
+        "decision": "6bdca43d05bdac03dad1221990882eff5aadd194aacb4028666df62ec7d923f9",
+        "selection": "8945a56de8e1325f527dcee644fe04a18cebaa8b4ff27c41f1db1dee05482602",
+        "snapshot_receipt": "b76f73d8b56bef2d1d02c81ce7d031a85c6fc7dddfd162eeda722c1cdb9b9435"
+      }
+    },
+    {
+      "round": 2,
+      "component": "MODEL",
+      "attempt_count": 1,
+      "selection": {
+        "selection": "retain_parent",
+        "component": "MODEL",
+        "round": 2,
+        "attempt": 1,
+        "before": 0.25,
+        "after": 0.1875,
+        "delta": -0.0625,
+        "paired_tasks": 16,
+        "same_id_set": true,
+        "source_hash_mismatches": 0,
+        "new_success": 2,
+        "new_regression": 3,
+        "rationale": "Complete paired score decreases; positive-gain activation criterion not met. No second attempt.",
+        "comparison_receipt": "meta_session/turns/0129/receipt.json",
+        "differences": "round_2/attempts/attempt_1/task_differences/summary.json"
+      },
+      "activated": false,
+      "terminal": true,
+      "products_complete": true,
+      "product_blockers": [],
+      "parent": {
+        "denominator": 16,
+        "successes": 4,
+        "macro_success": 0.25,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "4c895cbf002c63d7ed07572b1fffec7b6186d7413c14bc32d8fb051cb6f8db6d"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 40,
+        "transport_calls": 40,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 6,
+          "full_verifier": 6,
+          "success": 4
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 10,
+          "error_mentions_all_rows": {
+            "enoent": 10,
+            "eagain": 6
+          },
+          "zero_call_negative": {
+            "count": 10,
+            "enoent": 4,
+            "eagain": 6
+          },
+          "called_with_error": {
+            "enoent": 6,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 4,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 40
+      },
+      "candidate": {
+        "denominator": 16,
+        "successes": 3,
+        "macro_success": 0.1875,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "4c895cbf002c63d7ed07572b1fffec7b6186d7413c14bc32d8fb051cb6f8db6d"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 118,
+        "transport_calls": 118,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 3
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 9,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 9,
+            "enoent": 2,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 118
+      },
+      "parent_state": {
+        "generation": 1,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+          "manifest": [
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "candidate_state": {
+        "generation": 2,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/model_update/checkpoint",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/rsiflow_base_manifest.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/artifacts",
+          "manifest": [
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/model_update/checkpoint",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00005.safetensors",
+            "bytes": 1989095024,
+            "sha256": "3de2db8b2a1b51300489deba87703b6905995d9ad2d2d95562eb7402564eb0ce"
+          },
+          {
+            "path": "model-00002-of-00005.safetensors",
+            "bytes": 1992409040,
+            "sha256": "295a84e7d2cc4fa3a6fcbf29673406ec220484a27ac08cc9a7e098c55f54f249"
+          },
+          {
+            "path": "model-00003-of-00005.safetensors",
+            "bytes": 1997656952,
+            "sha256": "214840db5609b6b68f9767c93744fc3576de3760578e2d1fa847f3e81665659c"
+          },
+          {
+            "path": "model-00004-of-00005.safetensors",
+            "bytes": 1963572880,
+            "sha256": "3444116e5c1746cb86eb2ca9a2c68fe127e87cdbb08711c69c059ed3b211abf0"
+          },
+          {
+            "path": "model-00005-of-00005.safetensors",
+            "bytes": 102247936,
+            "sha256": "62961216bcb712eb5739883e7a1d5db9ffc9ba20cee9499e35e009cff43122c9"
+          }
+        ]
+      },
+      "snapshot_states": {
+        "parent": {
+          "generation": 1,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "candidate": {
+          "generation": 2,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/model_update/checkpoint",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/model_update/checkpoint",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00005.safetensors",
+              "bytes": 1989095024,
+              "sha256": "3de2db8b2a1b51300489deba87703b6905995d9ad2d2d95562eb7402564eb0ce"
+            },
+            {
+              "path": "model-00002-of-00005.safetensors",
+              "bytes": 1992409040,
+              "sha256": "295a84e7d2cc4fa3a6fcbf29673406ec220484a27ac08cc9a7e098c55f54f249"
+            },
+            {
+              "path": "model-00003-of-00005.safetensors",
+              "bytes": 1997656952,
+              "sha256": "214840db5609b6b68f9767c93744fc3576de3760578e2d1fa847f3e81665659c"
+            },
+            {
+              "path": "model-00004-of-00005.safetensors",
+              "bytes": 1963572880,
+              "sha256": "3444116e5c1746cb86eb2ca9a2c68fe127e87cdbb08711c69c059ed3b211abf0"
+            },
+            {
+              "path": "model-00005-of-00005.safetensors",
+              "bytes": 102247936,
+              "sha256": "62961216bcb712eb5739883e7a1d5db9ffc9ba20cee9499e35e009cff43122c9"
+            }
+          ]
+        },
+        "selected": {
+          "generation": 1,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        }
+      },
+      "direct_submission": null,
+      "denominator_match": true,
+      "ids_match": true,
+      "source_hashes_match": true,
+      "calls": {
+        "parent": {
+          "trajectory_calls": 40,
+          "transport_calls": 40,
+          "persisted_receipts": 40
+        },
+        "candidate": {
+          "trajectory_calls": 118,
+          "transport_calls": 118,
+          "persisted_receipts": 118
+        },
+        "cross_check_ok": true
+      },
+      "verification": {
+        "parent": {
+          "completed": 16,
+          "valid_answer": 6,
+          "full_verifier": 6,
+          "success": 4
+        },
+        "candidate": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 3
+        }
+      },
+      "errors": {
+        "parent": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 10,
+          "error_mentions_all_rows": {
+            "enoent": 10,
+            "eagain": 6
+          },
+          "zero_call_negative": {
+            "count": 10,
+            "enoent": 4,
+            "eagain": 6
+          },
+          "called_with_error": {
+            "enoent": 6,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 4,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "candidate": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 9,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 9,
+            "enoent": 2,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        }
+      },
+      "delta": -0.0625,
+      "transitions": {
+        "new_success": 2,
+        "new_regression": 3,
+        "retained_failure": 10,
+        "retained_success": 1
+      },
+      "zero_call_overlap": {
+        "new_success_zero_call": 2,
+        "new_regression_zero_call": 3
+      },
+      "task_transitions": [
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1085",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1943",
+          "transition": "new_regression",
+          "parent_calls": 5,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2308",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 8,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2510",
+          "transition": "new_success",
+          "parent_calls": 0,
+          "candidate_calls": 7,
+          "parent_success": false,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2660",
+          "transition": "new_regression",
+          "parent_calls": 5,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2673",
+          "transition": "new_success",
+          "parent_calls": 0,
+          "candidate_calls": 7,
+          "parent_success": false,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2865",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 6,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-3139",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-398",
+          "transition": "new_regression",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4007",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 6,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4200",
+          "transition": "retained_failure",
+          "parent_calls": 10,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4477",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5470",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5475",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-6928",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 77,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-879",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 7,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        }
+      ],
+      "snapshot_present": true,
+      "evidence_hashes": {
+        "parent_trajectories": "1e70c90b9fe759621571791c434a512e6ae23a8cab46204b02e020befbce50ff",
+        "parent_performance": "1586277220929664fa3827cd75ea0bc20bbf5800c4b2ac3cd7b3fdb04d881310",
+        "candidate_trajectories": "ff0fd6468aea9432d73268004c88c36449075978e99b0f95c15864c286b6d9f2",
+        "candidate_performance": "bff65ae8ca2c5408cfacbeff26db97dff64d7358be4a92e3be5ed8693cb7251f",
+        "decision": "80db00eecb7e0a6bba34e5637e4937b8e2d38e86bab5dcce183e562f9895cb3f",
+        "selection": "225197d05ae628609d7b753617ac10c0011d5b47739b2b3f7a92981d2c690f2a",
+        "snapshot_receipt": "b09e65c8317610a9ec2b961db22a2e741817577c3f68051ceb9df6f82cdbb9e6"
+      }
+    },
+    {
+      "round": 3,
+      "component": "ARTIFACTS",
+      "attempt_count": 1,
+      "selection": {
+        "selection": "accept_candidate",
+        "component": "ARTIFACTS",
+        "round": 3,
+        "attempt": 1,
+        "before": 0.125,
+        "after": 0.1875,
+        "delta": 0.0625,
+        "paired_tasks": 16,
+        "new_success": 1,
+        "new_regression": 0,
+        "reason": "Complete same-task paired scores show strict positive gain. This is direct submission rescoring, not evidence of general model improvement.",
+        "comparison_receipt": "meta_session/turns/0160/receipt.json",
+        "task_differences": "round_3/attempts/attempt_1/task_differences/paired_tasks.json"
+      },
+      "activated": true,
+      "terminal": true,
+      "products_complete": true,
+      "product_blockers": [],
+      "parent": {
+        "denominator": 16,
+        "successes": 2,
+        "macro_success": 0.125,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "fb0a31d78df4947a75f4e9d32acd7b5eba44692e6dac00af4ffc82ae3188fd20"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 61,
+        "transport_calls": 61,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 2
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 8,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 8,
+            "enoent": 1,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 2,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 61
+      },
+      "candidate": {
+        "denominator": 16,
+        "successes": 3,
+        "macro_success": 0.1875,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "fb0a31d78df4947a75f4e9d32acd7b5eba44692e6dac00af4ffc82ae3188fd20"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 0,
+        "transport_calls": 0,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 3
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 14,
+            "none": 2
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 8,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 16
+      },
+      "parent_state": {
+        "generation": 1,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+          "manifest": [
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "candidate_state": {
+        "generation": 2,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_3/attempts/attempt_1/build/child/rsiflow_base_manifest.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_3/attempts/attempt_1/build/child/artifacts",
+          "manifest": [
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            },
+            {
+              "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+              "bytes": 703,
+              "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "snapshot_states": {
+        "parent": {
+          "generation": 1,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "candidate": {
+          "generation": 2,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_002/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              },
+              {
+                "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+                "bytes": 703,
+                "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "selected": {
+          "generation": 2,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_002/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              },
+              {
+                "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+                "bytes": 703,
+                "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        }
+      },
+      "direct_submission": {
+        "evaluation_protocol": "direct_submission_same_tasks_v1",
+        "attribution": "meta_assisted_output_quality_not_task_policy_improvement",
+        "receipts_valid": 16,
+        "new_model_calls": 0,
+        "edited_targets": [
+          "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json"
+        ],
+        "inherited_targets": [
+          "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json"
+        ],
+        "reused_baseline_results": 15,
+        "ids_order_match": true,
+        "source_hashes_match": true
+      },
+      "denominator_match": true,
+      "ids_match": true,
+      "source_hashes_match": true,
+      "calls": {
+        "parent": {
+          "trajectory_calls": 61,
+          "transport_calls": 61,
+          "persisted_receipts": 61
+        },
+        "candidate": {
+          "trajectory_calls": 0,
+          "transport_calls": 0,
+          "persisted_receipts": 16
+        },
+        "cross_check_ok": true
+      },
+      "verification": {
+        "parent": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 2
+        },
+        "candidate": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 3
+        }
+      },
+      "errors": {
+        "parent": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 8,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 8,
+            "enoent": 1,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 2,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "candidate": {
+          "execution_error_type": {
+            "candidate_error": 14,
+            "none": 2
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 8,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        }
+      },
+      "delta": 0.0625,
+      "transitions": {
+        "new_success": 1,
+        "new_regression": 0,
+        "retained_failure": 13,
+        "retained_success": 2
+      },
+      "zero_call_overlap": {
+        "new_success_zero_call": 1,
+        "new_regression_zero_call": 0
+      },
+      "task_transitions": [
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1085",
+          "transition": "retained_failure",
+          "parent_calls": 15,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1943",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2308",
+          "transition": "retained_failure",
+          "parent_calls": 8,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2510",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2660",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2673",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2865",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-3139",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-398",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4007",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4200",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4477",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5470",
+          "transition": "new_success",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5475",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-6928",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-879",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        }
+      ],
+      "snapshot_present": true,
+      "evidence_hashes": {
+        "parent_trajectories": "3442da190c4e61317971b6ca6dd1580be02cae94e8e2d21847ac12f8cfc61b83",
+        "parent_performance": "b399b0cae01f58ce7acfeb9b628eefdf1a97f1b2e428f1d35a20f3a6e8e11e34",
+        "candidate_trajectories": "1459f6895f187a1fe55074fc1071c911dbae1cbf89691dc7b81fd72580435834",
+        "candidate_performance": "e017229d96d8f9e488fa07f257a4569a259faaf7454c33a66d3134aeb6b47023",
+        "decision": "60411ad469cb6d0e010963d76f6874502801fe070ac8b3b019e73688588d910f",
+        "selection": "d7700abf88970b05041a0ff9821eced86ade768157997fe101aee4ad09359fdb",
+        "snapshot_receipt": "20f6bbc946bfd92c07da7208e6fd465e3b33438fc00b9a64878b113781268271"
+      }
+    },
+    {
+      "round": 4,
+      "component": "ARTIFACTS",
+      "attempt_count": 1,
+      "selection": {
+        "selection": "accept_candidate",
+        "component": "ARTIFACTS",
+        "round": 4,
+        "attempt": 1,
+        "before": 0.125,
+        "after": 0.1875,
+        "delta": 0.0625,
+        "paired_tasks": 16,
+        "new_success": 1,
+        "new_regression": 0,
+        "reason": "Complete same-task paired scores strictly improve. Direct submission rescoring does not establish policy improvement.",
+        "comparison_receipt": "meta_session/turns/0196/receipt.json",
+        "task_differences": "round_4/attempts/attempt_1/task_differences/paired_tasks.json"
+      },
+      "activated": true,
+      "terminal": true,
+      "products_complete": true,
+      "product_blockers": [],
+      "parent": {
+        "denominator": 16,
+        "successes": 2,
+        "macro_success": 0.125,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "14ca0aa85db5f528aea04620e88ae4e2e8221beed8b15354e99fef6857ebc51b"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 59,
+        "transport_calls": 59,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 2
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 8,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 8,
+            "enoent": 1,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 2,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 59
+      },
+      "candidate": {
+        "denominator": 16,
+        "successes": 3,
+        "macro_success": 0.1875,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "14ca0aa85db5f528aea04620e88ae4e2e8221beed8b15354e99fef6857ebc51b"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 0,
+        "transport_calls": 0,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 3
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 14,
+            "none": 2
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 8,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 16
+      },
+      "parent_state": {
+        "generation": 2,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_002/contents",
+          "manifest": [
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            },
+            {
+              "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+              "bytes": 703,
+              "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "candidate_state": {
+        "generation": 3,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_4/attempts/attempt_1/build/child/rsiflow_base_manifest.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_4/attempts/attempt_1/build/child/artifacts",
+          "manifest": [
+            {
+              "path": "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+              "bytes": 927,
+              "sha256": "b3c0ff77a16e5adf34aba98ee9cd38671e3dc5729d577f9a52fa0ba0edb2c341"
+            },
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            },
+            {
+              "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+              "bytes": 703,
+              "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "snapshot_states": {
+        "parent": {
+          "generation": 2,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_002/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              },
+              {
+                "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+                "bytes": 703,
+                "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "candidate": {
+          "generation": 3,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_003/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+                "bytes": 927,
+                "sha256": "b3c0ff77a16e5adf34aba98ee9cd38671e3dc5729d577f9a52fa0ba0edb2c341"
+              },
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              },
+              {
+                "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+                "bytes": 703,
+                "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "selected": {
+          "generation": 3,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_003/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+                "bytes": 927,
+                "sha256": "b3c0ff77a16e5adf34aba98ee9cd38671e3dc5729d577f9a52fa0ba0edb2c341"
+              },
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              },
+              {
+                "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+                "bytes": 703,
+                "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        }
+      },
+      "direct_submission": {
+        "evaluation_protocol": "direct_submission_same_tasks_v1",
+        "attribution": "meta_assisted_output_quality_not_task_policy_improvement",
+        "receipts_valid": 16,
+        "new_model_calls": 0,
+        "edited_targets": [
+          "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json"
+        ],
+        "inherited_targets": [
+          "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+          "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json"
+        ],
+        "reused_baseline_results": 15,
+        "ids_order_match": true,
+        "source_hashes_match": true
+      },
+      "denominator_match": true,
+      "ids_match": true,
+      "source_hashes_match": true,
+      "calls": {
+        "parent": {
+          "trajectory_calls": 59,
+          "transport_calls": 59,
+          "persisted_receipts": 59
+        },
+        "candidate": {
+          "trajectory_calls": 0,
+          "transport_calls": 0,
+          "persisted_receipts": 16
+        },
+        "cross_check_ok": true
+      },
+      "verification": {
+        "parent": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 2
+        },
+        "candidate": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 3
+        }
+      },
+      "errors": {
+        "parent": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 8,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 8,
+            "enoent": 1,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 2,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "candidate": {
+          "execution_error_type": {
+            "candidate_error": 14,
+            "none": 2
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 8,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        }
+      },
+      "delta": 0.0625,
+      "transitions": {
+        "new_success": 1,
+        "new_regression": 0,
+        "retained_failure": 13,
+        "retained_success": 2
+      },
+      "zero_call_overlap": {
+        "new_success_zero_call": 1,
+        "new_regression_zero_call": 0
+      },
+      "task_transitions": [
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1085",
+          "transition": "retained_failure",
+          "parent_calls": 15,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1943",
+          "transition": "retained_success",
+          "parent_calls": 5,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2308",
+          "transition": "retained_failure",
+          "parent_calls": 8,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2510",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2660",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2673",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2865",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-3139",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-398",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4007",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4200",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4477",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5470",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5475",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-6928",
+          "transition": "new_success",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-879",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        }
+      ],
+      "snapshot_present": true,
+      "evidence_hashes": {
+        "parent_trajectories": "717da6d71960048bf0d3c6f7900d55e74fb0573f231a8a459b84583c989cd5b8",
+        "parent_performance": "37db58fa7a882c00f7298b607fd529c934e954a1e14df8034265089da4a084d2",
+        "candidate_trajectories": "b3dabe5206efb065d2ca25b4aeb2900303cc7dbf65114af7376b03bf70fdd983",
+        "candidate_performance": "0b10de0d29c196d4915d9ce22119b98ab480118707193a223a5ef5230bc071bb",
+        "decision": "3859cdb9cc4bcaf1d2a0575259b87cfad90919e8e3c2dc3055d5dc05e1c1651f",
+        "selection": "b1e0ddd80999e23b54adc7a4e1b2ccab36edf6ac42bb77d90ab6181bd8849e72",
+        "snapshot_receipt": "68176c2c1688af316ac1cb9310d51633828756a76f3a838be87ac68ef739d309"
+      }
+    },
+    {
+      "round": 5,
+      "component": "ARTIFACTS",
+      "attempt_count": 1,
+      "selection": {
+        "selection": "accept_candidate",
+        "component": "ARTIFACTS",
+        "round": 5,
+        "attempt": 1,
+        "before": 0.25,
+        "after": 0.3125,
+        "delta": 0.0625,
+        "paired_tasks": 16,
+        "new_success": 1,
+        "new_regression": 0,
+        "reason": "Complete same-task paired scores strictly improve. Direct submission rescoring is not standalone model improvement.",
+        "comparison_receipt": "meta_session/turns/0227/receipt.json",
+        "task_differences": "round_5/attempts/attempt_1/task_differences/paired_tasks.json"
+      },
+      "activated": true,
+      "terminal": true,
+      "products_complete": true,
+      "product_blockers": [],
+      "parent": {
+        "denominator": 16,
+        "successes": 4,
+        "macro_success": 0.25,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "baf8fbdd5aaa18587eaafb4317626efee44808995411a813ad50707cbcf84987"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 63,
+        "transport_calls": 63,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 4
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 8,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 8,
+            "enoent": 1,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 63
+      },
+      "candidate": {
+        "denominator": 16,
+        "successes": 5,
+        "macro_success": 0.3125,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "baf8fbdd5aaa18587eaafb4317626efee44808995411a813ad50707cbcf84987"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 0,
+        "transport_calls": 0,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 5
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 14,
+            "none": 2
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 8,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 4,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 16
+      },
+      "parent_state": {
+        "generation": 3,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_003/contents",
+          "manifest": [
+            {
+              "path": "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+              "bytes": 927,
+              "sha256": "b3c0ff77a16e5adf34aba98ee9cd38671e3dc5729d577f9a52fa0ba0edb2c341"
+            },
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            },
+            {
+              "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+              "bytes": 703,
+              "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "candidate_state": {
+        "generation": 4,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_5/attempts/attempt_1/build/child/rsiflow_base_manifest.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_5/attempts/attempt_1/build/child/artifacts",
+          "manifest": [
+            {
+              "path": "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+              "bytes": 927,
+              "sha256": "b3c0ff77a16e5adf34aba98ee9cd38671e3dc5729d577f9a52fa0ba0edb2c341"
+            },
+            {
+              "path": "submissions/train/438c9e7e302e952a2aff4704e17920498c6f28b1a32eeda529c7a29033cc67c3.json",
+              "bytes": 618,
+              "sha256": "0ae8f1944c02f7c9ee74d1cf852e28160693a4b17e345e8b151bd3b170e5f4fc"
+            },
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            },
+            {
+              "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+              "bytes": 703,
+              "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "snapshot_states": {
+        "parent": {
+          "generation": 3,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_003/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+                "bytes": 927,
+                "sha256": "b3c0ff77a16e5adf34aba98ee9cd38671e3dc5729d577f9a52fa0ba0edb2c341"
+              },
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              },
+              {
+                "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+                "bytes": 703,
+                "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "candidate": {
+          "generation": 4,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_004/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+                "bytes": 927,
+                "sha256": "b3c0ff77a16e5adf34aba98ee9cd38671e3dc5729d577f9a52fa0ba0edb2c341"
+              },
+              {
+                "path": "submissions/train/438c9e7e302e952a2aff4704e17920498c6f28b1a32eeda529c7a29033cc67c3.json",
+                "bytes": 618,
+                "sha256": "0ae8f1944c02f7c9ee74d1cf852e28160693a4b17e345e8b151bd3b170e5f4fc"
+              },
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              },
+              {
+                "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+                "bytes": 703,
+                "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "selected": {
+          "generation": 4,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_004/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+                "bytes": 927,
+                "sha256": "b3c0ff77a16e5adf34aba98ee9cd38671e3dc5729d577f9a52fa0ba0edb2c341"
+              },
+              {
+                "path": "submissions/train/438c9e7e302e952a2aff4704e17920498c6f28b1a32eeda529c7a29033cc67c3.json",
+                "bytes": 618,
+                "sha256": "0ae8f1944c02f7c9ee74d1cf852e28160693a4b17e345e8b151bd3b170e5f4fc"
+              },
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              },
+              {
+                "path": "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json",
+                "bytes": 703,
+                "sha256": "cdb715b5e096e5638e18cacdd7fe08f9d5df6b94baf0e08a59a0c4af72e44ac5"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        }
+      },
+      "direct_submission": {
+        "evaluation_protocol": "direct_submission_same_tasks_v1",
+        "attribution": "meta_assisted_output_quality_not_task_policy_improvement",
+        "receipts_valid": 16,
+        "new_model_calls": 0,
+        "edited_targets": [
+          "submissions/train/438c9e7e302e952a2aff4704e17920498c6f28b1a32eeda529c7a29033cc67c3.json"
+        ],
+        "inherited_targets": [
+          "submissions/train/057bcf24877c02247b5fa1d628ba798d6a6449ddaceda869f001a82c290b1df1.json",
+          "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+          "submissions/train/684c9a0c6937a31c54c5bbe1c934b9deecbc1c296d503727872749cd5054a8a4.json"
+        ],
+        "reused_baseline_results": 15,
+        "ids_order_match": true,
+        "source_hashes_match": true
+      },
+      "denominator_match": true,
+      "ids_match": true,
+      "source_hashes_match": true,
+      "calls": {
+        "parent": {
+          "trajectory_calls": 63,
+          "transport_calls": 63,
+          "persisted_receipts": 63
+        },
+        "candidate": {
+          "trajectory_calls": 0,
+          "transport_calls": 0,
+          "persisted_receipts": 16
+        },
+        "cross_check_ok": true
+      },
+      "verification": {
+        "parent": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 4
+        },
+        "candidate": {
+          "completed": 16,
+          "valid_answer": 8,
+          "full_verifier": 8,
+          "success": 5
+        }
+      },
+      "errors": {
+        "parent": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 8,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 8,
+            "enoent": 1,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "candidate": {
+          "execution_error_type": {
+            "candidate_error": 14,
+            "none": 2
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 8,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 8,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 4,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        }
+      },
+      "delta": 0.0625,
+      "transitions": {
+        "new_success": 1,
+        "new_regression": 0,
+        "retained_failure": 11,
+        "retained_success": 4
+      },
+      "zero_call_overlap": {
+        "new_success_zero_call": 1,
+        "new_regression_zero_call": 0
+      },
+      "task_transitions": [
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1085",
+          "transition": "retained_failure",
+          "parent_calls": 15,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1943",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2308",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2510",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2660",
+          "transition": "retained_success",
+          "parent_calls": 5,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2673",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2865",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-3139",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-398",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4007",
+          "transition": "new_success",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4200",
+          "transition": "retained_failure",
+          "parent_calls": 10,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4477",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5470",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5475",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-6928",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-879",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        }
+      ],
+      "snapshot_present": true,
+      "evidence_hashes": {
+        "parent_trajectories": "352555ee2e2d4a63ee95766932906a36d3c0106b4c57d9ab38252ab758de70d3",
+        "parent_performance": "563df0bbb05e88708d5b0349c11fa87924960c8a761382b1c0941f72edd8ff95",
+        "candidate_trajectories": "cdf1dd4e651796e190d568a82ae8b8c84f40046c393e3e8187847f370da5654d",
+        "candidate_performance": "6f48e1e6835d51f8d80896dec5720ec16cf7af09319f298853b96a67aadc53da",
+        "decision": "718cfb83d99bd92e61ad09320112df9e7c38d9b1434ae8453e2a04d2a1ecc87b",
+        "selection": "4221c902cc6b57920f26cd2ec0ba663c90da72fb63f52f97a6fb83ff25847e5c",
+        "snapshot_receipt": "315467b8461410a8bb7d79125475c88df105238f33a2e3c7c343dd1565d73381"
+      }
+    }
+  ],
+  "active_identity": {
+    "generation": 4,
+    "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+    "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_5/attempts/attempt_1/build/child/rsiflow_base_manifest.json",
+    "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B"
+  },
+  "skills_present": true,
+  "context_present": true,
+  "a0_present": true,
+  "state": {
+    "status": "complete",
+    "last_turn_status": "completed",
+    "current_stage": "COMPLETE",
+    "finish_allowed": true
+  },
+  "workflow": {
+    "current_stage": "COMPLETE",
+    "finish_allowed": true,
+    "final_stage": "B5",
+    "incomplete_stages": [],
+    "stages_present": [
+      "A0",
+      "B1",
+      "B2",
+      "B3",
+      "B4",
+      "B5"
+    ]
+  },
+  "jobs": {
+    "total": 22,
+    "missing_final_receipts": [],
+    "invalid": [],
+    "required_failed": []
+  },
+  "supervision": {
+    "present": true,
+    "attempts": [
+      "0001",
+      "0003",
+      "0004",
+      "0005",
+      "0006",
+      "0007",
+      "0008"
+    ],
+    "rejected_attempts": [
+      "0002"
+    ],
+    "all_attempts_accounted_for": true,
+    "latest_identity_bound": true,
+    "reconcile_complete": true,
+    "exit_zero": true
+  },
+  "services_stopped": true,
+  "service_registry": {
+    "ok": true,
+    "reason": "stopped",
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/services/four_gpu_services.json",
+    "sha256": "226253f371d29bf77287396105612f9671ecc93fb00bd61f97a34b2cedc82b95"
+  },
+  "model_sft": {
+    "status": "completed",
+    "rounds": [
+      2
+    ],
+    "pending_rounds": [],
+    "failed_rounds": []
+  },
+  "evidence_hashes": {
+    "active_task": "8f75bce87740567949ba50cba15cce2179e477f3c79fdacedaf1512c679abeb1",
+    "meta_state": "eba1b18807f51b61c2e721fd9a8603556780c49075d8dac06d349f8d37a5d704",
+    "skills": "c07459e54602e8cc4e8dbca57bea681b21bdb9137d717275731270e703da2c19",
+    "context": "5e7e763171036410f60a7e0dde5ab113bc56c0ecf3bd58f87c1861bf343ece51",
+    "service_registry": "226253f371d29bf77287396105612f9671ecc93fb00bd61f97a34b2cedc82b95",
+    "external_cleanup": "2edb6da598746c0c2905af7bb901565669656b597c6d347ad41ce8f09c79c621"
+  }
+}

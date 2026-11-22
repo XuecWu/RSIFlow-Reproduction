@@ -1,0 +1,17 @@
+{
+  "main_checkout_dirty": " M reproduction/audit/daily/2026-11-16.md\n M reproduction/audit/key_results.jsonl\n M reproduction/audit/operations.jsonl\n?? reproduction/audit/reviews/experiment-preflight-kimi-r1.md\n?? reproduction/audit/reviews/experiment-preflight-qwen-r1.md\n",
+  "files": {
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/operations.jsonl": {
+      "bytes": 1430627,
+      "sha256": "711f606fe6154bb5f5e7240e6cea2c34018336c1408e87f5cb1427f732dbe646"
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/key_results.jsonl": {
+      "bytes": 90491,
+      "sha256": "f9e9fe9a3e35a13b25832b91869bdf393ecea37e29d6eeea29a764241684aacd"
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/daily/2026-11-16.md": {
+      "bytes": 14232,
+      "sha256": "03c2bf9789294b914bac99558996fa59b9b985900add4977e2253308a0dc6340"
+    }
+  }
+}

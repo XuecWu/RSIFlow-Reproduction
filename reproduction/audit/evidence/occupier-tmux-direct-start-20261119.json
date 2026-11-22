@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-19T16:38:15Z",
+  "actor": "main-kimi",
+  "authorization": "user explicitly authorized direct tmux plus bash startup after the automatic restore remained pending",
+  "host": "app-91ba3954af664589900a5228c33cf6f9-695d6797bc-2lk76",
+  "working_directory": "/data/wuxuecheng/z-occupier-ready",
+  "tmux_session": "rsiflow-idle-occupier",
+  "command": "bash run.sh --mem-mb 2500 --log-interval 20",
+  "log": "/data/wuxuecheng/z-occupier-ready/runtime/dev4/tmux-occupier-20261119.log",
+  "precheck": {
+    "gpu_count": 4,
+    "compute_apps": [],
+    "memory_used_mib_each": 1
+  },
+  "verification": {
+    "pane_dead": false,
+    "rank_count_observed_in_log": 4,
+    "script_memory_mb_each_approx": 2519,
+    "continuous_training_observed": true,
+    "nvidia_smi": [
+      {"gpu": 0, "memory_used_mib": 3085, "utilization_percent": 52},
+      {"gpu": 1, "memory_used_mib": 3085, "utilization_percent": 52},
+      {"gpu": 2, "memory_used_mib": 3085, "utilization_percent": 50},
+      {"gpu": 3, "memory_used_mib": 3085, "utilization_percent": 50}
+    ]
+  },
+  "automatic_restore_history": "The production restore was refused because container NVML PID ownership was unresolved. This direct start does not fabricate or rewrite that receipt.",
+  "experiment_impact": "none; started only after the completed five-round run and external cleanup, with a fresh free-GPU check"
+}

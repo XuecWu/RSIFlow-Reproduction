@@ -1,0 +1,90 @@
+{
+  "status": "BLOCKED",
+  "current_stage": "preflight_stage1_gpu_observation_failed",
+  "time": 1795031591.656489,
+  "host_identity": {
+    "host": "app-91ba3954af664589900a5228c33cf6f9-695d6797bc-2lk76",
+    "boot_id": "a61829b3-3e4b-4b99-b7fb-4c0a7102c9f5",
+    "pid_namespace": "pid:[4026541459]",
+    "mount_namespace": "mnt:[4026541460]"
+  },
+  "head": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+  "git_status": "",
+  "failed_command": {
+    "argv": [
+      "nvidia-smi",
+      "--query-compute-apps=pid,uuid",
+      "--format=csv,noheader,nounits"
+    ],
+    "returncode": 2,
+    "stdout": "Field \"uuid\" is not a valid field to query.\n\n",
+    "stderr": ""
+  },
+  "occupier_record": {
+    "pid": 24825,
+    "pgid": 24825,
+    "start_ticks": "2827137154",
+    "owner": "dev4-rsiflow-idle-occupier",
+    "gpus": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "occupier_actual": {
+    "pid": 24825,
+    "pgid": 24825,
+    "start_ticks": "2827137154",
+    "argv": [
+      "/data/wuxuecheng/miniforge3/bin/python3.13",
+      "/data/wuxuecheng/miniforge3/bin/torchrun",
+      "--nproc_per_node=4",
+      "train.py",
+      "--mem-mb",
+      "2500",
+      "--log-interval",
+      "20"
+    ]
+  },
+  "occupier_observation": {
+    "state": "alive",
+    "group_members": [
+      {
+        "pid": 24825,
+        "start_ticks": "2827137154"
+      }
+    ],
+    "read_errors": [],
+    "snapshots": {
+      "before": [
+        {
+          "pid": 24825,
+          "start_ticks": "2827137154"
+        }
+      ],
+      "after": [
+        {
+          "pid": 24825,
+          "start_ticks": "2827137154"
+        }
+      ]
+    }
+  },
+  "occupier_identity_sha256": "96404add1ffbf49b7ba035aac3d8139ee81a95dd49f9782ecaf97c10e1b625b1",
+  "gpu_csv": "0, GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 14\n1, GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 13\n2, GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 13\n3, GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 19\n",
+  "output_exists": false,
+  "run_exists": false,
+  "central_exists": false,
+  "attempt_exists": false,
+  "thread_id": null,
+  "provider_probe": "passed",
+  "stage1_receipt_exists": false,
+  "handoff_performed": false,
+  "stage2_performed": false,
+  "launch_performed": false,
+  "cleanup_performed": false,
+  "restore_performed": false,
+  "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+  "attempt_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001"
+}

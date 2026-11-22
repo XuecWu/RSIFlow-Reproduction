@@ -1,0 +1,28 @@
+{
+  "head": "db92545ea95f86f5304081553f88f64ab3d6f83f",
+  "files": {
+    "reproduction/audit/operations.jsonl": {
+      "sha256": "3d5ce5408399366bfb578b459cbf50a99c4d5fdad6e6017128cd96ec59b64486",
+      "bytes": 1474598
+    },
+    "reproduction/audit/key_results.jsonl": {
+      "sha256": "a55c3a21be19f8b7b9045859de3ed441458c37da0abc7426299d3f9394e05850",
+      "bytes": 116430
+    },
+    "reproduction/audit/daily/2026-11-16.md": {
+      "sha256": "03c2bf9789294b914bac99558996fa59b9b985900add4977e2253308a0dc6340",
+      "bytes": 14232
+    }
+  },
+  "status_short": [
+    " M reproduction/audit/daily/2026-11-16.md",
+    " M reproduction/audit/key_results.jsonl",
+    " M reproduction/audit/operations.jsonl",
+    "?? reproduction/audit/evidence/",
+    "?? reproduction/audit/reviews/deepcoder-five-round-final-re-review.md",
+    "?? reproduction/audit/reviews/deepcoder-five-round-final-review.md",
+    "?? reproduction/audit/reviews/experiment-preflight-kimi-r1.md",
+    "?? reproduction/audit/reviews/experiment-preflight-qwen-r1.md",
+    "?? reproduction/audit/reviews/five-round-prestate-cleanup-review.md"
+  ]
+}

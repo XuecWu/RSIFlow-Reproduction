@@ -1,0 +1,12 @@
+{
+  "pid": 24825,
+  "pgid": 24825,
+  "start_ticks": "2827137154",
+  "owner": "dev4-rsiflow-idle-occupier",
+  "gpus": [
+    0,
+    1,
+    2,
+    3
+  ]
+}

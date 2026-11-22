@@ -1,0 +1,116 @@
+{
+  "reviewed_commit": "0115b82ef41c7cbccfe37ea688c6a54114ce6d4c",
+  "backend": "linux_bwrap_seccomp_v1",
+  "assets": {
+    "config": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+      "sha256": "e12bf4f156dc7c755d573cb67501ee5f7f8617cc01fcc3063a0a310aec1c37a5"
+    },
+    "base": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/base_4b.json",
+      "sha256": "54a78b56782d0663627b833e9b3473a3f074ed4239199d13f612fc0e2ad832b2"
+    },
+    "READY": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/READY.json",
+      "sha256": "916d984bfa416ee55f72e682442191f4e5578968cf417b778ca9df6d07c88583"
+    },
+    "protocol": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/protocol.json",
+      "sha256": "ac7db9ca631d6cdf6f9c049cf37d2349abebea642b77f7382c7e31df1cbf05ad"
+    },
+    "seed_harness": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/seed_harness/rsiflow_base_manifest.json",
+      "sha256": "e41b5c326602cb3f256196294aefc74c1a784c30ff1a178108ad9e4b90f49cab"
+    },
+    "codex_binary": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/codex/codex-x86_64-unknown-linux-musl",
+      "sha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da"
+    },
+    "codex_provenance": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/third_party/codex-provenance.json",
+      "sha256": "7a2e46625844bc3f93be2d8f2571c97ea82c4af9ab0a888d2b01a0ca39d42ce3"
+    },
+    "bwrap_install": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/assets/isolation/install-receipt.json",
+      "sha256": "7ba72acbb91da8b88342dbf4cb83fbef8eb4f446d7b8d415ac5bcee62d9838c4"
+    },
+    "bwrap_binary": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/assets/isolation/bin/bwrap",
+      "sha256": "d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca"
+    },
+    "bwrap_manifest": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/configs/bwrap_isolation.json",
+      "sha256": "58fe2672fd78c12025ce60a84b525019e68979b9860734e4d5cccc63e78e78f1"
+    },
+    "bwrap_launcher": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py",
+      "sha256": "08f9904f80110b8459637925a897d5eb7cb4943313707429aea3df5b972a48d0"
+    },
+    "task5_model_evidence": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-5-real-review-codex.md",
+      "sha256": "d2055b7bd26f8cf97f6597fdd7c40f70cab458105743416ccb455598c0f583e2"
+    },
+    "manifest_B1": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B1/manifest.json",
+      "sha256": "5a20b47d379d6d1908b56c9a957ac1f28bb167e5bc4a4d731f9642f1e8823bee"
+    },
+    "payload_B1": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B1/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B2": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B2/manifest.json",
+      "sha256": "51775fd8ee07c2de4f40cd2866a0014916e34c6df36ce2f3ec6a00cd1a9aec33"
+    },
+    "payload_B2": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B2/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B3": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B3/manifest.json",
+      "sha256": "f918edf584041b9737f11e00737b332a4f9865daaddfc21d98d42bc39aa33aeb"
+    },
+    "payload_B3": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B3/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B4": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B4/manifest.json",
+      "sha256": "b216e85b3874f8ab0298966900981d4b8d67fcf39af548de96023e1b4520bd4a"
+    },
+    "payload_B4": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B4/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B5": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B5/manifest.json",
+      "sha256": "d809a182e61e0e5d6f11de5794f12e5feb7669a341feaa06f97f5709c0bdd5f1"
+    },
+    "payload_B5": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B5/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "weights:model-00001-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00001-of-00003.safetensors",
+      "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+    },
+    "weights:model-00002-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00002-of-00003.safetensors",
+      "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+    },
+    "weights:model-00003-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00003-of-00003.safetensors",
+      "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+    }
+  },
+  "preflight_receipts": {
+    "stage1": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage1.json",
+      "sha256": "b0f43bb65f657e3a3f3ca0b7fbf15304ffa767e815b010257746139c9e0e8702"
+    },
+    "stage2": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage2.json",
+      "sha256": "45b8fc825809ae198caef9684ddfabd94d83936377b9a7ad19e12903629f003f"
+    }
+  }
+}

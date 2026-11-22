@@ -1,0 +1,195 @@
+{
+  "pid": 24825,
+  "pgid": 24825,
+  "start_ticks": "2827137154",
+  "owner": "dev4-rsiflow-idle-occupier",
+  "gpus": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "argv": [
+    "/data/wuxuecheng/miniforge3/bin/python3.13",
+    "/data/wuxuecheng/miniforge3/bin/torchrun",
+    "--nproc_per_node=4",
+    "train.py",
+    "--mem-mb",
+    "2500",
+    "--log-interval",
+    "20"
+  ],
+  "ppid": 1,
+  "rank_members": [
+    {
+      "pid": 24920,
+      "pgid": 24920,
+      "start_ticks": "2827138311",
+      "argv": [
+        "/data/wuxuecheng/miniforge3/bin/python3.13",
+        "-u",
+        "train.py",
+        "--mem-mb",
+        "2500",
+        "--log-interval",
+        "20"
+      ],
+      "ppid": 24825,
+      "local_rank": {
+        "LOCAL_RANK": "0",
+        "RANK": "0"
+      }
+    },
+    {
+      "pid": 24921,
+      "pgid": 24921,
+      "start_ticks": "2827138312",
+      "argv": [
+        "/data/wuxuecheng/miniforge3/bin/python3.13",
+        "-u",
+        "train.py",
+        "--mem-mb",
+        "2500",
+        "--log-interval",
+        "20"
+      ],
+      "ppid": 24825,
+      "local_rank": {
+        "LOCAL_RANK": "1",
+        "RANK": "1"
+      }
+    },
+    {
+      "pid": 24922,
+      "pgid": 24922,
+      "start_ticks": "2827138313",
+      "argv": [
+        "/data/wuxuecheng/miniforge3/bin/python3.13",
+        "-u",
+        "train.py",
+        "--mem-mb",
+        "2500",
+        "--log-interval",
+        "20"
+      ],
+      "ppid": 24825,
+      "local_rank": {
+        "LOCAL_RANK": "2",
+        "RANK": "2"
+      }
+    },
+    {
+      "pid": 24923,
+      "pgid": 24923,
+      "start_ticks": "2827138314",
+      "argv": [
+        "/data/wuxuecheng/miniforge3/bin/python3.13",
+        "-u",
+        "train.py",
+        "--mem-mb",
+        "2500",
+        "--log-interval",
+        "20"
+      ],
+      "ppid": 24825,
+      "local_rank": {
+        "LOCAL_RANK": "3",
+        "RANK": "3"
+      }
+    }
+  ],
+  "topology": {
+    "leader": {
+      "pid": 24825,
+      "pgid": 24825,
+      "start_ticks": "2827137154"
+    },
+    "ranks": [
+      {
+        "pid": 24920,
+        "pgid": 24920,
+        "start_ticks": "2827138311",
+        "argv": [
+          "/data/wuxuecheng/miniforge3/bin/python3.13",
+          "-u",
+          "train.py",
+          "--mem-mb",
+          "2500",
+          "--log-interval",
+          "20"
+        ],
+        "ppid": 24825,
+        "local_rank": {
+          "LOCAL_RANK": "0",
+          "RANK": "0"
+        }
+      },
+      {
+        "pid": 24921,
+        "pgid": 24921,
+        "start_ticks": "2827138312",
+        "argv": [
+          "/data/wuxuecheng/miniforge3/bin/python3.13",
+          "-u",
+          "train.py",
+          "--mem-mb",
+          "2500",
+          "--log-interval",
+          "20"
+        ],
+        "ppid": 24825,
+        "local_rank": {
+          "LOCAL_RANK": "1",
+          "RANK": "1"
+        }
+      },
+      {
+        "pid": 24922,
+        "pgid": 24922,
+        "start_ticks": "2827138313",
+        "argv": [
+          "/data/wuxuecheng/miniforge3/bin/python3.13",
+          "-u",
+          "train.py",
+          "--mem-mb",
+          "2500",
+          "--log-interval",
+          "20"
+        ],
+        "ppid": 24825,
+        "local_rank": {
+          "LOCAL_RANK": "2",
+          "RANK": "2"
+        }
+      },
+      {
+        "pid": 24923,
+        "pgid": 24923,
+        "start_ticks": "2827138314",
+        "argv": [
+          "/data/wuxuecheng/miniforge3/bin/python3.13",
+          "-u",
+          "train.py",
+          "--mem-mb",
+          "2500",
+          "--log-interval",
+          "20"
+        ],
+        "ppid": 24825,
+        "local_rank": {
+          "LOCAL_RANK": "3",
+          "RANK": "3"
+        }
+      }
+    ],
+    "expected_script": "/data/wuxuecheng/z-occupier-ready/train.py",
+    "host_identity": {
+      "host": "app-91ba3954af664589900a5228c33cf6f9-695d6797bc-2lk76",
+      "boot_id": "a61829b3-3e4b-4b99-b7fb-4c0a7102c9f5",
+      "pid_namespace": "pid:[4026541459]",
+      "mount_namespace": "mnt:[4026541460]"
+    },
+    "complete": true
+  },
+  "topology_sha256": "40284e814c96ae8c3a10b285d552700d7e271df4117a34f9c8c8a116f3becd19"
+}

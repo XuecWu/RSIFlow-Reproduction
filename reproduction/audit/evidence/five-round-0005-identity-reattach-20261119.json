@@ -1,0 +1,47 @@
+{
+  "kind": "rsiflow_post_launch_identity",
+  "supervision_attempt": "0005",
+  "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+  "config_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+  "launch_hash": "80409fdbafdf55e98686c0939706a204bfde7916dd752efb2a3483f17b99a0f1",
+  "config_hash": "e12bf4f156dc7c755d573cb67501ee5f7f8617cc01fcc3063a0a310aec1c37a5",
+  "host_identity": {
+    "host": "app-91ba3954af664589900a5228c33cf6f9-695d6797bc-2lk76",
+    "boot_id": "a61829b3-3e4b-4b99-b7fb-4c0a7102c9f5",
+    "pid_namespace": "pid:[4026541459]",
+    "mount_namespace": "mnt:[4026541460]"
+  },
+  "thread_id": "01a1f0a9-7c28-7730-8fb1-8d767d6cf1e5",
+  "state_status": "running",
+  "owners": {
+    "launcher": {
+      "pid": 393873,
+      "pgid": 393870,
+      "start_ticks": "2836410002"
+    },
+    "app_server": {
+      "pid": 393883,
+      "pgid": 393883,
+      "start_ticks": "2836410868"
+    }
+  },
+  "expected_gpus": [
+    {
+      "gpu": 0,
+      "uuid": "GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69"
+    },
+    {
+      "gpu": 1,
+      "uuid": "GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3"
+    },
+    {
+      "gpu": 2,
+      "uuid": "GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9"
+    },
+    {
+      "gpu": 3,
+      "uuid": "GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1"
+    }
+  ],
+  "collected_at": "2026-11-19T11:29:26Z"
+}

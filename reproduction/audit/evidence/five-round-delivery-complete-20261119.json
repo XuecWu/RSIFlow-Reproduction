@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-19",
+  "feature": {
+    "branch": "reproduction/4b-five-round",
+    "local_and_remote_commit": "9dd6b1dd68ed2e0bd190c491b256313a1721a641",
+    "full_suite": "1031 passed, 2 skipped in 723.43s"
+  },
+  "delivery": {
+    "branch": "reproduction/4b-main8",
+    "local_and_remote_commit": "9dd6b1dd68ed2e0bd190c491b256313a1721a641",
+    "merged_full_suite": "1030 passed, 3 skipped in 654.69s",
+    "additional_skip": "test_fix4_real_task5_sampling_readonly: real Task5 training metrics unavailable in the main checkout; the test passed in the evidence-containing five-round worktree",
+    "website_tests": "11/11 PASS",
+    "merged_local_and_public_http": "10 resources each HTTP 200 plus semantic assertions PASS"
+  },
+  "gitlab_main": {
+    "local_and_remote_commit": "16e75f5529fdd3e9a950096ef5f26d7ce9cf2087",
+    "tree_matches_delivery_commit": true
+  },
+  "remote_verification": {
+    "main": "16e75f5529fdd3e9a950096ef5f26d7ce9cf2087",
+    "reproduction/4b-main8": "9dd6b1dd68ed2e0bd190c491b256313a1721a641",
+    "reproduction/4b-five-round": "9dd6b1dd68ed2e0bd190c491b256313a1721a641"
+  },
+  "public_url": "https://75f371f2.r61.cpolar.top",
+  "secret_shape_scan_new_history": "zero_matches",
+  "blobs_over_50_mib": 0,
+  "origin_push": false,
+  "force_push": false,
+  "merge_request_created": false,
+  "gitlab_ci_verified": false,
+  "occupier": {
+    "tmux_session": "rsiflow-idle-occupier",
+    "running": true,
+    "gpu_count": 4,
+    "memory_mib_each_approx": 3085,
+    "automatic_restore_pending_history_preserved": true
+  },
+  "worktrees_preserved": true,
+  "gpu_leases_committed": false
+}

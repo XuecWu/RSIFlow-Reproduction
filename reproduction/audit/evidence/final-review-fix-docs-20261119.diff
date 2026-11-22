@@ -1,0 +1,377 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index c5634ac..087352d 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1,6 +1,6 @@
+ # RSI-Flow Agent 工作指南
+ 
+-本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**当前工作分支为 `reproduction/4b-five-round`**；早期 `reproduction/4b-bwrap` 已 fast-forward 合入 `reproduction/4b-main8`，复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭。**DeepCoder function 16 单轮 canary 已完成并接受 HARNESS，3/16→4/16，但 4 新成功伴随 3 回归且因果归因受限；固定同一 16 条的单域五轮当前完成 A0/B1，B1 ARTIFACTS 为 2/16→3/16、无回归、零新增 Qwen 调用，B2–B5 尚未完成。** 完整离线测试计数以最新修复报告和审计为准。正式五域五轮、最终 694/744、独立 benchmark 和作者原始实验复现仍未运行。实时状态以 SDD ledger/真实结果报告为准，公开状态以 `reproduction/PROGRESS.md`、`web/data/reproduction.json`、`web/RESULTS.md` 和 `web/OPERATIONS.md` 的实测记录为准；具体 HEAD、服务 PID 与公网 URL 不在本指南写死。本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。
++本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**当前工作分支为 `reproduction/4b-five-round`**；早期 `reproduction/4b-bwrap` 已 fast-forward 合入 `reproduction/4b-main8`，复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭。**DeepCoder function 16 单轮 canary 已完成并接受 HARNESS，3/16→4/16，但 4 新成功伴随 3 回归且因果归因受限；固定同一 16 条的单域五轮已完成 A0/B1–B5：B1/B3/B4 ARTIFACTS 为 2/16→3/16，B2 MODEL 为 4/16→3/16 并 retain_parent，B5 ARTIFACTS 为 4/16→5/16；B2 真实 positive-only SFT 未激活，最终 active 为 base Qwen3-4B + 四个累计 artifacts，run_complete=true。** 完整离线测试与 final-review scoped 证据以 `.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-7-final-review-fix-report.md` 和最新审计为准，不在本指南维护易过期的当前计数。正式五域五轮、最终 694/744、独立 benchmark 和作者原始实验复现仍未运行。实时状态以 SDD ledger/真实结果报告为准，公开状态以 `reproduction/PROGRESS.md`、`web/data/reproduction.json`、`web/RESULTS.md` 和 `web/OPERATIONS.md` 的实测记录为准；具体 HEAD、服务 PID 与公网 URL 不在本指南写死。本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。
+ 
+ ## 1. 项目是什么
+ 
+@@ -142,10 +142,10 @@ Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用
+ 
+ ## 8. 后续命令与运行边界
+ 
+-以下命令用于离线检查和后续完整实验；离线检查已执行不代表五轮已运行：
++以下命令用于离线检查和后续完整实验；固定 16 条单域五轮已完成不代表正式五域五轮或独立评估已运行：
+ 
+ ```bash
+-# 完整离线测试（DeepCoder canary 当前实测：522 passed, 2 skipped；此前兼容性修复为 516 passed, 2 skipped，Task 4 为 489 passed, 2 skipped）
++# 完整离线测试（当前执行结果见 task-7-final-review-fix-report.md；历史计数只留在对应阶段报告）
+ cd RSIFlow
+ PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
+ cd ..
+@@ -184,11 +184,11 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python reproduction/scripts/persi
+ 
+ 训练侧真实 smoke 的 `execute-rollout` 也必须显式设置 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1`；缺失或错误时在 `TaskAdapter`、bootstrap 和服务副作用之前 fail closed，不得回退 legacy Landlock。首轮真实评分/S1 失败与修复证据见 `reproduction/audit/reviews/real-preflight-fix1-report.md`，离线测试通过不替代真实重跑。
+ 
+-`start_5round_600.sh` 固定加入 `--prepare-data --detach`，且不带 `--config`，因此**不能直接用于 ACP 正式控制器**：默认 detach 会让脚本返回后作业结束并清理进程，默认配置又会落到上游占位 JSON。ACP 中必须让控制器**以前台方式**运行，并**显式传入绝对机器配置**（`reproduction/configs/train_4b.json`），例如以 rsiflow 解释器直接调用 `RSIFlow_4B/launch.py --config <绝对机器配置>`（不加 `--detach`；数据已冻结时不要加 `--prepare-data`）。每个 backbone 使用新的 run dir；相同命令、相同配置和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。正式五域五轮、五轮内 MODEL SFT 与最终 694/744 仍未运行；固定 16 条单域五轮的实时进度以 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`（若已封口）和 SDD ledger 为准。
++`start_5round_600.sh` 固定加入 `--prepare-data --detach`，且不带 `--config`，因此**不能直接用于 ACP 正式控制器**：默认 detach 会让脚本返回后作业结束并清理进程，默认配置又会落到上游占位 JSON。ACP 中必须让控制器**以前台方式**运行，并**显式传入绝对机器配置**（`reproduction/configs/train_4b.json`），例如以 rsiflow 解释器直接调用 `RSIFlow_4B/launch.py --config <绝对机器配置>`（不加 `--detach`；数据已冻结时不要加 `--prepare-data`）。每个 backbone 使用新的 run dir；相同命令、相同配置和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。正式五域五轮与最终 694/744 仍未运行；固定 16 条单域五轮和其中 B2 MODEL SFT 已完成，最终状态以 `reproduction/audit/reviews/deepcoder-five-round-real-results.md` 和 SDD ledger 为准。
+ 
+ DeepCoder function 16 canary 是独立的有界 preflight：`reproduction/configs/train_4b_deepcoder_canary_workspace.json` 固定一轮、16 条 code-only function、无独立 validation、单实验 attempt。真实运行已完成：Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整配对为 3/16=0.1875→4/16=0.25（delta +0.0625），4 个新成功伴随 3 个回归，原 3 个成功全部回归；新成功全来自父代零调用失败、回归全为候选零调用失败，故因果归因受限。accept/activate、skills/context/snapshot、state COMPLETE 和四卡 cleanup 均完成。supervision 0001 有 24 个失败 turns/24 条 error events 及 24 条对应 turn/completed events；0002 同 thread 从 candidate_built 恢复，未重复 A0/父代。MODEL 未选择，SFT 未运行。独立审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，公开结果见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。dev4 访问与 detached supervisor、4 小时监督、identity/cleanup/resume 仍以 `reproduction/audit/reviews/deepcoder-canary-runbook.md` 为准；active jobs 未调和前禁止 cleanup/resume。该 canary 不是五轮、正式 SFT、独立 benchmark、最终 694/744 或作者原始实验复现。
+ 
+-固定同一批 16 条的 DeepCoder 单域五轮工程实验已开始，配置为 `reproduction/configs/train_4b_deepcoder_five_round_workspace.json`，与上述单轮 canary 是不同 run。当前原始回执已重建出 A0 和 B1 complete，B1 选择 ARTIFACTS，父代 2/16、direct-submission 候选 3/16，new success=1、new regression=0、新增 Qwen calls=0；active/skills/context/snapshot 已保存，下一步为 B2.parent_rollout。该结果只证明 Meta-assisted output repair，不是模型或 Harness 质量提升。0003 因持续 Astra 502 停止并完成 external cleanup；恢复前必须满足 `reproduction/audit/reviews/deepcoder-five-round-runbook.md` 的当前 preflight，同 thread 从下一 milestone 继续，不得重跑 B1。轮次路径/原生 selection 恢复修复与独立复审见 `reproduction/audit/reviews/five-round-progress-recovery-fix.md`。B2–B5、五轮内 MODEL SFT、独立 benchmark 与作者结果复现仍未完成。
++固定同一批 16 条的 DeepCoder 单域五轮工程实验已完成，配置为 `reproduction/configs/train_4b_deepcoder_five_round_workspace.json`，与上述单轮 canary 是不同 run。B1/B3/B4 ARTIFACTS 均为 2/16→3/16，B5 为 4/16→5/16，均为零新增 Qwen calls 的 Meta-assisted direct-submission output repair；B2 MODEL 为 4/16→3/16，真实 positive-only SFT 使用 20 samples、4 ranks、1 epoch、3 optimizer steps，但 retain_parent 且未激活。最终 active 是 base Qwen3-4B + 四个累计 artifacts；active/skills/context/snapshot、22 个 durable jobs、最终 supervision 和 external cleanup 均完成，run_complete=true。Occupier 保持 stopped/restore_pending，不得绕过 NVML PID ownership 核验。每侧只有 6–8 个有效 submissions 进入 full verifier，ENOENT/EAGAIN 与零调用重叠限制归因。正式五域五轮、独立 benchmark、694/744 与作者结果复现仍未运行；真实结果、attempts/recovery 和限制见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`，操作边界见 `deepcoder-five-round-runbook.md`。
+ 
+ 典型输出：
+ 
+@@ -209,7 +209,7 @@ Task 6 的接受证据 `pt-zj1l9q1t` 是用户授权后的特殊 A100 smoke：
+ 
+ ## 10. 网站维护
+ 
+-`web/index.html` 是核心展示，`web/data/repository.json` 固定源码事实，`web/data/reproduction.json` 记录当前阶段状态。各轮只在真实证据出现后标记完成并保留限制；当前单域五轮可展示 A0/B1 原始回执结果，B2–B5 与最终评估必须保持未完成，正式五域协议仍为 4B、同协议重构、694/744 partial 口径。
++`web/index.html` 是核心展示，`web/data/repository.json` 固定源码事实，`web/data/reproduction.json` 记录当前阶段状态。各轮只在真实证据出现后标记完成并保留限制；当前单域五轮可展示 A0/B1–B5 的原始回执结果与 occupier restore_pending，正式五域五轮和最终评估必须保持未完成，正式协议仍为 4B、同协议重构、694/744 partial 口径。
+ 
+ ```bash
+ python3 -m unittest discover -s web/tests -v
+diff --git a/reproduction/PROGRESS.md b/reproduction/PROGRESS.md
+index d27d833..af383fe 100644
+--- a/reproduction/PROGRESS.md
++++ b/reproduction/PROGRESS.md
+@@ -7,12 +7,13 @@
+ - 只做 Qwen3-4B；正式实验规划仍是主分区 8×A800 顺序执行、当前仅用 GPU 0–3。Task 6 的隔离 smoke 例外使用用户后来授权的 8×A100，不改变正式实验资源方案。
+ - 公开数据同协议重构，不是作者原始 3000/744 队列的精确复现。
+ - Meta 使用自定义 `gpt-6-astra`；ACE 50 跳过并标记 pending，计划评分 694/744。
+-- 4B 审阅后才决定是否准备和运行 8B；尚未运行五轮演化、SFT、最终 694/744 评估或模型 benchmark 评分。
++- 4B 审阅后才决定是否准备和运行 8B；固定 16 条 DeepCoder 单域五轮及其中 B2 positive-only SFT 已完成，但正式五域五轮、最终 694/744 评估和模型 benchmark 评分仍未运行。
+ - 当前交付分支为 `reproduction/4b-main8`：隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入。**合并与初次备份点为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`），初次备份推送当时 `ls-remote` 两个远端复现分支同为该 SHA。两个复现分支已备份到内部 GitLab（`gitlab` remote，项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow ）；`origin` 仍是 GitHub 上游且未向其推送，GitLab 既有 `main`（`0c47d98df09327ba09f4fad9aaa9914837ffa280`）未强推/未覆盖/未建 MR，GitLab CI 未验证。承载发布文档更新的提交在合并与初次备份点之后由主 agent 纳入后续文档提交，**当前分支 HEAD 与远端 SHA 以 `git log` / `git ls-remote` 实测为准，本页不写死后续 SHA**。本页只发布脱敏状态，不公开 raw prompts/responses、私有轨迹、凭据或大日志。
+ 
+ ## 已完成并验证
+ 
+-- **DeepCoder function 16 真实 canary（2026-11-17）**：固定 16 条 function、code 单域、单轮、一个 HARNESS 候选已完成。Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，并有 4 个新成功和 3 个回归；原 3 个成功全部回归，4 个新成功全部来自父代零调用失败，3 个回归全为候选零调用失败，因此只接受固定批净正增益，不宣称普遍 Harness 因果改进。accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成；MODEL 未选择、SFT 未运行。独立结果审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。当前完整离线套件为 **522 passed, 2 skipped**；五轮、694/744、独立 benchmark 和作者原始实验复现仍未运行。
++- **DeepCoder function 16 真实 canary（2026-11-17）**：固定 16 条 function、code 单域、单轮、一个 HARNESS 候选已完成。Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，并有 4 个新成功和 3 个回归；原 3 个成功全部回归，4 个新成功全部来自父代零调用失败，3 个回归全为候选零调用失败，因此只接受固定批净正增益，不宣称普遍 Harness 因果改进。accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成；该单轮 run 的 MODEL 未选择、SFT 未运行。独立结果审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。522 passed/2 skipped 是该历史阶段计数；当前测试证据见 final-review fix report。
++- **DeepCoder function 16 单域五轮（2026-11-19）**：同一 16 条、80 rollout positions 的 A0+B1–B5 已完成，`run_complete=true`、launcher exit 0、external cleanup ok。B1/B3/B4 ARTIFACTS 均为 2/16→3/16，B5 为 4/16→5/16，均是零新增 Qwen calls 的 Meta-assisted direct-submission output repair；B2 MODEL 为 4/16→3/16，真实 positive-only SFT 20 samples、4 ranks、1 epoch、3 optimizer steps，retain_parent 且未激活。最终 active 为 base Qwen3-4B + 四个累计 artifacts。每侧仅 6–8 个有效 submissions 进入 full verifier；ENOENT/EAGAIN 与零调用重叠限制归因。Occupier stopped/restore_pending，四卡最终空闲。正式五域、3000、694/744、独立 benchmark 和作者复现仍未运行。详见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
+ - 历史复现分支 `reproduction/4b-main8` 的阶段 commit、追加式操作/关键结果账本、每日审计和 Herdr 三方通道已有记录；bwrap 隔离工作已 fast-forward 合入该分支，并完成内部 GitLab 备份。
+ - 合并复验（2026-11-16）：功能工作树预检 `297 passed, 2 skipped in 92.22s`、website `11/11`。**合并后主工作树首次完整 pytest 为 `13 failed, 284 passed, 2 skipped`**，逐项确认根因是主工作树缺少 Git-ignored 的 `assets/isolation/`，不是代码或测试回归。用既有 `reproduction/scripts/install_bwrap.py` 从功能工作树同一 pinned binary（SHA256 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`）安装并校验 manifest/launcher receipt 后，受影响测试 `51 passed in 48.77s`、完整 pytest **`297 passed, 2 skipped in 89.15s`**，website `11/11`、`node --check`、`git diff --check` 通过；全程未改生产代码或测试。
+ - 账本保护：主工作树两份未提交追加 JSONL 在 merge 前后 SHA256 完全不变（`operations.jsonl` `ea9403380b77b5f1100c6bce5b66578cc3cf4e218ec9985bea8d2b7f0749858e`、`key_results.jsonl` `82c10d582e9459d62d03c3b42c6ba9efaabdfd1254114519389259fd1ba92c0a`）。两个工作树的 operations 在 **sequence 581 之后分叉**，原件均保留，禁止覆盖或直接拼接；bwrap 功能工作树与 `Meta_logs/` 一并保留。
+@@ -45,8 +46,8 @@
+ ## 当前剩余门槛
+ 
+ - Task 7 最终独立安全审阅及 consolidated fix-wave re-review 已由未参与实现的 reviewer 关闭；全部 Critical/Important 已修复，结论为 Ready to merge Yes。保留一个仅影响非 UTF-8 installation_id 报错类型的 Minor 诊断项，不影响启动前拒绝和状态安全。
+-- 五轮 preflight 仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 上健康的四卡 Qwen 服务、当前 694 配置 `python RSIFlow_4B/launch.py --check`，以及最终独立 experiment preflight review。
+-- 五轮、SFT、最终 694/744、ACE 50、8B 和 Qwen 服务均未在本轮隔离任务中启动；没有模型 benchmark 分数。
++- 正式五域五轮 preflight 仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 上健康的四卡 Qwen 服务、当前 694 配置 `python RSIFlow_4B/launch.py --check`，以及最终独立 experiment preflight review；已完成的固定 16 条单域五轮不替代这些门。
++- 正式五域五轮、最终 694/744、ACE 50、8B 和持久正式 Qwen 服务均未运行；没有独立模型 benchmark 分数。单域 B2 SFT 已发生但未激活，不能写成模型质量结果。
+ 
+ ## 过程与证据
+ 
+diff --git a/reproduction/REPRODUCTION.md b/reproduction/REPRODUCTION.md
+index e248413..e1ab580 100644
+--- a/reproduction/REPRODUCTION.md
++++ b/reproduction/REPRODUCTION.md
+@@ -1,6 +1,6 @@
+ # RSI-Flow 复现与 bubblewrap 隔离手册
+ 
+-> 当前已完成 4B 隔离基础设施验证和 DeepCoder function 16 单域单轮单候选真实 canary；后者接受 HARNESS，固定批 3/16→4/16，但有 4 新成功、3 回归和过程异常归因限制。五轮、正式 SFT、最终 694/744、ACE 50、8B、独立 benchmark 和作者原始实验复现仍未运行；candidate/EvalPlus/BFCL/Codex 历史结果仍是最小基础设施 smoke，不是模型 benchmark 分数。通用数据、GPU 和评估协议见 `web/REPRODUCTION.md`。
++> 当前已完成 4B 隔离基础设施验证、DeepCoder function 16 单域单轮 canary，以及固定同一 16 条的 A0+B1–B5 单域工程实验。后者 B1/B3/B4 ARTIFACTS 为 2/16→3/16、B5 为 4/16→5/16，B2 MODEL 为 4/16→3/16 并 retain_parent；B2 真实 positive-only SFT 未激活，最终 active 为 base Qwen3-4B + 四个累计 artifacts。正式五域五轮、最终 694/744、ACE 50、8B、独立 benchmark 和作者原始实验复现仍未运行；candidate/EvalPlus/BFCL/Codex 历史结果仍是最小基础设施 smoke，不是模型 benchmark 分数。通用数据、GPU 和评估协议见 `web/REPRODUCTION.md`。
+ 
+ ## 1. 显式后端与禁止回退
+ 
+@@ -135,7 +135,7 @@ cd /data/wuxuecheng/Hierarchical_level/RSI-Flow
+ 
+ 保存输出并确认 `config` 正是该机器文件，再独立核对有效 `PipelineConfig` 的 v4 frozen release、`skip_acebench=true`、694/744（五个 scored benchmark）、validation manifest 与输出目录。`--check` 本身只巡检路径存在性、rounds 与每轮任务数，不校验 skip-ACE、694 计数、manifest 内容、评测器可执行性、GPU 或 API，**返回 0 不等于该门通过**；该门当前仍未关闭。
+ 
+-正式运行同样必须显式选择同一机器配置，且 ACP 控制器保持**前台**：`RSIFlow_4B/start_5round_600.sh` 固定加入 `--prepare-data --detach` 又不带 `--config`，不能直接依赖。五轮、SFT、最终 694/744、ACE 50、8B 与正式 Qwen 服务均未运行。
++正式运行同样必须显式选择同一机器配置，且 ACP 控制器保持**前台**：`RSIFlow_4B/start_5round_600.sh` 固定加入 `--prepare-data --detach` 又不带 `--config`，不能直接依赖。正式五域五轮、最终 694/744、ACE 50、8B 与持久正式 Qwen 服务均未运行；固定 16 条单域五轮及 B2 SFT 不替代这些正式目标。
+ 
+ ## 8. 真实 Qwen 最小评分 smoke（已实现，待 controller 审阅后执行）
+ 
+@@ -261,4 +261,24 @@ Tasks 1–4 完成实现、冻结 release、离线测试和审查；Task 5 已
+ 
+ supervision 0001 保留 24 个失败 turns、24 条 error events 和 24 条对应 turn/completed events 的 502 历史；0002 在同一 run/thread 从 candidate_built 恢复，无重复 bootstrap/run_parent，最终 exit 0。真实执行与恢复必须遵循 `reproduction/audit/reviews/deepcoder-canary-runbook.md` 的 detached supervisor、4 小时 launcher 监督、显式 bwrap、私有 Meta env、identity-checked cleanup 和同 run resume；active jobs 未调和前禁止 cleanup/resume。
+ 
+-当前完整离线套件为 **522 passed, 2 skipped**。MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行，ACEBench 是 skipped 而非 scored。
++该单轮 run 的 MODEL 未选择、SFT 未运行；522 passed/2 skipped 是此历史阶段计数，当前测试证据见 final-review fix report。后续固定 16 条单域五轮见下节；694/744、独立 validation/benchmark 和作者原始实验复现仍未运行，ACEBench 是 skipped 而非 scored。
++
++## 12. DeepCoder function 16 单域五轮（真实完成，有界工程结果）
++
++实际配置为 `reproduction/configs/train_4b_deepcoder_five_round_workspace.json`，与单轮 canary 是不同 run。五轮重复使用同一组 16 个唯一 function tasks，共 80 rollout positions；每轮一个 `attempt_1`，无独立 validation。接受汇总为 `reproduction/audit/evidence/five-round-final-summary-20261119.json`，完整脱敏结果见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
++
++| 轮次 | 组件 | Calls 父→候选 | full verifier 父→候选 | 成功数 父→候选 | new success / regression | 结果 |
++| --- | --- | ---: | ---: | ---: | ---: | --- |
++| B1 | ARTIFACTS | 87→0 | 7→7 | 2/16→3/16 | 1 / 0 | accept + activate |
++| B2 | MODEL | 40→118 | 6→7 | 4/16→3/16 | 2 / 3 | retain_parent |
++| B3 | ARTIFACTS | 61→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
++| B4 | ARTIFACTS | 59→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
++| B5 | ARTIFACTS | 63→0 | 8→8 | 4/16→5/16 | 1 / 0 | accept_candidate + activate |
++
++ARTIFACTS 均为 Meta-assisted direct-submission output repair，候选零新增 Qwen calls，每轮编辑一个 target、复用其余 15 个 baseline results，累计 artifacts 为 1/2/3/4。每侧只有 6–8 个有效 submissions 进入 full verifier，不声称全部 16 条收到完整测试。
++
++B2 positive-only SFT 使用 20 input/unique/sampled examples、4 ranks（每 rank 5 samples）、1 epoch、每 rank及全局 3 optimizer steps；LoRA rank 8、LR `2e-6`。merged candidate 未激活，B2 选择父代。最终 active generation=4，checkpoint 仍是 base Qwen3-4B，累计四个 artifacts；各轮 selected snapshot、skills、context 和 active hash 链均通过重算。
++
++真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止和 missing-key failure 保留，最终 0008 exit 0，22 个 durable jobs 终态完整。`run_complete=true`、protocol complete、launcher exited、external cleanup ok，四卡最终空闲。Occupier 因 NVML PID ownership 未解决而 stopped/restore_pending，不得绕过恢复门。
++
++边界：没有正式五域 3000、held-out 或 694/744，没有作者复现或通用能力结论。ENOENT/EAGAIN 和零调用重叠限制归因；ARTIFACTS 分数是 Meta-assisted output repair，不是 Task policy 改进，B2 SFT 也不是模型质量提升。
+diff --git a/reproduction/audit/reviews/deepcoder-five-round-runbook.md b/reproduction/audit/reviews/deepcoder-five-round-runbook.md
+index de3dc27..29e7365 100644
+--- a/reproduction/audit/reviews/deepcoder-five-round-runbook.md
++++ b/reproduction/audit/reviews/deepcoder-five-round-runbook.md
+@@ -262,3 +262,5 @@ NVML `--query-compute-apps` 的 compute PID 与容器内 rank PID **可能属不
+ ## 9. 完成判定与报告
+ 
+ 最终完成同时核验 SOP §9 各项（state complete/last_turn completed、A0+B1–B5 milestones、current_stage COMPLETE/finish_allowed、B5 前无提前 finish、每轮单 attempt、active 链、durable jobs 终态、supervision exit/reconcile、launcher/Codex PID 不存活、owned registry services_stopped、GPU 无计算进程）+ external cleanup completed。任何缺失只报告实得轮次与 blocker。报告逐轮表格、跨轮 active/skills 链、MODEL/SFT 实际发生轮次、过程异常限制；五轮工程完成不等于五域/3000/694/744/作者复现。
++
++**2026-11-19 实际终局**：该固定 16 条单域五轮已达到上述完成判定，`run_complete=true`、最终 supervision `0008` exit 0、external cleanup completed，四卡空闲。逐轮结果与 attempts/recovery 历史见 `deepcoder-five-round-real-results.md`。Occupier 因 NVML PID ownership 未解决而保持 stopped/`restore_pending`，不得按本 runbook 强行恢复；后续不得再从 COMPLETE run 重放实验。最终汇总器会检查完整 activation inventory：retain 拒绝任何成功 activation，accept 只接受唯一且正确绑定的成功 activation；selection 的 `accept_or_retain` 优先于 `selection`，与生产 progress 一致。
+diff --git a/reproduction/audit/reviews/deepcoder-model-smoke-report.md b/reproduction/audit/reviews/deepcoder-model-smoke-report.md
+index 0424de0..867cb12 100644
+--- a/reproduction/audit/reviews/deepcoder-model-smoke-report.md
++++ b/reproduction/audit/reviews/deepcoder-model-smoke-report.md
+@@ -216,7 +216,7 @@ Retry 5 brief 指定 Qwen4-Max scoped re-review PASS、主 Kimi 已复核 schedu
+ ## v1 保留与 v2 plan
+ 
+ - `00001353` 的首次只读 precheck 因操作员 Python 引号错误 NameError，未修改任何文件/进程；`00001354` 修正后确认 HEAD/clean diff、v1 SFT final 仍 `incomplete`、无 active training/service owner、source/input seals 仍 true、v2 root 不存在、occupier `24009` 四卡运行。
+-- 旧 `Rollout_logs/deepcoder_model_smoke_v1` 未 execute、未删除、未改写；后验 `00001360` 再次确认 v1 incomplete/seals 不变。
++- 旧 `Rollout_logs/deepcoder_model_smoke_v1` 在 Retry 5 **not executed again**、未删除、未改写；Retry 4 已真实 execute 并失败，后验 `00001360` 再次确认 v1 incomplete/seals 不变。
+ - `00001355`：occupier 运行中，新 `Rollout_logs/deepcoder_model_smoke_v2` public plan exit 0。Plan SHA256 `2466c2285cbf85a4f2596446a46b12c5921577e4949508516f2bb21df62daed7`，plan identity `8398911273705e2cbb1b812e01f27588f1daf8f9509dfa27b1ce59c768567865`。
+ - `00001356`：runner 自身 `_load_execute_plan()` 重算通过；16 tasks、51 source transport calls、3 unique positives、18 SFT samples（每个正例 6 个）、source hashes 相同、checkpoint seals 42、Harness seals 2、registry 隔离、无 stage started/final，v1 仍 incomplete。
+ 
+diff --git a/web/OPERATIONS.md b/web/OPERATIONS.md
+index 17dc951..045d4d6 100644
+--- a/web/OPERATIONS.md
++++ b/web/OPERATIONS.md
+@@ -232,3 +232,17 @@
+ - 新 URL 已实测 `/`、`/RESULTS.md`、`/OPERATIONS.md`、`/data/reproduction.json` 四项全部 **HTTP 200**；`RESULTS.md` 包含 `3/16`、`4/16` 和 `HARNESS`。本地 `http://127.0.0.1:18000/` 也为 **200**。
+ - `reproduction/PROGRESS.md` 与 `web/RESULTS.md` 的当前首页/过程页入口已同步到新地址；旧地址仅留在历史操作记录中。
+ - 最终完整离线套件为 **522 passed, 2 skipped**。上文 2026-11-17 首次真实结果发布节的 517/2 是当时维护/发布历史，保留原记录并以本节最终 522/2 为准；未修改 2026-11-16 daily 历史账本。
++
++
++## 2026-11-19
++
++### DeepCoder function 16 单域五轮完成与真实结果发布
++
++- 接受证据为 `reproduction/audit/evidence/five-round-final-summary-20261119.json`：同一组 16 个唯一 function tasks、五轮共 80 rollout positions、每轮一个实验 attempt；`run_complete=true`、protocol complete、launcher exit 0、external cleanup ok。
++- B1/B3/B4 ARTIFACTS 均为 2/16→3/16，B5 为 4/16→5/16；都是零新增 Qwen calls 的 Meta-assisted direct-submission output repair。B2 MODEL 为 4/16→3/16，真实 positive-only SFT 使用 20 samples、4 ranks、1 epoch、3 optimizer steps，但 retain_parent 且未激活。
++- 父子 Calls 分别为：B1 87→0、B2 40→118、B3 61→0、B4 59→0、B5 63→0。full verifier 分别为 7→7、6→7、8→8、8→8、8→8；每侧只有 6–8 个有效 submissions 进入完整验证，不声称全部 16 条收到完整测试。
++- 最终 active 为 base Qwen3-4B + 四个累计 artifacts，B2 merged checkpoint 不在 active 链。active/model/artifacts/skills/context/snapshot 和 22 个 durable jobs 均通过最终重算。
++- 真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止、Astra/provider 异常和 missing-key failure 保留为历史，后续从下一 milestone 恢复，最终 0008 exit 0。未改写真实 run evidence。
++- 四卡最终空闲；occupier 因 NVML PID ownership 未解决保持 stopped/restore_pending，未绕过身份恢复门。
++- 限制：ENOENT/EAGAIN 与零调用重叠限制归因；ARTIFACTS 不是 Task policy 改进，B2 SFT 不是模型质量结果。没有正式五域 3000、held-out、694/744、独立 benchmark、作者复现或通用能力结论。
++- 新建 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`，同步 `AGENTS.md`、`reproduction/PROGRESS.md`、`reproduction/REPRODUCTION.md`、`web/data/reproduction.json` 和 `web/RESULTS.md`。接受基线完整套件为 1020 passed/2 skipped；final-review fix wave 的 scoped 验证见 task 7 report，最终全量套件和网站/HTTP/secret 检查由主 agent 执行。
+diff --git a/web/RESULTS.md b/web/RESULTS.md
+index 6c2a754..4bf62da 100644
+--- a/web/RESULTS.md
++++ b/web/RESULTS.md
+@@ -6,7 +6,7 @@
+ - **已合并、已备份**：隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入 `reproduction/4b-main8`。**合并与初次备份点为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`），推送当时 `ls-remote` 两个远端复现分支同为该 SHA。承载本次发布文档更新的提交在该点**之后**由主 agent 纳入后续文档提交，因此**当前分支 HEAD 与远端 SHA 一律以 `git log` / `git ls-remote` 实测为准**，本文不写死后续 SHA。**当前不再是"只本地 commit、未 push"状态。**
+ - 远程与备份边界：`origin` 仍是 GitHub 上游且未向其推送；`gitlab` 指向内部项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow 。GitLab 既有 `main` 仍为 `0c47d98df09327ba09f4fad9aaa9914837ffa280`，与本地历史无共同提交，**未强推、未覆盖、未建 MR**；GitLab CI 未验证。
+ - 当前范围：Qwen3-4B、公开数据同协议重构、Meta `OpenAI/gpt-6-astra`。正式实验规划仍为主分区 8×A800 仅用 GPU 0–3。
+-- **尚未运行五轮演化、SFT 或最终 694/744 评估，没有任何模型 benchmark 分数。ACE 50、8B 和正式 Qwen 服务也未在本轮启动。**
++- **固定同一 16 条 DeepCoder function 的单域五轮及 B2 positive-only SFT 已完成；正式五域五轮和最终 694/744 评估仍未运行，没有独立模型 benchmark 分数。ACE 50、8B 和持久正式 Qwen 服务也未启动。**
+ - **公网首页：** https://75f371f2.r61.cpolar.top
+ - **过程审计：** https://75f371f2.r61.cpolar.top/process.html
+ - **本地地址：** http://127.0.0.1:18000/ （由主工作树 `web/` 提供）
+@@ -31,7 +31,25 @@
+ - **配对结果**：**3/16=0.1875 → 4/16=0.25，delta +0.0625**。`compare_scores`、`compare_task_differences`、显式 `accept_candidate` 和 activate 均完成，candidate state 与 active state hash 一致。
+ - **必须同时公开的限制**：4 个新成功伴随 3 个回归，原 3 个成功全部回归；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败。结果只支持固定批净正增益，过程异常使 Harness 因果归因受限。
+ - **终局与恢复**：skills/context/snapshot、state COMPLETE、finish、jobs 调和和四卡 cleanup 均完成。supervision 0001 有 24 个失败 turns、24 条 error events 及 24 条对应 turn/completed events；0002 在同一 thread 从 candidate_built 恢复，无重复 A0/父代，最终 exit 0。
+-- **边界**：MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行。当前完整离线套件 **522 passed, 2 skipped**。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。
++- **边界**：该单轮 run 的 MODEL 未选择、SFT 未运行；522 passed/2 skipped 是此历史阶段计数。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。后续单域五轮见下节；694/744、独立 validation/benchmark 和作者原始实验复现仍未运行。
++
++## DeepCoder function 16 单域五轮（2026-11-19，真实完成）
++
++- **有界协议**：A0+B1–B5 使用同一组 16 个唯一 function tasks，共 80 rollout positions，每轮一个实验 attempt；`run_complete=true`、protocol complete、launcher exit 0、external cleanup ok。它不是正式五域 3000-task 实验或 held-out evaluation。
++- **逐轮实测**：下表 Calls 为真实 Qwen calls，full verifier 仅计实际进入完整验证的有效 submissions；并非全部 16 条都收到完整测试。
++
++| 轮次 | 组件 | Calls 父→候选 | full verifier 父→候选 | 成功数 父→候选 | new success / regression | 决定 |
++| --- | --- | ---: | ---: | ---: | ---: | --- |
++| B1 | ARTIFACTS | 87→0 | 7→7 | 2/16→3/16 | 1 / 0 | accept + activate |
++| B2 | MODEL | 40→118 | 6→7 | 4/16→3/16 | 2 / 3 | retain_parent |
++| B3 | ARTIFACTS | 61→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
++| B4 | ARTIFACTS | 59→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
++| B5 | ARTIFACTS | 63→0 | 8→8 | 4/16→5/16 | 1 / 0 | accept_candidate + activate |
++
++- **ARTIFACTS 归因**：四轮都是 Meta-assisted direct-submission output repair，零新增 Qwen calls；每轮编辑一个 target、复用其余 15 个 baseline results。最终 active 是 base Qwen3-4B + 四个累计 artifacts，不能宣称 Task policy 或通用能力提升。
++- **MODEL SFT**：B2 真实 positive-only SFT 为 20 samples、4 ranks、1 epoch、3 optimizer steps；merged candidate 因 4/16→3/16 未激活，最终 model 仍是 base。
++- **状态与恢复**：active/model/artifact/skills/context/snapshot 链完整，22 个 durable jobs 终态有效。真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止和 missing-key failure 保留，最终 0008 exit 0。四卡最终空闲；occupier 因 NVML PID ownership 未解决保持 **stopped/restore_pending**，不绕过恢复门。
++- **限制与测试**：ENOENT/EAGAIN 和零调用重叠限制归因。正式五域、3000、694/744、独立 benchmark 和作者复现仍未运行。接受基线完整套件为 **1020 passed, 2 skipped**；final fix wave 的 scoped 验证与最终全量检查归属见 task 7 report。完整结果见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
+ 
+ ## 合并、备份与本次复验（2026-11-16）
+ 
+@@ -51,7 +69,7 @@
+ - 真实 `OPENAI_API_KEY` 仅在 host `ResponsesTransport`；sandbox 只有 dummy relay key。公开页不包含 raw prompts/responses、私有轨迹、凭据或大输出。
+ - Codex native-shell descendant hygiene 未执行；legacy Landlock 不可用且 nested vendor bwrap 与 anti-escape seccomp 冲突。当前仅验证 `shell_tool=false` 的 construction-level hygiene，未放宽 seccomp。
+ - 最终独立 re-review 已完成：三项生产修复与两项发布修复均为 ADDRESSED，无新增 Critical/Important，Ready to merge Yes。combined `pt-v6m10c4t` 仍不得写成 SUCCEEDED。
+-- 五轮前仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review。
++- 正式五域五轮前仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review；固定 16 条单域五轮不替代这些门。
+ 
+ ## 独立审阅与公开原则
+ 
+diff --git a/web/data/reproduction.json b/web/data/reproduction.json
+index 04f6465..04c0987 100644
+--- a/web/data/reproduction.json
++++ b/web/data/reproduction.json
+@@ -1,7 +1,7 @@
+ {
+   "schema_version": 1,
+   "research_status": "completed_source_research",
+-  "experiment_status": "deepcoder_function_16_canary_complete_preflight_in_progress",
++  "experiment_status": "deepcoder_function_16_five_round_complete",
+   "source_commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
+   "isolation_branch": "reproduction/4b-bwrap",
+   "user_boundary": "4B 公开数据同协议重构、Meta 使用 gpt-6-astra、ACE 跳过；五轮须等独立安全审阅、五类 benchmark 最小 smoke、健康四卡 Qwen 服务、当前 694 --check 与 experiment preflight",
+@@ -27,8 +27,8 @@
+     "verified": false
+   },
+   "current_execution": {
+-    "status": "deepcoder_function_16_canary_complete_and_independently_reviewed",
+-    "phase": "single_domain_canary_complete_formal_five_round_preflight_pending",
++    "status": "deepcoder_function_16_five_round_run_complete",
++    "phase": "single_domain_five_round_complete_formal_five_domain_and_independent_evaluation_not_run",
+     "backbone": "Qwen3-4B",
+     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
+     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3（正式实验规划；canary 为 dev4 四卡）",
+@@ -38,9 +38,10 @@
+     "sandbox_backend": "linux_bwrap_seccomp_v1"
+   },
+   "current_offline_suite": {
+-    "test_counts": "522 passed, 2 skipped",
++    "test_counts": "1020 passed, 2 skipped",
+     "skipped_counted_as_passed": false,
+-    "scope": "current_full_offline_suite_not_real_canary_substitute"
++    "scope": "accepted_base_5071b705_full_suite_not_final_fix_wave_rerun",
++    "evidence": ".superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-7-final-review-fix-report.md"
+   },
+   "deepcoder_canary": {
+     "status": "completed_accepted_with_concerns",
+@@ -80,6 +81,67 @@
+     "five_rounds_run": false,
+     "author_original_experiment_reproduced": false
+   },
++  "deepcoder_five_round": {
++    "status": "run_complete",
++    "run_complete": true,
++    "completed_rounds": 5,
++    "protocol_complete": true,
++    "launcher_exited": true,
++    "external_cleanup_ok": true,
++    "evidence": "reproduction/audit/reviews/deepcoder-five-round-real-results.md",
++    "accepted_summary": "reproduction/audit/evidence/five-round-final-summary-20261119.json",
++    "config": "reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
++    "task_source": "DeepCoder/TACO",
++    "interface": "function",
++    "domain": "code",
++    "unique_tasks": 16,
++    "rollout_positions": 80,
++    "repeated_same_cohort": true,
++    "experiment_attempts_per_round": 1,
++    "rounds": [
++      {"round": 1, "component": "ARTIFACTS", "parent_calls": 87, "candidate_calls": 0, "parent_full_verifier": 7, "candidate_full_verifier": 7, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept", "activated": true},
++      {"round": 2, "component": "MODEL", "parent_calls": 40, "candidate_calls": 118, "parent_full_verifier": 6, "candidate_full_verifier": 7, "parent_successes": 4, "candidate_successes": 3, "new_success": 2, "new_regression": 3, "decision": "retain_parent", "activated": false},
++      {"round": 3, "component": "ARTIFACTS", "parent_calls": 61, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true},
++      {"round": 4, "component": "ARTIFACTS", "parent_calls": 59, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true},
++      {"round": 5, "component": "ARTIFACTS", "parent_calls": 63, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 4, "candidate_successes": 5, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true}
++    ],
++    "artifacts_attribution": "meta_assisted_direct_submission_output_repair_zero_new_qwen_calls",
++    "model_sft": {
++      "round": 2,
++      "positive_only": true,
++      "input_samples": 20,
++      "unique_samples": 20,
++      "sampled_training_examples": 20,
++      "ranks": 4,
++      "epochs": 1,
++      "optimizer_steps": 3,
++      "candidate_activated": false
++    },
++    "final_active": {
++      "generation": 4,
++      "checkpoint": "base_Qwen3_4B",
++      "b2_merged_candidate_active": false,
++      "cumulative_artifact_records": 4,
++      "skills_context_snapshots_complete": true
++    },
++    "durable_jobs": {"total": 22, "missing_or_invalid": 0},
++    "supervision": {
++      "real_attempts": ["0001", "0003", "0004", "0005", "0006", "0007", "0008"],
++      "preflight_rejected": ["0002"],
++      "final_attempt": "0008",
++      "final_exit_code": 0,
++      "all_reconciled": true
++    },
++    "cleanup": "completed_services_stopped_four_gpus_free",
++    "occupier": "stopped_restore_pending_unresolved_nvml_pid_ownership",
++    "full_verifier_submissions_per_side": "6_to_8_not_all_16",
++    "limitations": [
++      "enoent_eagain_and_zero_call_overlaps_limit_attribution",
++      "no_held_out_or_independent_validation_or_benchmark",
++      "no_formal_five_domain_3000_or_694_of_744_result",
++      "no_author_original_experiment_reproduction_or_general_capability_claim"
++    ]
++  },
+   "compatibility_fixes": {
+     "skip_ace_744": {
+       "status": "focused_and_full_suite_passed",
+@@ -339,8 +401,14 @@
+     },
+     {
+       "id": "run_4b_five_rounds",
+-      "status": "not_run_pending_approval",
+-      "evidence": null
++      "status": "completed_single_domain_16_task_engineering_canary",
++      "evidence": "reproduction/audit/reviews/deepcoder-five-round-real-results.md",
++      "run_complete": true,
++      "unique_tasks": 16,
++      "rollout_positions": 80,
++      "final_active": "base_Qwen3_4B_plus_four_cumulative_artifacts",
++      "occupier": "stopped_restore_pending",
++      "scope": "not_formal_five_domain_held_out_benchmark_or_author_reproduction"
+     },
+     {
+       "id": "evaluate_4b_694",
+@@ -366,7 +434,7 @@
+     "current_694_python_RSIFlow_4B_launch.py_--check",
+     "final_independent_experiment_preflight_review"
+   ],
+-  "not_run": ["five_rounds", "formal_SFT", "final_694_of_744", "ACE_50", "8B", "independent_validation_or_benchmark", "author_original_experiment_reproduction", "persistent_formal_Qwen_services"],
++  "not_run": ["formal_five_domain_five_rounds", "formal_SFT", "final_694_of_744", "ACE_50", "8B", "independent_validation_or_benchmark", "author_original_experiment_reproduction", "persistent_formal_Qwen_services"],
+   "blocking_decisions": [
+     "original_3000_744_source_manifests_availability",
+     "exact_reproduction_or_protocol_reconstruction",
+diff --git a/web/tests/test_web.py b/web/tests/test_web.py
+index e8e117e..53f2097 100644
+--- a/web/tests/test_web.py
++++ b/web/tests/test_web.py
+@@ -142,8 +142,20 @@ class WebsiteTests(unittest.TestCase):
+         self.assertFalse(frozen["clean_independence_audited"])
+         self.assertEqual("exposure_unknown", frozen["exposure"])
+         self.assertEqual("694_of_744_ace_pending_audit", by_id["evaluate_4b_694"]["evaluation_scope"])
+-        for identifier in ("run_4b_five_rounds", "evaluate_4b_694", "run_8b_five_rounds", "evaluate_8b_694"):
++        five = by_id["run_4b_five_rounds"]
++        self.assertEqual("completed_single_domain_16_task_engineering_canary", five["status"])
++        self.assertTrue(five["run_complete"])
++        self.assertEqual(16, five["unique_tasks"])
++        self.assertEqual(80, five["rollout_positions"])
++        self.assertEqual("stopped_restore_pending", five["occupier"])
++        for identifier in ("evaluate_4b_694", "run_8b_five_rounds", "evaluate_8b_694"):
+             self.assertEqual("not_run_pending_approval", by_id[identifier]["status"])
++        rounds = self.reproduction["deepcoder_five_round"]["rounds"]
++        self.assertEqual([2, 4, 2, 2, 4], [r["parent_successes"] for r in rounds])
++        self.assertEqual([3, 3, 3, 3, 5], [r["candidate_successes"] for r in rounds])
++        self.assertEqual("retain_parent", rounds[1]["decision"])
++        self.assertFalse(rounds[1]["activated"])
++        self.assertEqual(20, self.reproduction["deepcoder_five_round"]["model_sft"]["sampled_training_examples"])
+         self.assertIn("主分区 8×A800", self.reproduction["current_execution"]["gpu_profile_display"])
+         self.assertEqual("main_partition_8xA800_sequential_gpu_0_to_3", self.reproduction["current_execution"]["gpu_profile"])
+         meta = self.reproduction["bwrap_isolation"]["persistent_meta"]

@@ -1,0 +1,494 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-11-22T05:57:27.225737Z",
+  "source_head": "9dd6b1dd68ed2e0bd190c491b256313a1721a641",
+  "scope": "previously untracked five-round audit evidence and review files",
+  "original_untracked_files": 91,
+  "included_original_files": 84,
+  "excluded_original_files": 7,
+  "included": [
+    {
+      "path": "reproduction/audit/evidence/final-review-fix-code-20261119.diff",
+      "size_bytes": 21295,
+      "sha256": "3a47fa3df1672b01f1daf424c29c4bb434533449ead09626318f3be4f58b66f7"
+    },
+    {
+      "path": "reproduction/audit/evidence/final-review-fix-docs-20261119.diff",
+      "size_bytes": 46577,
+      "sha256": "ca033a3b4b1ccd914f4086422119a5b4a089e25ec3ce13e9166a62b8ea6e7190"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0004-cleanup-20261119.json",
+      "size_bytes": 284,
+      "sha256": "5a42cb50a1092b39e2ed82679c11c669a5f688b847470bc3aa0394d00e6153fc"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0005-cleanup-20261119.json",
+      "size_bytes": 284,
+      "sha256": "e3591f515a7f0507431f31b20e74c2990b81638286b55c250079679178575396"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0005-identity-reattach-20261119.json",
+      "size_bytes": 1527,
+      "sha256": "be9e0e1b8bb7fcf9c00159caf954857b142aedf1a5997fd274a29058faccc019"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0005-stop-20261119.json",
+      "size_bytes": 154,
+      "sha256": "59efbdb191b1fbcae7eed071256bfcdb0dd909d51886d9df2255be322635e7cd"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0006-cleanup-20261119.json",
+      "size_bytes": 284,
+      "sha256": "898d14a56f625da58ff802e00dc89c86f963c532eb154d2b0e8911c8bddaf904"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0006-identity-reattach-20261119.json",
+      "size_bytes": 1527,
+      "sha256": "2024f81f3a7df7ae8ef4142934520191e554fb55fbbd80b815e503037f5f7466"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0006-stop-20261119.json",
+      "size_bytes": 154,
+      "sha256": "4cd3ffd0db9202b57e1e2a60c02fb4a79e75ec8e3b2bfd0c09df661da023bd07"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0007-identity-reattach-20261119.json",
+      "size_bytes": 1527,
+      "sha256": "1e9f9aebae373d82106a65569dde376032bae6369445c4e5e6617a0df19457fa"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0008-final-cleanup-20261119.json",
+      "size_bytes": 284,
+      "sha256": "3b15da894e20082e88aaf2479aec345b162eaf2ceb6a725af862c3144a3d4178"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-0008-identity-reattach-20261119.json",
+      "size_bytes": 1527,
+      "sha256": "33956074a94c8d7790ea532584f3a5ee05e22e311e51c239f9be4d3c7b126f8b"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-delivery-complete-20261119.json",
+      "size_bytes": 1642,
+      "sha256": "f4cfd1fa5cf6405a09d43d7ca7120702b304bde7c34284052dd0349bb54d1939"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-delivery-pre-push-20261119.json",
+      "size_bytes": 985,
+      "sha256": "655a04bd47feda81a62bc7b0584ce6dae3da6b8282f0c5434b437c53de455917"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-final-staged-20261119.diff",
+      "size_bytes": 103119,
+      "sha256": "aecfd9c50cfcdb39009748565f5df654ee3542f95635b01cdc42dac22a9baaba"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-final-summary-20261119.json",
+      "size_bytes": 157077,
+      "sha256": "3675d1fa07892afd879838d84bf253787322fa30058f7b12cfea3e4ed134d671"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-final-summary-postfix-20261119.json",
+      "size_bytes": 157077,
+      "sha256": "3675d1fa07892afd879838d84bf253787322fa30058f7b12cfea3e4ed134d671"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-merged-public-http-20261119.json",
+      "size_bytes": 1858,
+      "sha256": "5d7287d2a60bd7aa6cb70988e8911e26c7cf1ecd50281dcf78d3740b3b532a88"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-occupier-restore-20261119.json",
+      "size_bytes": 69,
+      "sha256": "25e696e0db8c22733c7940a11215bbfcdc16bb8d816fbb279a3abbc64b6ce30e"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-premerge-http-20261119.json",
+      "size_bytes": 977,
+      "sha256": "769d47ee1d34aaf1d0bbfe02664fdb1abde4ec13147d4c71be8a49f2bed36681"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-provider-probe-20261119T-final.json",
+      "size_bytes": 113,
+      "sha256": "bc47b1fe115ab0fd89bf5fcdd9cf110d1aef6c430c8180915aeb8ce6a7cde864"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-real-summary-B1-B2-validated-20261119.json",
+      "size_bytes": 87871,
+      "sha256": "bd5532a3c996d1a63e8c5dc1da3cd14c6f5c090d218cdb5b0ef26cca8260a15c"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-real-summary-B1-B4-candidate-20261119.json",
+      "size_bytes": 150330,
+      "sha256": "ffca2f6672ad4d39703acabb77a563dcb266daa951e1f8c6a4bd1803913d22dd"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-real-summary-after-B2-20261119.json",
+      "size_bytes": 60407,
+      "sha256": "290cebe8635f0b3122a6845943b80403b39c4096d3216e51b9658ca54370d6fb"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-real-summary-after-B2-parent-20261119.json",
+      "size_bytes": 50281,
+      "sha256": "a4cbdeaa46663bbd79f29741fcae6fe8b8c2441b683ebca0b0d4605e5d19cf5f"
+    },
+    {
+      "path": "reproduction/audit/evidence/five-round-real-summary-after-B3-20261119.json",
+      "size_bytes": 100247,
+      "sha256": "3d50c3fbcb1c1e0c18b8016ea1e958b5ccd0984faa7412c42d9d9816a790281d"
+    },
+    {
+      "path": "reproduction/audit/evidence/main-checkout-premerge-five-round-20261119.json",
+      "size_bytes": 1121,
+      "sha256": "199bea26801730385db6ebbc85cecd02c980ac16f5edd0e90ce113923260c60e"
+    },
+    {
+      "path": "reproduction/audit/evidence/merged-main8-test-nodeids-20261119.txt",
+      "size_bytes": 98304,
+      "sha256": "32078e55b545713d5ca717cf780c550e3901160e7ee3617d48c86f9ee8e72f83"
+    },
+    {
+      "path": "reproduction/audit/evidence/occupier-tmux-direct-start-20261119.json",
+      "size_bytes": 1415,
+      "sha256": "9971bdd0df3c9847c0e5a26c740ac3297aae3b50979d7cd8cdbaf4c74c135b74"
+    },
+    {
+      "path": "reproduction/audit/evidence/premerge-untracked-reviews-20261119/deepcoder-five-round-final-re-review.md",
+      "size_bytes": 6661,
+      "sha256": "2fe7e89565f184a679632d2b75a2a044771d9a2bcf2b1c8cb0a69ae50eb3e299"
+    },
+    {
+      "path": "reproduction/audit/evidence/premerge-untracked-reviews-20261119/deepcoder-five-round-final-review.md",
+      "size_bytes": 1989,
+      "sha256": "b84f4c82c760d9ef518f68b31410cb9ac623742ab16361e609c970f95e276690"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-0004-missing-key-20261119T071300Z/observed.json",
+      "size_bytes": 995,
+      "sha256": "78be837f3bc8b64f1dc2db35c30ccf8d1dba342e9c1858e565e29406b52b2343"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/01-host-precheck.sh",
+      "size_bytes": 2347,
+      "sha256": "07c0c02c74108cf8bffba3ae769f63e27c63deecd4216f773d6c1e359b80241d"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/02-assets-precheck.sh",
+      "size_bytes": 3964,
+      "sha256": "1b6ceee1f1f66e796c3132497ae9e95221aadb96092cf1c63a3d039fe9e9d83d"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/03-owner-diagnostic.sh",
+      "size_bytes": 1466,
+      "sha256": "e7277f635d74d0fd51f7bf4bde26a954952287e770fec5427a00d1f010d89a08"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/04-assets-precheck-corrected.sh",
+      "size_bytes": 4390,
+      "sha256": "0a40a1e19a196899db7702b9197f34defb86e062a289e23c64d17e873ef42138"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/05-socket-final-inspect.sh",
+      "size_bytes": 3816,
+      "sha256": "f74c8119191c7540fbc4a653ae6330ae22c62089b45769598f9321611bb8bb67"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/06-provider-probe.sh",
+      "size_bytes": 1336,
+      "sha256": "ef769af41813cc42a7c1a487340d5a30b386bc7d58abaa0780037c0627bf79ef"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/07-stage1-observe.sh",
+      "size_bytes": 1187,
+      "sha256": "b10d4e66dd7c2abe2b8599d2249781db3caa3ce0baaff3f1d1be7290ad6b2201"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/08-blocked-final-state.sh",
+      "size_bytes": 2638,
+      "sha256": "881a23b922d3d39fd7e5a7f248570dd84199cc4a4c8c397089091cbf859fe2aa"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/audit-initial.json",
+      "size_bytes": 911,
+      "sha256": "5ff4b72da646dd0194a4d9512dd7ce1c5ce6ae4f96422f425502b93119c12f11"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/blocked-final-state.json",
+      "size_bytes": 2826,
+      "sha256": "b38e864e056e14bd83f3147d56a4f654726566cd7beda190eda186b74e49584c"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/evidence-index.json",
+      "size_bytes": 18071,
+      "sha256": "9ce89b0d2a8e0ce1d0dc4d35a8491b214322b5dbe7e1755d09449fc275efed7a"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/final-inspection.json",
+      "size_bytes": 9436,
+      "sha256": "3f88f6867c6910f243868296cc087b93556df68ec5b597714a424604065648c0"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/01-recheck.sh",
+      "size_bytes": 2729,
+      "sha256": "4da4f1cb56e7b408c887260d6787f5217ea7c7e0f7d4a6196bec2572b8ca1ec5"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/02-assets-precheck.sh",
+      "size_bytes": 2540,
+      "sha256": "c1557620a4499c045f139f7d9b7c3a1f2faa89f9d9ece8107856e7661498f859"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/03-provider.sh",
+      "size_bytes": 1175,
+      "sha256": "c9a6a14af0869cca474a9432c51b2a4780b7ca668524e810e71f50672529f938"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/04-stage1.sh",
+      "size_bytes": 1416,
+      "sha256": "32c2b0a3e09c08d1a7652c0cf97b70c3c8a2824daca303294941a4ebc87928d3"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/05-handoff.sh",
+      "size_bytes": 1128,
+      "sha256": "af02642ec0cd832912fd94328624554bf7cff05d9603a18d438f2de5ff73919b"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/06-stage2.sh",
+      "size_bytes": 1526,
+      "sha256": "c4c76a40a8e59d794906f53928a4dd083aca1d304a4dc187c85d4e5f2d386c51"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/07-preflight-input.sh",
+      "size_bytes": 1798,
+      "sha256": "c6e7d259a8ea81e7c02b83d020ab6ee23cb587f29bc9edb865228ace48233295"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/08-verify-preflight-input.sh",
+      "size_bytes": 1444,
+      "sha256": "f3edf2e3536054b306545c2e61671addab781a27069972288c2d3bd6c150b692"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/09-launch-0001.sh",
+      "size_bytes": 907,
+      "sha256": "7967b495671f53dfa6a85dba9bdc65713f26b0f548901f66d0b386f093da6e25"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/10-postlaunch-readonly.sh",
+      "size_bytes": 3202,
+      "sha256": "4cc4b7ee407143f69165a3c0bb504275e78be5ee974d725816186674f3684941"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/11-abnormal-inspect.sh",
+      "size_bytes": 2620,
+      "sha256": "fb8f673555e62bd0a008516f95303b3d8cd772f35fe6306e6ba1eaa1b1206c7a"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/12-stop-abnormal-launcher.sh",
+      "size_bytes": 433,
+      "sha256": "780fa62112f0f78471fe16cf555e69765390a2176b9ee2503f6d7cd91a1e101d"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/13-final-pending-inspection.sh",
+      "size_bytes": 3157,
+      "sha256": "e37cecb0055a4b53941fa39a196a8d731b84b636bfc699a7012d9c71b8cd949b"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/abnormal-inspect.json",
+      "size_bytes": 6040,
+      "sha256": "5d8535b96661b7cb980445733600aec524b980abdbdbd7a0c62bb5185df6e7ec"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/asset-precheck.json",
+      "size_bytes": 8880,
+      "sha256": "8ec673ac95374d61a097d55161ffafc38365aa1f872af8983f186e207dfdf5aa"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/final-inspect.json",
+      "size_bytes": 2971,
+      "sha256": "3b6daf0506222fe4e75160645e06bd74b342469a47ce1873adc93b0ab33ccfd0"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/final-pending-state.json",
+      "size_bytes": 5734,
+      "sha256": "08c5d76258f765c284fbd36ef0669a6ee13cfd5f0f917bc2cf9e58396225fde6"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/final-supervision-status.json",
+      "size_bytes": 1617,
+      "sha256": "d8a1ececbf5d3fbe40c6e3a09c1b61aae09b6440cae253fe49cade7f1d378fa3"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/handoff.json",
+      "size_bytes": 27546,
+      "sha256": "739d61d397d9014b2383f85c6f495a0d473d230a29900b970d1f3a7b0714fc84"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/postlaunch-readonly.json",
+      "size_bytes": 8551,
+      "sha256": "da3aa54efe32f98b854b26823bffa2eff7415cd610ed1b0d17e729c2c7e9ad12"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/prelaunch-input.json",
+      "size_bytes": 6997,
+      "sha256": "5de5db27a62663081ec5fd7ee74871e8ee092fa88040aaf886b55c73cee9d1c9"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage1.gpu.json",
+      "size_bytes": 2725,
+      "sha256": "dae3b282c049251a53482c1a3f3be1a357b8cd770e225a4e2b8d794b3a8daaf9"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage1.json",
+      "size_bytes": 2282,
+      "sha256": "b0f43bb65f657e3a3f3ca0b7fbf15304ffa767e815b010257746139c9e0e8702"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage1.occupier.json",
+      "size_bytes": 4121,
+      "sha256": "83cde97df6f2cbc58afcb227a86ca494abb526bb7981428c1b1d5b62a52dc4a6"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage1.ports.json",
+      "size_bytes": 89,
+      "sha256": "b46dee4c16e4d481212a6d880d4e119f6ba16c1b0482dc5c2d7a576c73582ff5"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage2.gpu.json",
+      "size_bytes": 2118,
+      "sha256": "c253c16c0b00d371fd35a1ea1cd874c3fad408bf5b83cd203f3344a16b3db2ed"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage2.json",
+      "size_bytes": 2636,
+      "sha256": "45b8fc825809ae198caef9684ddfabd94d83936377b9a7ad19e12903629f003f"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage2.occupier.json",
+      "size_bytes": 152,
+      "sha256": "96404add1ffbf49b7ba035aac3d8139ee81a95dd49f9782ecaf97c10e1b625b1"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage2.ports.json",
+      "size_bytes": 89,
+      "sha256": "b46dee4c16e4d481212a6d880d4e119f6ba16c1b0482dc5c2d7a576c73582ff5"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0002-20261119T011822Z/prelaunch.json",
+      "size_bytes": 6997,
+      "sha256": "520b480703fc8d94a55e22a413183ae14a3c8fceb3e580379024457d1255f656"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0002-20261119T015337Z/prelaunch.json",
+      "size_bytes": 6997,
+      "sha256": "4fdca7121a6b91f41598da63bef6b58aa4da280b61e8942c76aefc044d1b183d"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0002-final-20261119T023308Z/resume-preflight.gpu.json",
+      "size_bytes": 2118,
+      "sha256": "ef83e1a8c21782ce145e03cc7b778fac4c8f72c70aa53bd2eebfd3935b4b8544"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0002-final-20261119T023308Z/resume-preflight.ports.json",
+      "size_bytes": 89,
+      "sha256": "b46dee4c16e4d481212a6d880d4e119f6ba16c1b0482dc5c2d7a576c73582ff5"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0003-20261119T034009Z/prelaunch.json",
+      "size_bytes": 6739,
+      "sha256": "2ce469f24528dfa7235f02321a446f0af81b0eb4ddcfcc7e98dd946e682508d3"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0003-20261119T034009Z/resume-preflight.gpu.json",
+      "size_bytes": 2118,
+      "sha256": "078029de054cc96fafd0cde0852614edad4f75fa00f4c609e57f17795a474dbd"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0003-20261119T034009Z/resume-preflight.json",
+      "size_bytes": 2304,
+      "sha256": "ed03048440e8d5f8b36ef6a74e6b91392a8ba779fdfc3d846ae52286b75fbfde"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0003-20261119T034009Z/resume-preflight.ports.json",
+      "size_bytes": 89,
+      "sha256": "b46dee4c16e4d481212a6d880d4e119f6ba16c1b0482dc5c2d7a576c73582ff5"
+    },
+    {
+      "path": "reproduction/audit/reviews/experiment-preflight-kimi-r1.md",
+      "size_bytes": 16638,
+      "sha256": "200206095ffdeebf4fc2cce007970af5859330960962c0e4def4560a01d01e87"
+    },
+    {
+      "path": "reproduction/audit/reviews/experiment-preflight-qwen-r1.md",
+      "size_bytes": 45896,
+      "sha256": "961ba8e13e1dea96a4d41f323bb30bef36f35f3d124fe5e683756b8603a038a4"
+    },
+    {
+      "path": "reproduction/audit/reviews/five-round-prestate-cleanup-review.md",
+      "size_bytes": 2900,
+      "sha256": "e8cff668bc8d71938d086919d8e83c39e8d021d2e0acf183051ac70b9d9f647f"
+    }
+  ],
+  "excluded": [
+    {
+      "path": "reproduction/audit/evidence/five-round-provider-probe-20261119T1354Z.json",
+      "size_bytes": 25934,
+      "sha256": "fa20c451bcd3bf5edbac926f1670f4728dce6103f171925b82f19d282f09b4e9",
+      "reason": "contains full provider response metadata/output fields; original retained on shared storage, not committed",
+      "sanitized_summary": "reproduction/audit/evidence/five-round-provider-probe-public-summary-20261122.json"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/provider-probe.json",
+      "size_bytes": 25963,
+      "sha256": "9a0ea6e5d96c0cab4771131da419a8b17b5e762838a334d3610595fd0b93e42a",
+      "reason": "contains full provider response metadata/output fields; original retained on shared storage, not committed",
+      "sanitized_summary": "reproduction/audit/evidence/five-round-provider-probe-public-summary-20261122.json"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/provider-probe.json",
+      "size_bytes": 4096,
+      "sha256": "0653cbc97f16d317f11ab3750477afba7849bd10c7f5c2ac42228835cb870908",
+      "reason": "contains full provider response metadata/output fields; original retained on shared storage, not committed",
+      "sanitized_summary": "reproduction/audit/evidence/five-round-provider-probe-public-summary-20261122.json"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0002-20261119T011822Z/provider.json",
+      "size_bytes": 25934,
+      "sha256": "6073cc4f989ba5517ad60d8e86dcc5240cc4ccb758a265cffca228619f16eb9e",
+      "reason": "contains full provider response metadata/output fields; original retained on shared storage, not committed",
+      "sanitized_summary": "reproduction/audit/evidence/five-round-provider-probe-public-summary-20261122.json"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0002-20261119T015337Z/provider.json",
+      "size_bytes": 4095,
+      "sha256": "e0981756120c51bed8e78c872b7bde78201e6e8e84778546f4afda6aac81534f",
+      "reason": "contains full provider response metadata/output fields; original retained on shared storage, not committed",
+      "sanitized_summary": "reproduction/audit/evidence/five-round-provider-probe-public-summary-20261122.json"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0002-final-20261119T023308Z/provider.json",
+      "size_bytes": 2599,
+      "sha256": "f2147b1052cd9fcfb4a2805ef6986f647eb91eebbacd656612e72bab6e63698c",
+      "reason": "contains full provider response metadata/output fields; original retained on shared storage, not committed",
+      "sanitized_summary": "reproduction/audit/evidence/five-round-provider-probe-public-summary-20261122.json"
+    },
+    {
+      "path": "reproduction/audit/evidence/task6-five-round-resume-0003-20261119T034009Z/provider.json",
+      "size_bytes": 25629,
+      "sha256": "f296f395969f1f562b475f6739f3354d957b12fce0d347910169201650fbed82",
+      "reason": "contains full provider response metadata/output fields; original retained on shared storage, not committed",
+      "sanitized_summary": "reproduction/audit/evidence/five-round-provider-probe-public-summary-20261122.json"
+    }
+  ],
+  "sanitized_summaries": [
+    {
+      "path": "reproduction/audit/evidence/five-round-provider-probe-public-summary-20261122.json",
+      "size_bytes": 3571,
+      "sha256": "8ab06e39f8dac82d77018092cce4320ed9c3e8c24ea1fb5e37c19a4ee8633b86"
+    }
+  ],
+  "notes": [
+    "No original provider response bodies are added to GitLab.",
+    "Original excluded files remain on shared storage; hashes bind the archived summary to those originals.",
+    "Tracked audit ledgers, website snapshots and documentation are reviewed separately in the delivery commits."
+  ]
+}

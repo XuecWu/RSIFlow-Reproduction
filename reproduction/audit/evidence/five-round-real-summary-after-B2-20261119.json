@@ -1,0 +1,1692 @@
+{
+  "schema_version": 3,
+  "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+  "expected_rounds": 5,
+  "completed_rounds": 1,
+  "trusted_config": true,
+  "protocol_complete": false,
+  "protocol_complete_blockers": [
+    "missing rounds: B4, B5",
+    "rounds lacking required products: B2, B3",
+    "completed_rounds=1 != expected 5",
+    "B2 selected identity != accept candidate / retain parent",
+    "B2 parent identity != previous selected (active chain)",
+    "B3 selected identity != accept candidate / retain parent",
+    "B3 parent identity != previous selected (active chain)",
+    "final active identity != last round selected (active chain)",
+    "meta state status='running' != 'complete'",
+    "workflow current_stage/finish_allowed not COMPLETE/true",
+    "workflow incomplete stages: B3, B4, B5",
+    "RUN_STATUS stage/finish display not COMPLETE/yes",
+    "finish_experiment turn missing",
+    "jobs missing final receipts: 71f07e0ed6f549fc9041aafd5f7c4d5c",
+    "MODEL/SFT evidence selected_failed"
+  ],
+  "launcher_exited": false,
+  "external_cleanup": {
+    "status": "completed",
+    "ok": false,
+    "blockers": [
+      "external_cleanup_not_current_attempt"
+    ],
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0005/external-cleanup/obs-53f95b26cb2b/receipt.json",
+    "sha256": "ba9a96f10461f76cdc3a3716fecd44de3beda9a4d71be49a4654b9b4a8d30467"
+  },
+  "run_complete": false,
+  "run_complete_blockers": [
+    "missing rounds: B4, B5",
+    "rounds lacking required products: B2, B3",
+    "completed_rounds=1 != expected 5",
+    "B2 selected identity != accept candidate / retain parent",
+    "B2 parent identity != previous selected (active chain)",
+    "B3 selected identity != accept candidate / retain parent",
+    "B3 parent identity != previous selected (active chain)",
+    "final active identity != last round selected (active chain)",
+    "meta state status='running' != 'complete'",
+    "workflow current_stage/finish_allowed not COMPLETE/true",
+    "workflow incomplete stages: B3, B4, B5",
+    "RUN_STATUS stage/finish display not COMPLETE/yes",
+    "finish_experiment turn missing",
+    "jobs missing final receipts: 71f07e0ed6f549fc9041aafd5f7c4d5c",
+    "MODEL/SFT evidence selected_failed",
+    "launcher_exited_pending (supervision identity/exit/reconcile)",
+    "external_cleanup_not_current_attempt"
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "component": "ARTIFACTS",
+      "attempt_count": 1,
+      "selection": {
+        "selection": "accept",
+        "component": "ARTIFACTS",
+        "round": 1,
+        "attempt": 1,
+        "before": 0.125,
+        "after": 0.1875,
+        "delta": 0.0625,
+        "paired_tasks": 16,
+        "same_id_set": true,
+        "source_hash_mismatches": 0,
+        "new_success": 1,
+        "new_regression": 0,
+        "rationale": "Complete paired positive gain. Direct-submission protocol explicitly measures Meta output repair, not independent policy gain.",
+        "comparison_receipt": "meta_session/turns/0068/receipt.json",
+        "differences": "round_1/attempts/attempt_1/task_differences/summary.json"
+      },
+      "activated": true,
+      "terminal": true,
+      "products_complete": true,
+      "product_blockers": [],
+      "parent": {
+        "denominator": 16,
+        "successes": 2,
+        "macro_success": 0.125,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "bac88fd991813222a04812ceb6dd3c6491f7c08d391816e170ac42a475a29ca7"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 87,
+        "transport_calls": 87,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 2
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 9,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 9,
+            "enoent": 2,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 2,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 87
+      },
+      "candidate": {
+        "denominator": 16,
+        "successes": 3,
+        "macro_success": 0.1875,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "bac88fd991813222a04812ceb6dd3c6491f7c08d391816e170ac42a475a29ca7"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 0,
+        "transport_calls": 0,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 3
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 9,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 16
+      },
+      "parent_state": {
+        "generation": 0,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+        "artifacts": {
+          "directory": null,
+          "manifest": []
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "candidate_state": {
+        "generation": 1,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_1/attempts/attempt_1/build/child/rsiflow_base_manifest.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_1/attempts/attempt_1/build/child/artifacts",
+          "manifest": [
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 3957900840,
+            "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 3987450520,
+            "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 99630640,
+            "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+          }
+        ]
+      },
+      "snapshot_states": {
+        "parent": {
+          "generation": 0,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": null,
+            "manifest": []
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "candidate": {
+          "generation": 1,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        },
+        "selected": {
+          "generation": 1,
+          "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/harness_001/contents.json",
+          "artifacts": {
+            "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/versions/artifacts_001/contents",
+            "manifest": [
+              {
+                "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+                "bytes": 560,
+                "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+              }
+            ]
+          },
+          "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+          "checkpoint_manifest": [
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "bytes": 3957900840,
+              "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "bytes": 3987450520,
+              "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "bytes": 99630640,
+              "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+            }
+          ]
+        }
+      },
+      "direct_submission": {
+        "evaluation_protocol": "direct_submission_same_tasks_v1",
+        "attribution": "meta_assisted_output_quality_not_task_policy_improvement",
+        "receipts_valid": 16,
+        "new_model_calls": 0,
+        "edited_targets": [
+          "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json"
+        ],
+        "reused_baseline_results": 15,
+        "ids_order_match": true,
+        "source_hashes_match": true
+      },
+      "denominator_match": true,
+      "ids_match": true,
+      "source_hashes_match": true,
+      "calls": {
+        "parent": {
+          "trajectory_calls": 87,
+          "transport_calls": 87,
+          "persisted_receipts": 87
+        },
+        "candidate": {
+          "trajectory_calls": 0,
+          "transport_calls": 0,
+          "persisted_receipts": 16
+        },
+        "cross_check_ok": true
+      },
+      "verification": {
+        "parent": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 2
+        },
+        "candidate": {
+          "completed": 16,
+          "valid_answer": 7,
+          "full_verifier": 7,
+          "success": 3
+        }
+      },
+      "errors": {
+        "parent": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 9,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 9,
+            "enoent": 2,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 7,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 2,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "candidate": {
+          "execution_error_type": {
+            "candidate_error": 15,
+            "none": 1
+          },
+          "zero_call": 16,
+          "error_mentions_all_rows": {
+            "enoent": 9,
+            "eagain": 7
+          },
+          "zero_call_negative": {
+            "count": 16,
+            "enoent": 9,
+            "eagain": 7
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 3,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        }
+      },
+      "delta": 0.0625,
+      "transitions": {
+        "new_success": 1,
+        "new_regression": 0,
+        "retained_failure": 13,
+        "retained_success": 2
+      },
+      "zero_call_overlap": {
+        "new_success_zero_call": 1,
+        "new_regression_zero_call": 0
+      },
+      "task_transitions": [
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1085",
+          "transition": "retained_failure",
+          "parent_calls": 15,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1943",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2308",
+          "transition": "retained_failure",
+          "parent_calls": 8,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2510",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2660",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2673",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2865",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-3139",
+          "transition": "new_success",
+          "parent_calls": 38,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-398",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4007",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4200",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4477",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5470",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5475",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": true
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-6928",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-879",
+          "transition": "retained_success",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": true,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": false,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": true,
+            "eagain": false
+          }
+        }
+      ],
+      "snapshot_present": true,
+      "evidence_hashes": {
+        "parent_trajectories": "542710095c3a07dfc08ba8135e76d563245b800b08cad5786854a03d51276b13",
+        "parent_performance": "8bda712bf5a33aeb45e0d1ce093b3c4c224d4adf94661edb621d696ff2576974",
+        "candidate_trajectories": "a90654b7b82e832910c2620f50acf87aa977fc587c92c787a94189b2915bcbb3",
+        "candidate_performance": "756912d5ebde9579e4add9326afb6183c4db006f8797edc3e252e54bde475d00",
+        "decision": "6bdca43d05bdac03dad1221990882eff5aadd194aacb4028666df62ec7d923f9",
+        "selection": "8945a56de8e1325f527dcee644fe04a18cebaa8b4ff27c41f1db1dee05482602",
+        "snapshot_receipt": "b76f73d8b56bef2d1d02c81ce7d031a85c6fc7dddfd162eeda722c1cdb9b9435"
+      }
+    },
+    {
+      "round": 2,
+      "component": "MODEL",
+      "attempt_count": 1,
+      "selection": {
+        "selection": "retain_parent",
+        "component": "MODEL",
+        "round": 2,
+        "attempt": 1,
+        "before": 0.25,
+        "after": 0.1875,
+        "delta": -0.0625,
+        "paired_tasks": 16,
+        "same_id_set": true,
+        "source_hash_mismatches": 0,
+        "new_success": 2,
+        "new_regression": 3,
+        "rationale": "Complete paired score decreases; positive-gain activation criterion not met. No second attempt.",
+        "comparison_receipt": "meta_session/turns/0129/receipt.json",
+        "differences": "round_2/attempts/attempt_1/task_differences/summary.json"
+      },
+      "activated": false,
+      "terminal": false,
+      "products_complete": false,
+      "product_blockers": [
+        "candidate: cohort size 0 != 16",
+        "candidate: task IDs not 16 unique non-empty",
+        "candidate: performance missing or unparseable",
+        "candidate frozen: B2 task ID order/membership != frozen manifest",
+        "candidate frozen: B2 manifest_hash != frozen manifest hash",
+        "per-task/per-call persisted receipt reconciliation failed",
+        "paired denominator/IDs/source hashes not exactly consistent",
+        "selection decision None not terminal",
+        "selection after inconsistent with recomputed facts",
+        "selection delta inconsistent with recomputed facts",
+        "selection new_success inconsistent with recomputed facts",
+        "selection new_regression inconsistent with recomputed facts",
+        "compare_scores metric/before/after inconsistent with recomputed facts",
+        "compare_scores paths/hash/delta not bound to current attempt",
+        "task_differences new_success inconsistent",
+        "task_differences new_regression inconsistent",
+        "task_differences retained_failure inconsistent",
+        "snapshot receipt missing/invalid/hash mismatch",
+        "MODEL selected but SFT evidence selected_failed"
+      ],
+      "parent": {
+        "denominator": 16,
+        "successes": 4,
+        "macro_success": 0.25,
+        "ids": [
+          "deepcoder_taco:deepcoder-taco-1085",
+          "deepcoder_taco:deepcoder-taco-1943",
+          "deepcoder_taco:deepcoder-taco-2308",
+          "deepcoder_taco:deepcoder-taco-2510",
+          "deepcoder_taco:deepcoder-taco-2660",
+          "deepcoder_taco:deepcoder-taco-2673",
+          "deepcoder_taco:deepcoder-taco-2865",
+          "deepcoder_taco:deepcoder-taco-3139",
+          "deepcoder_taco:deepcoder-taco-398",
+          "deepcoder_taco:deepcoder-taco-4007",
+          "deepcoder_taco:deepcoder-taco-4200",
+          "deepcoder_taco:deepcoder-taco-4477",
+          "deepcoder_taco:deepcoder-taco-5470",
+          "deepcoder_taco:deepcoder-taco-5475",
+          "deepcoder_taco:deepcoder-taco-6928",
+          "deepcoder_taco:deepcoder-taco-879"
+        ],
+        "manifest_hashes": [
+          "4c895cbf002c63d7ed07572b1fffec7b6186d7413c14bc32d8fb051cb6f8db6d"
+        ],
+        "task_source_hashes": {
+          "deepcoder_taco:deepcoder-taco-2865": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5475": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-879": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4200": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2308": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-3139": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2510": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-398": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4477": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-4007": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1943": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2673": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-2660": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-5470": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-1085": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672",
+          "deepcoder_taco:deepcoder-taco-6928": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+        },
+        "trajectory_calls": 40,
+        "transport_calls": 40,
+        "verification": {
+          "completed": 16,
+          "valid_answer": 6,
+          "full_verifier": 6,
+          "success": 4
+        },
+        "errors": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 10,
+          "error_mentions_all_rows": {
+            "enoent": 10,
+            "eagain": 6
+          },
+          "zero_call_negative": {
+            "count": 10,
+            "enoent": 4,
+            "eagain": 6
+          },
+          "called_with_error": {
+            "enoent": 6,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 4,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 40
+      },
+      "candidate": {
+        "denominator": 0,
+        "successes": 0,
+        "macro_success": null,
+        "ids": [],
+        "manifest_hashes": [],
+        "task_source_hashes": {},
+        "trajectory_calls": 0,
+        "transport_calls": 0,
+        "verification": {
+          "completed": 0,
+          "valid_answer": 0,
+          "full_verifier": 0,
+          "success": 0
+        },
+        "errors": {
+          "execution_error_type": {},
+          "zero_call": 0,
+          "error_mentions_all_rows": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "zero_call_negative": {
+            "count": 0,
+            "enoent": 0,
+            "eagain": 0
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 0
+      },
+      "parent_state": null,
+      "candidate_state": {
+        "generation": 2,
+        "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/model_update/checkpoint",
+        "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/rsiflow_base_manifest.json",
+        "artifacts": {
+          "directory": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/artifacts",
+          "manifest": [
+            {
+              "path": "submissions/train/51351e663f5c77bc62aadea7889ea11da978d1acc5e4816ddc8e436d6736504f.json",
+              "bytes": 560,
+              "sha256": "b532f9239bb2e77e5af2375dc3c0ef7d803ed9f5efb2ee25cff513385b10f524"
+            }
+          ]
+        },
+        "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_2/attempts/attempt_1/build/model_update/checkpoint",
+        "checkpoint_manifest": [
+          {
+            "path": "model-00001-of-00005.safetensors",
+            "bytes": 1989095024,
+            "sha256": "3de2db8b2a1b51300489deba87703b6905995d9ad2d2d95562eb7402564eb0ce"
+          },
+          {
+            "path": "model-00002-of-00005.safetensors",
+            "bytes": 1992409040,
+            "sha256": "295a84e7d2cc4fa3a6fcbf29673406ec220484a27ac08cc9a7e098c55f54f249"
+          },
+          {
+            "path": "model-00003-of-00005.safetensors",
+            "bytes": 1997656952,
+            "sha256": "214840db5609b6b68f9767c93744fc3576de3760578e2d1fa847f3e81665659c"
+          },
+          {
+            "path": "model-00004-of-00005.safetensors",
+            "bytes": 1963572880,
+            "sha256": "3444116e5c1746cb86eb2ca9a2c68fe127e87cdbb08711c69c059ed3b211abf0"
+          },
+          {
+            "path": "model-00005-of-00005.safetensors",
+            "bytes": 102247936,
+            "sha256": "62961216bcb712eb5739883e7a1d5db9ffc9ba20cee9499e35e009cff43122c9"
+          }
+        ]
+      },
+      "snapshot_states": {
+        "parent": null,
+        "candidate": null,
+        "selected": null
+      },
+      "direct_submission": null,
+      "denominator_match": false,
+      "ids_match": false,
+      "source_hashes_match": false,
+      "calls": {
+        "parent": {
+          "trajectory_calls": 40,
+          "transport_calls": 40,
+          "persisted_receipts": 40
+        },
+        "candidate": {
+          "trajectory_calls": 0,
+          "transport_calls": 0,
+          "persisted_receipts": 0
+        },
+        "cross_check_ok": false
+      },
+      "verification": {
+        "parent": {
+          "completed": 16,
+          "valid_answer": 6,
+          "full_verifier": 6,
+          "success": 4
+        },
+        "candidate": {
+          "completed": 0,
+          "valid_answer": 0,
+          "full_verifier": 0,
+          "success": 0
+        }
+      },
+      "errors": {
+        "parent": {
+          "execution_error_type": {
+            "candidate_error": 16
+          },
+          "zero_call": 10,
+          "error_mentions_all_rows": {
+            "enoent": 10,
+            "eagain": 6
+          },
+          "zero_call_negative": {
+            "count": 10,
+            "enoent": 4,
+            "eagain": 6
+          },
+          "called_with_error": {
+            "enoent": 6,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 4,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "candidate": {
+          "execution_error_type": {},
+          "zero_call": 0,
+          "error_mentions_all_rows": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "zero_call_negative": {
+            "count": 0,
+            "enoent": 0,
+            "eagain": 0
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        }
+      },
+      "delta": null,
+      "transitions": {
+        "new_success": 0,
+        "new_regression": 4,
+        "retained_failure": 12,
+        "retained_success": 0
+      },
+      "zero_call_overlap": {
+        "new_success_zero_call": 0,
+        "new_regression_zero_call": 4
+      },
+      "task_transitions": [
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1085",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-1943",
+          "transition": "new_regression",
+          "parent_calls": 5,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2308",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2510",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2660",
+          "transition": "new_regression",
+          "parent_calls": 5,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2673",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-2865",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-3139",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-398",
+          "transition": "new_regression",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4007",
+          "transition": "retained_failure",
+          "parent_calls": 6,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4200",
+          "transition": "retained_failure",
+          "parent_calls": 10,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-4477",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5470",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-5475",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-6928",
+          "transition": "retained_failure",
+          "parent_calls": 0,
+          "candidate_calls": 0,
+          "parent_success": false,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": false,
+            "eagain": true
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        },
+        {
+          "task_id": "deepcoder_taco:deepcoder-taco-879",
+          "transition": "new_regression",
+          "parent_calls": 7,
+          "candidate_calls": 0,
+          "parent_success": true,
+          "candidate_success": false,
+          "parent_infrastructure_error": false,
+          "candidate_infrastructure_error": null,
+          "parent_errno": {
+            "enoent": true,
+            "eagain": false
+          },
+          "candidate_errno": {
+            "enoent": false,
+            "eagain": false
+          }
+        }
+      ],
+      "snapshot_present": true,
+      "evidence_hashes": {
+        "parent_trajectories": "1e70c90b9fe759621571791c434a512e6ae23a8cab46204b02e020befbce50ff",
+        "parent_performance": "1586277220929664fa3827cd75ea0bc20bbf5800c4b2ac3cd7b3fdb04d881310",
+        "candidate_trajectories": null,
+        "candidate_performance": null,
+        "decision": "80db00eecb7e0a6bba34e5637e4937b8e2d38e86bab5dcce183e562f9895cb3f",
+        "selection": "225197d05ae628609d7b753617ac10c0011d5b47739b2b3f7a92981d2c690f2a",
+        "snapshot_receipt": "b09e65c8317610a9ec2b961db22a2e741817577c3f68051ceb9df6f82cdbb9e6"
+      }
+    },
+    {
+      "round": 3,
+      "component": null,
+      "attempt_count": 0,
+      "selection": null,
+      "activated": false,
+      "terminal": false,
+      "products_complete": false,
+      "product_blockers": [
+        "attempt set [] != {attempt_1}",
+        "decision round/attempt binding invalid",
+        "selection round/attempt binding invalid",
+        "parent: cohort size 0 != 16",
+        "parent: task IDs not 16 unique non-empty",
+        "parent: performance missing or unparseable",
+        "candidate: cohort size 0 != 16",
+        "candidate: task IDs not 16 unique non-empty",
+        "candidate: performance missing or unparseable",
+        "parent frozen: B3 task ID order/membership != frozen manifest",
+        "parent frozen: B3 manifest_hash != frozen manifest hash",
+        "candidate frozen: B3 task ID order/membership != frozen manifest",
+        "candidate frozen: B3 manifest_hash != frozen manifest hash",
+        "paired denominator/IDs/source hashes not exactly consistent",
+        "selection decision None not terminal",
+        "compare_scores receipt missing/not compared",
+        "task_differences summary missing/not compared",
+        "snapshot receipt missing/invalid/hash mismatch"
+      ],
+      "parent": {
+        "denominator": 0,
+        "successes": 0,
+        "macro_success": null,
+        "ids": [],
+        "manifest_hashes": [],
+        "task_source_hashes": {},
+        "trajectory_calls": 0,
+        "transport_calls": 0,
+        "verification": {
+          "completed": 0,
+          "valid_answer": 0,
+          "full_verifier": 0,
+          "success": 0
+        },
+        "errors": {
+          "execution_error_type": {},
+          "zero_call": 0,
+          "error_mentions_all_rows": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "zero_call_negative": {
+            "count": 0,
+            "enoent": 0,
+            "eagain": 0
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 0
+      },
+      "candidate": {
+        "denominator": 0,
+        "successes": 0,
+        "macro_success": null,
+        "ids": [],
+        "manifest_hashes": [],
+        "task_source_hashes": {},
+        "trajectory_calls": 0,
+        "transport_calls": 0,
+        "verification": {
+          "completed": 0,
+          "valid_answer": 0,
+          "full_verifier": 0,
+          "success": 0
+        },
+        "errors": {
+          "execution_error_type": {},
+          "zero_call": 0,
+          "error_mentions_all_rows": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "zero_call_negative": {
+            "count": 0,
+            "enoent": 0,
+            "eagain": 0
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "persisted_receipts": 0
+      },
+      "parent_state": null,
+      "candidate_state": null,
+      "snapshot_states": {
+        "parent": null,
+        "candidate": null,
+        "selected": null
+      },
+      "direct_submission": null,
+      "denominator_match": false,
+      "ids_match": false,
+      "source_hashes_match": true,
+      "calls": {
+        "parent": {
+          "trajectory_calls": 0,
+          "transport_calls": 0,
+          "persisted_receipts": 0
+        },
+        "candidate": {
+          "trajectory_calls": 0,
+          "transport_calls": 0,
+          "persisted_receipts": 0
+        },
+        "cross_check_ok": true
+      },
+      "verification": {
+        "parent": {
+          "completed": 0,
+          "valid_answer": 0,
+          "full_verifier": 0,
+          "success": 0
+        },
+        "candidate": {
+          "completed": 0,
+          "valid_answer": 0,
+          "full_verifier": 0,
+          "success": 0
+        }
+      },
+      "errors": {
+        "parent": {
+          "execution_error_type": {},
+          "zero_call": 0,
+          "error_mentions_all_rows": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "zero_call_negative": {
+            "count": 0,
+            "enoent": 0,
+            "eagain": 0
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        },
+        "candidate": {
+          "execution_error_type": {},
+          "zero_call": 0,
+          "error_mentions_all_rows": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "zero_call_negative": {
+            "count": 0,
+            "enoent": 0,
+            "eagain": 0
+          },
+          "called_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "success_with_error": {
+            "enoent": 0,
+            "eagain": 0
+          },
+          "infrastructure_error_true": 0
+        }
+      },
+      "delta": null,
+      "transitions": {
+        "new_success": 0,
+        "new_regression": 0,
+        "retained_failure": 0,
+        "retained_success": 0
+      },
+      "zero_call_overlap": {
+        "new_success_zero_call": 0,
+        "new_regression_zero_call": 0
+      },
+      "task_transitions": [],
+      "snapshot_present": false,
+      "evidence_hashes": {
+        "parent_trajectories": null,
+        "parent_performance": null,
+        "candidate_trajectories": null,
+        "candidate_performance": null,
+        "decision": null,
+        "selection": null,
+        "snapshot_receipt": null
+      }
+    }
+  ],
+  "active_identity": {
+    "generation": 1,
+    "model_ref": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B",
+    "harness_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/round_1/attempts/attempt_1/build/child/rsiflow_base_manifest.json",
+    "checkpoint_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B"
+  },
+  "skills_present": true,
+  "context_present": true,
+  "a0_present": true,
+  "state": {
+    "status": "running",
+    "last_turn_status": "completed",
+    "current_stage": "B3",
+    "finish_allowed": false
+  },
+  "workflow": {
+    "current_stage": "B3",
+    "finish_allowed": false,
+    "final_stage": "B5",
+    "incomplete_stages": [
+      "B3",
+      "B4",
+      "B5"
+    ],
+    "stages_present": [
+      "A0",
+      "B1",
+      "B2",
+      "B3",
+      "B4",
+      "B5"
+    ]
+  },
+  "jobs": {
+    "total": 13,
+    "missing_final_receipts": [
+      "71f07e0ed6f549fc9041aafd5f7c4d5c"
+    ],
+    "invalid": [],
+    "required_failed": []
+  },
+  "supervision": {
+    "present": true,
+    "attempts": [
+      "0001",
+      "0003",
+      "0004",
+      "0005",
+      "0006"
+    ],
+    "rejected_attempts": [
+      "0002"
+    ],
+    "all_attempts_accounted_for": false,
+    "latest_identity_bound": true,
+    "reconcile_complete": false,
+    "exit_zero": false
+  },
+  "services_stopped": false,
+  "service_registry": {
+    "ok": false,
+    "reason": "phase_not_stopped",
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/services/four_gpu_services.json",
+    "sha256": "3cb3b805eb398405f5dc3f9e6d0146931b35910f4ca199a6a9bfd8b090952a2e"
+  },
+  "model_sft": {
+    "status": "selected_failed",
+    "rounds": [],
+    "pending_rounds": [],
+    "failed_rounds": [
+      2
+    ]
+  },
+  "evidence_hashes": {
+    "active_task": "525e97c4a1af14627817f700823f54771d7af6729ab9a18d484baa30bf2b302a",
+    "meta_state": "6cc8fd3e10d85e0d25f79293a5edb097dd0fa07c85e064015be245828df496b7",
+    "skills": "2ca4f773f9492a9e1e272f34863074017d075ebeea51aeeb53397dc6c825af1c",
+    "context": "d23b16f6167205218a955475abe2fb13bad9a75398f602d0a0e650d6c1dcd197",
+    "service_registry": "3cb3b805eb398405f5dc3f9e6d0146931b35910f4ca199a6a9bfd8b090952a2e",
+    "external_cleanup": "ba9a96f10461f76cdc3a3716fecd44de3beda9a4d71be49a4654b9b4a8d30467"
+  }
+}

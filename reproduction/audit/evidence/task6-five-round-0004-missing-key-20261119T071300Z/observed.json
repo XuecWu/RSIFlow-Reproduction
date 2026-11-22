@@ -1,0 +1,33 @@
+{
+  "state_hash_matches_previous_cleanup": true,
+  "previous_cleanup_status": "completed",
+  "job_inventory_unchanged": true,
+  "job_count": 9,
+  "registry_hash_matches_previous_cleanup": true,
+  "turn_count": 75,
+  "last_turn": "0074",
+  "post_launch_identity_exists": false,
+  "launch_final_exists": false,
+  "identity_pending": {
+    "kind": "rsiflow_actual_started_identity_pending",
+    "supervision_attempt": "0004",
+    "experiment_executed": true,
+    "identity_pending": true,
+    "reason": "FileNotFoundError:[Errno 2] No such file or directory: '/proc/377561/stat'",
+    "supervisor": {
+      "pid": 386848,
+      "pgid": 386848,
+      "start_ticks": "2834884667"
+    },
+    "custody": "ongoing; controlled stop must reconcile durable jobs/app-server separately",
+    "recorded_at": "2026-11-19T07:11:05Z"
+  },
+  "exit": "1",
+  "reconcile": {
+    "status": "complete",
+    "term_targets": [],
+    "kill_targets": [],
+    "remaining": []
+  },
+  "missing_key_traceback_present": true
+}

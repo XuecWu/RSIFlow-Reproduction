@@ -1,0 +1,143 @@
+{
+  "reviewed_head": "0115b82ef41c7cbccfe37ea688c6a54114ce6d4c",
+  "fresh_paths": {
+    "output_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1",
+    "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+    "central": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Meta_logs/deepcoder_function_16_five_round_workspace_v1"
+  },
+  "scope": {
+    "rounds": 5,
+    "unique_tasks": 16,
+    "retry_rejected_from_round": 6,
+    "seed": 42
+  },
+  "assets": {
+    "config": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+      "sha256": "e12bf4f156dc7c755d573cb67501ee5f7f8617cc01fcc3063a0a310aec1c37a5"
+    },
+    "base": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/base_4b.json",
+      "sha256": "54a78b56782d0663627b833e9b3473a3f074ed4239199d13f612fc0e2ad832b2"
+    },
+    "READY": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/READY.json",
+      "sha256": "916d984bfa416ee55f72e682442191f4e5578968cf417b778ca9df6d07c88583"
+    },
+    "protocol": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/protocol.json",
+      "sha256": "ac7db9ca631d6cdf6f9c049cf37d2349abebea642b77f7382c7e31df1cbf05ad"
+    },
+    "seed_harness": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/seed_harness/rsiflow_base_manifest.json",
+      "sha256": "e41b5c326602cb3f256196294aefc74c1a784c30ff1a178108ad9e4b90f49cab"
+    },
+    "codex_binary": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/codex/codex-x86_64-unknown-linux-musl",
+      "sha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da"
+    },
+    "codex_provenance": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/third_party/codex-provenance.json",
+      "sha256": "7a2e46625844bc3f93be2d8f2571c97ea82c4af9ab0a888d2b01a0ca39d42ce3"
+    },
+    "bwrap_install": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/assets/isolation/install-receipt.json",
+      "sha256": "7ba72acbb91da8b88342dbf4cb83fbef8eb4f446d7b8d415ac5bcee62d9838c4"
+    },
+    "bwrap_binary": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/assets/isolation/bin/bwrap",
+      "sha256": "d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca"
+    },
+    "bwrap_manifest": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/configs/bwrap_isolation.json",
+      "sha256": "58fe2672fd78c12025ce60a84b525019e68979b9860734e4d5cccc63e78e78f1"
+    },
+    "bwrap_launcher": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py",
+      "sha256": "08f9904f80110b8459637925a897d5eb7cb4943313707429aea3df5b972a48d0"
+    },
+    "task5_model_evidence": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-5-real-review-codex.md",
+      "sha256": "d2055b7bd26f8cf97f6597fdd7c40f70cab458105743416ccb455598c0f583e2"
+    },
+    "manifest_B1": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B1/manifest.json",
+      "sha256": "5a20b47d379d6d1908b56c9a957ac1f28bb167e5bc4a4d731f9642f1e8823bee"
+    },
+    "payload_B1": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B1/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B2": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B2/manifest.json",
+      "sha256": "51775fd8ee07c2de4f40cd2866a0014916e34c6df36ce2f3ec6a00cd1a9aec33"
+    },
+    "payload_B2": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B2/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B3": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B3/manifest.json",
+      "sha256": "f918edf584041b9737f11e00737b332a4f9865daaddfc21d98d42bc39aa33aeb"
+    },
+    "payload_B3": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B3/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B4": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B4/manifest.json",
+      "sha256": "b216e85b3874f8ab0298966900981d4b8d67fcf39af548de96023e1b4520bd4a"
+    },
+    "payload_B4": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B4/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B5": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B5/manifest.json",
+      "sha256": "d809a182e61e0e5d6f11de5794f12e5feb7669a341feaa06f97f5709c0bdd5f1"
+    },
+    "payload_B5": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B5/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "weights:model-00001-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00001-of-00003.safetensors",
+      "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+    },
+    "weights:model-00002-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00002-of-00003.safetensors",
+      "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+    },
+    "weights:model-00003-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00003-of-00003.safetensors",
+      "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+    }
+  },
+  "reviews": {
+    "task-5-real-review-codex.md": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-5-real-review-codex.md",
+      "sha256": "d2055b7bd26f8cf97f6597fdd7c40f70cab458105743416ccb455598c0f583e2"
+    },
+    "task-6-real-layout-fix1-review-qwen.md": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-6-real-layout-fix1-review-qwen.md",
+      "sha256": "606ff0aac77db05671ff09f3965c91d15e5bb3f5399a2b9b1bce68caec334874"
+    },
+    "task-6-real-layout-fix1-codex-report.md": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-6-real-layout-fix1-codex-report.md",
+      "sha256": "b8d3863aae81dc70fae5a117f80bbdc95b095bb90c28ff9baf503fa53dbf3fc0"
+    }
+  },
+  "model_v1_receipts": {
+    "receipts/occupier-restore.json": "fa22631b7f18627071e079500675b4615f9cbd78bae10d7da96010237c6db245",
+    "receipts/occupier-stop.json": "6837a44d807301e672ee5bf56fd4a1f53098f00a0315f022757d5241108d6a0d",
+    "receipts/plan.json": "505705e08f4d8a8a0c7a6905d66c336c8d5f42859177401a2681780ba1ce45f2",
+    "receipts/sft.json": "282b54ab4814e275ab7ac2cbc37c11656e785096ee699937044e81ede1e46df8"
+  },
+  "model_v2_receipts": {
+    "receipts/occupier-restore.json": "94213c4157b957e1ed8fbfca526d68b705b6386cff0d12464163c8d0b2e79b34",
+    "receipts/occupier-stop.json": "20d76e5d758b096c283aa121586f8d5a7fca30b3df755a1aad307cac58e521fb",
+    "receipts/plan.json": "2466c2285cbf85a4f2596446a46b12c5921577e4949508516f2bb21df62daed7",
+    "receipts/recovery.json": "641f53a522499746607bcda717e1284b5653bc374f7242b0440d194b98d05883",
+    "receipts/sft.json": "155186954a6cb0ff1294e9b78d6564c116028864b5c86364284a65566c5ac78f"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "time": "2026-11-19T02:33:16Z",
+  "command": [
+    "nvidia-smi",
+    "--query-gpu=index,uuid,name,memory.total,memory.free,memory.used,utilization.gpu",
+    "--format=csv,noheader,nounits"
+  ],
+  "command_result": 0,
+  "raw_stdout": "0, GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69, NVIDIA A800-SXM4-80GB, 81920, 81222, 1, 0\n1, GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3, NVIDIA A800-SXM4-80GB, 81920, 81222, 1, 0\n2, GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9, NVIDIA A800-SXM4-80GB, 81920, 81222, 1, 0\n3, GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1, NVIDIA A800-SXM4-80GB, 81920, 81222, 1, 0\n",
+  "stdout_hash": "ec739707e89b53dacbcda57f0ddb5bcf709eb87610837be13340bd788dc74893",
+  "apps_command": [
+    "nvidia-smi",
+    "--query-compute-apps=pid,gpu_uuid",
+    "--format=csv,noheader,nounits"
+  ],
+  "apps_raw_stdout": "",
+  "apps_stdout_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "expected_uuids": [
+    "GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69",
+    "GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3",
+    "GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9",
+    "GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1"
+  ],
+  "per_gpu": [
+    {
+      "gpu": 0,
+      "uuid": "GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69",
+      "name": "NVIDIA A800-SXM4-80GB",
+      "memory_total": 81920,
+      "memory_free": 81222,
+      "memory_used": 1,
+      "utilization": 0
+    },
+    {
+      "gpu": 1,
+      "uuid": "GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3",
+      "name": "NVIDIA A800-SXM4-80GB",
+      "memory_total": 81920,
+      "memory_free": 81222,
+      "memory_used": 1,
+      "utilization": 0
+    },
+    {
+      "gpu": 2,
+      "uuid": "GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9",
+      "name": "NVIDIA A800-SXM4-80GB",
+      "memory_total": 81920,
+      "memory_free": 81222,
+      "memory_used": 1,
+      "utilization": 0
+    },
+    {
+      "gpu": 3,
+      "uuid": "GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1",
+      "name": "NVIDIA A800-SXM4-80GB",
+      "memory_total": 81920,
+      "memory_free": 81222,
+      "memory_used": 1,
+      "utilization": 0
+    }
+  ],
+  "compute_apps": [],
+  "free_verified": true
+}

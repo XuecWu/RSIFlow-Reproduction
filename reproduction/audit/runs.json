@@ -24,6 +24,27 @@
       "bwrap_alternative_probe_status": "minimal_negative_checks_passed_not_integrated",
       "started_at": null,
       "ended_at": null
+    },
+    {
+      "run_id": "deepcoder_function_16_five_round_workspace_v1",
+      "backbone": "Qwen3-4B",
+      "provider": "OpenAI",
+      "model": "gpt-6-astra",
+      "protocol": "single_domain_16_task_five_round_engineering_canary",
+      "evaluation": "same_fixed_16_training_tasks_no_held_out",
+      "status": "run_complete",
+      "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+      "sco_job_id": null,
+      "execution_resource": "dev4_4xA800",
+      "completed_rounds": 5,
+      "unique_tasks": 16,
+      "rollout_positions": 80,
+      "initial_successes": 2,
+      "final_successes": 5,
+      "b2_model_candidate_activated": false,
+      "final_active": "base Qwen3-4B + four cumulative ARTIFACTS",
+      "final_summary": "reproduction/audit/evidence/five-round-final-summary-20261119.json",
+      "final_summary_sha256": "3675d1fa07892afd879838d84bf253787322fa30058f7b12cfea3e4ed134d671"
     }
   ]
 }

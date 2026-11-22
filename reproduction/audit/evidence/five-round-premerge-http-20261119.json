@@ -1,0 +1,53 @@
+{
+  "status": "PASS",
+  "server": "temporary worktree HTTP",
+  "base_url": "http://127.0.0.1:18081",
+  "resources": {
+    "/": {
+      "status": 200,
+      "bytes": 19482
+    },
+    "/styles.css": {
+      "status": 200,
+      "bytes": 17846
+    },
+    "/app.js": {
+      "status": 200,
+      "bytes": 1560
+    },
+    "/data/repository.json": {
+      "status": 200,
+      "bytes": 4522
+    },
+    "/data/reproduction.json": {
+      "status": 200,
+      "bytes": 20070
+    },
+    "/REPRODUCTION.md": {
+      "status": 200,
+      "bytes": 18308
+    },
+    "/RESULTS.md": {
+      "status": 200,
+      "bytes": 16241
+    },
+    "/README.md": {
+      "status": 200,
+      "bytes": 3087
+    },
+    "/OPERATIONS.md": {
+      "status": 200,
+      "bytes": 32533
+    },
+    "/process.html": {
+      "status": 200,
+      "bytes": 3113
+    }
+  },
+  "semantic_assertions": [
+    "run_complete=true",
+    "completed_rounds=5",
+    "occupier tmux state",
+    "RESULTS B5 and tmux text"
+  ]
+}

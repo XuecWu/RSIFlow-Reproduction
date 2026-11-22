@@ -1,0 +1,88 @@
+{
+  "status": "PASS",
+  "head": "9dd6b1dd68ed2e0bd190c491b256313a1721a641",
+  "checks": {
+    "local/": {
+      "status": 200,
+      "bytes": 19482
+    },
+    "local/styles.css": {
+      "status": 200,
+      "bytes": 17846
+    },
+    "local/app.js": {
+      "status": 200,
+      "bytes": 1560
+    },
+    "local/data/repository.json": {
+      "status": 200,
+      "bytes": 4522
+    },
+    "local/data/reproduction.json": {
+      "status": 200,
+      "bytes": 20070
+    },
+    "local/REPRODUCTION.md": {
+      "status": 200,
+      "bytes": 18308
+    },
+    "local/RESULTS.md": {
+      "status": 200,
+      "bytes": 16273
+    },
+    "local/README.md": {
+      "status": 200,
+      "bytes": 3087
+    },
+    "local/OPERATIONS.md": {
+      "status": 200,
+      "bytes": 32707
+    },
+    "local/process.html": {
+      "status": 200,
+      "bytes": 3113
+    },
+    "local_semantic": "run_complete=true; completed_rounds=5; tmux occupier; final test count and B5 published",
+    "public/": {
+      "status": 200,
+      "bytes": 19482
+    },
+    "public/styles.css": {
+      "status": 200,
+      "bytes": 17846
+    },
+    "public/app.js": {
+      "status": 200,
+      "bytes": 1560
+    },
+    "public/data/repository.json": {
+      "status": 200,
+      "bytes": 4522
+    },
+    "public/data/reproduction.json": {
+      "status": 200,
+      "bytes": 20070
+    },
+    "public/REPRODUCTION.md": {
+      "status": 200,
+      "bytes": 18308
+    },
+    "public/RESULTS.md": {
+      "status": 200,
+      "bytes": 16273
+    },
+    "public/README.md": {
+      "status": 200,
+      "bytes": 3087
+    },
+    "public/OPERATIONS.md": {
+      "status": 200,
+      "bytes": 32707
+    },
+    "public/process.html": {
+      "status": 200,
+      "bytes": 3113
+    },
+    "public_semantic": "run_complete=true; completed_rounds=5; tmux occupier; final test count and B5 published"
+  }
+}

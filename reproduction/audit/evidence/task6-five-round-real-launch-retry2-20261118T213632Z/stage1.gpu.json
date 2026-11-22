@@ -1,0 +1,81 @@
+{
+  "time": "2026-11-18T21:49:38Z",
+  "command": [
+    "nvidia-smi",
+    "--query-gpu=index,uuid,name,memory.total,memory.free,memory.used,utilization.gpu",
+    "--format=csv,noheader,nounits"
+  ],
+  "command_result": 0,
+  "raw_stdout": "0, GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 53\n1, GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 52\n2, GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 55\n3, GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 51\n",
+  "stdout_hash": "f45ef36171c2701a4036eab4d7d75c214e34829bee926c5c17020a69ed3c4359",
+  "apps_command": [
+    "nvidia-smi",
+    "--query-compute-apps=pid,gpu_uuid",
+    "--format=csv,noheader,nounits"
+  ],
+  "apps_raw_stdout": "3842480, GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69\n3842481, GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3\n3842482, GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9\n3842484, GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1\n",
+  "apps_stdout_hash": "0806b6808d694ba024a6eebb5d67852beaa2207d143933dc7b8e2b5251b72bf9",
+  "expected_uuids": [
+    "GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69",
+    "GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3",
+    "GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9",
+    "GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1"
+  ],
+  "per_gpu": [
+    {
+      "gpu": 0,
+      "uuid": "GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69",
+      "name": "NVIDIA A800-SXM4-80GB",
+      "memory_total": 81920,
+      "memory_free": 78137,
+      "memory_used": 3085,
+      "utilization": 53
+    },
+    {
+      "gpu": 1,
+      "uuid": "GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3",
+      "name": "NVIDIA A800-SXM4-80GB",
+      "memory_total": 81920,
+      "memory_free": 78137,
+      "memory_used": 3085,
+      "utilization": 52
+    },
+    {
+      "gpu": 2,
+      "uuid": "GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9",
+      "name": "NVIDIA A800-SXM4-80GB",
+      "memory_total": 81920,
+      "memory_free": 78137,
+      "memory_used": 3085,
+      "utilization": 55
+    },
+    {
+      "gpu": 3,
+      "uuid": "GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1",
+      "name": "NVIDIA A800-SXM4-80GB",
+      "memory_total": 81920,
+      "memory_free": 78137,
+      "memory_used": 3085,
+      "utilization": 51
+    }
+  ],
+  "compute_apps": [
+    {
+      "pid": 3842480,
+      "uuid": "GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69"
+    },
+    {
+      "pid": 3842481,
+      "uuid": "GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3"
+    },
+    {
+      "pid": 3842482,
+      "uuid": "GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9"
+    },
+    {
+      "pid": 3842484,
+      "uuid": "GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1"
+    }
+  ],
+  "free_verified": false
+}

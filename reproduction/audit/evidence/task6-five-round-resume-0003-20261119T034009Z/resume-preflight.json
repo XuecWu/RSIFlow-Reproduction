@@ -1,0 +1,53 @@
+{
+  "stage": "resume",
+  "status": "success",
+  "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+  "config_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+  "config_hash": "e12bf4f156dc7c755d573cb67501ee5f7f8617cc01fcc3063a0a310aec1c37a5",
+  "host": "app-91ba3954af664589900a5228c33cf6f9-695d6797bc-2lk76",
+  "boot_id": "a61829b3-3e4b-4b99-b7fb-4c0a7102c9f5",
+  "pid_namespace": "pid:[4026541459]",
+  "mount_namespace": "mnt:[4026541460]",
+  "backend": "linux_bwrap_seccomp_v1",
+  "gpus": [
+    {
+      "gpu": 0,
+      "uuid": "GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69"
+    },
+    {
+      "gpu": 1,
+      "uuid": "GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3"
+    },
+    {
+      "gpu": 2,
+      "uuid": "GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9"
+    },
+    {
+      "gpu": 3,
+      "uuid": "GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1"
+    }
+  ],
+  "provider": "gpt-6-astra",
+  "ports": [
+    8271,
+    8272,
+    8273,
+    8274
+  ],
+  "provider_response": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-resume-0003-20261119T034009Z/provider.json",
+    "sha256": "f296f395969f1f562b475f6739f3354d957b12fce0d347910169201650fbed82"
+  },
+  "gpu_observation": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-resume-0003-20261119T034009Z/resume-preflight.gpu.json",
+    "sha256": "078029de054cc96fafd0cde0852614edad4f75fa00f4c609e57f17795a474dbd"
+  },
+  "ports_observation": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-resume-0003-20261119T034009Z/resume-preflight.ports.json",
+    "sha256": "b46dee4c16e4d481212a6d880d4e119f6ba16c1b0482dc5c2d7a576c73582ff5"
+  },
+  "cleanup_receipt": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001/external-cleanup/obs-01602f61227f/receipt.json",
+    "sha256": "1123b2f555ada3361dce6cf0a736c7a72743bdf8a5f6a6d1d20e2c548dea8a44"
+  }
+}

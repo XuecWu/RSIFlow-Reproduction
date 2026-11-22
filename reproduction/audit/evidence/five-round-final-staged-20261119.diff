@@ -1,0 +1,1168 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index c5634ac..e00bd19 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1,6 +1,6 @@
+ # RSI-Flow Agent 工作指南
+ 
+-本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**当前工作分支为 `reproduction/4b-five-round`**；早期 `reproduction/4b-bwrap` 已 fast-forward 合入 `reproduction/4b-main8`，复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭。**DeepCoder function 16 单轮 canary 已完成并接受 HARNESS，3/16→4/16，但 4 新成功伴随 3 回归且因果归因受限；固定同一 16 条的单域五轮当前完成 A0/B1，B1 ARTIFACTS 为 2/16→3/16、无回归、零新增 Qwen 调用，B2–B5 尚未完成。** 完整离线测试计数以最新修复报告和审计为准。正式五域五轮、最终 694/744、独立 benchmark 和作者原始实验复现仍未运行。实时状态以 SDD ledger/真实结果报告为准，公开状态以 `reproduction/PROGRESS.md`、`web/data/reproduction.json`、`web/RESULTS.md` 和 `web/OPERATIONS.md` 的实测记录为准；具体 HEAD、服务 PID 与公网 URL 不在本指南写死。本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。
++本文件适用于整个仓库。上游调研基线为 commit `496d3cfb9ff39997d107d0ff29e746b07e638180`（GitHub 上游 `main`）。**五轮工作在 `reproduction/4b-five-round` 完成，交付主分支为 `reproduction/4b-main8`，并按既有授权合并备份到内部 GitLab `main`**；早期 `reproduction/4b-bwrap` 已 fast-forward 合入 `reproduction/4b-main8`，复现分支已备份到内部 GitLab（`gitlab` remote），`origin` 仍是 GitHub 上游且不向其推送，GitLab 既有 `main` 不强推/不覆盖，GitLab CI 未验证。环境、4B 模型、公开数据同协议重构、显式 bubblewrap 隔离与最终 A100 最小 smoke 已验证，独立安全审阅已关闭。**DeepCoder function 16 单轮 canary 已完成并接受 HARNESS，3/16→4/16，但 4 新成功伴随 3 回归且因果归因受限；固定同一 16 条的单域五轮已完成 A0/B1–B5：B1/B3/B4 ARTIFACTS 为 2/16→3/16，B2 MODEL 为 4/16→3/16 并 retain_parent，B5 ARTIFACTS 为 4/16→5/16；B2 真实 positive-only SFT 未激活，最终 active 为 base Qwen3-4B + 四个累计 artifacts，run_complete=true。** 最终完整离线套件为 **1031 passed, 2 skipped**，final-review scoped 与交付证据以 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`、`reproduction/audit/reviews/deepcoder-five-round-final-re-review.md` 和最新审计为准，不在本指南维护易过期的当前计数。正式五域五轮、最终 694/744、独立 benchmark 和作者原始实验复现仍未运行。实时状态以 SDD ledger/真实结果报告为准，公开状态以 `reproduction/PROGRESS.md`、`web/data/reproduction.json`、`web/RESULTS.md` 和 `web/OPERATIONS.md` 的实测记录为准；具体 HEAD、服务 PID 与公网 URL 不在本指南写死。本次调研/隔离修复/SCO 排障与交付经验见 `reproduction/RETROSPECTIVE.md`。
+ 
+ ## 1. 项目是什么
+ 
+@@ -142,10 +142,10 @@ Codex native-shell descendant hygiene 尚未验证：legacy Landlock 不可用
+ 
+ ## 8. 后续命令与运行边界
+ 
+-以下命令用于离线检查和后续完整实验；离线检查已执行不代表五轮已运行：
++以下命令用于离线检查和后续完整实验；固定 16 条单域五轮已完成不代表正式五域五轮或独立评估已运行：
+ 
+ ```bash
+-# 完整离线测试（DeepCoder canary 当前实测：522 passed, 2 skipped；此前兼容性修复为 516 passed, 2 skipped，Task 4 为 489 passed, 2 skipped）
++# 完整离线测试（当前执行结果见 task-7-final-review-fix-report.md；历史计数只留在对应阶段报告）
+ cd RSIFlow
+ PYTHONPATH="$PWD/runtime:$PWD" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
+ cd ..
+@@ -184,11 +184,11 @@ PYTHONPATH="$PWD/RSIFlow/runtime:$PWD/RSIFlow" python reproduction/scripts/persi
+ 
+ 训练侧真实 smoke 的 `execute-rollout` 也必须显式设置 `RSIFLOW_SANDBOX_BACKEND=linux_bwrap_seccomp_v1`；缺失或错误时在 `TaskAdapter`、bootstrap 和服务副作用之前 fail closed，不得回退 legacy Landlock。首轮真实评分/S1 失败与修复证据见 `reproduction/audit/reviews/real-preflight-fix1-report.md`，离线测试通过不替代真实重跑。
+ 
+-`start_5round_600.sh` 固定加入 `--prepare-data --detach`，且不带 `--config`，因此**不能直接用于 ACP 正式控制器**：默认 detach 会让脚本返回后作业结束并清理进程，默认配置又会落到上游占位 JSON。ACP 中必须让控制器**以前台方式**运行，并**显式传入绝对机器配置**（`reproduction/configs/train_4b.json`），例如以 rsiflow 解释器直接调用 `RSIFlow_4B/launch.py --config <绝对机器配置>`（不加 `--detach`；数据已冻结时不要加 `--prepare-data`）。每个 backbone 使用新的 run dir；相同命令、相同配置和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。正式五域五轮、五轮内 MODEL SFT 与最终 694/744 仍未运行；固定 16 条单域五轮的实时进度以 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`（若已封口）和 SDD ledger 为准。
++`start_5round_600.sh` 固定加入 `--prepare-data --detach`，且不带 `--config`，因此**不能直接用于 ACP 正式控制器**：默认 detach 会让脚本返回后作业结束并清理进程，默认配置又会落到上游占位 JSON。ACP 中必须让控制器**以前台方式**运行，并**显式传入绝对机器配置**（`reproduction/configs/train_4b.json`），例如以 rsiflow 解释器直接调用 `RSIFlow_4B/launch.py --config <绝对机器配置>`（不加 `--detach`；数据已冻结时不要加 `--prepare-data`）。每个 backbone 使用新的 run dir；相同命令、相同配置和相同 run dir 用于 resume。恢复时先检查 active state、回执和 running jobs，不重复 bootstrap，不覆盖历史 attempts。正式五域五轮与最终 694/744 仍未运行；固定 16 条单域五轮和其中 B2 MODEL SFT 已完成，最终状态以 `reproduction/audit/reviews/deepcoder-five-round-real-results.md` 和 SDD ledger 为准。
+ 
+ DeepCoder function 16 canary 是独立的有界 preflight：`reproduction/configs/train_4b_deepcoder_canary_workspace.json` 固定一轮、16 条 code-only function、无独立 validation、单实验 attempt。真实运行已完成：Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整配对为 3/16=0.1875→4/16=0.25（delta +0.0625），4 个新成功伴随 3 个回归，原 3 个成功全部回归；新成功全来自父代零调用失败、回归全为候选零调用失败，故因果归因受限。accept/activate、skills/context/snapshot、state COMPLETE 和四卡 cleanup 均完成。supervision 0001 有 24 个失败 turns/24 条 error events 及 24 条对应 turn/completed events；0002 同 thread 从 candidate_built 恢复，未重复 A0/父代。MODEL 未选择，SFT 未运行。独立审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，公开结果见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。dev4 访问与 detached supervisor、4 小时监督、identity/cleanup/resume 仍以 `reproduction/audit/reviews/deepcoder-canary-runbook.md` 为准；active jobs 未调和前禁止 cleanup/resume。该 canary 不是五轮、正式 SFT、独立 benchmark、最终 694/744 或作者原始实验复现。
+ 
+-固定同一批 16 条的 DeepCoder 单域五轮工程实验已开始，配置为 `reproduction/configs/train_4b_deepcoder_five_round_workspace.json`，与上述单轮 canary 是不同 run。当前原始回执已重建出 A0 和 B1 complete，B1 选择 ARTIFACTS，父代 2/16、direct-submission 候选 3/16，new success=1、new regression=0、新增 Qwen calls=0；active/skills/context/snapshot 已保存，下一步为 B2.parent_rollout。该结果只证明 Meta-assisted output repair，不是模型或 Harness 质量提升。0003 因持续 Astra 502 停止并完成 external cleanup；恢复前必须满足 `reproduction/audit/reviews/deepcoder-five-round-runbook.md` 的当前 preflight，同 thread 从下一 milestone 继续，不得重跑 B1。轮次路径/原生 selection 恢复修复与独立复审见 `reproduction/audit/reviews/five-round-progress-recovery-fix.md`。B2–B5、五轮内 MODEL SFT、独立 benchmark 与作者结果复现仍未完成。
++固定同一批 16 条的 DeepCoder 单域五轮工程实验已完成，配置为 `reproduction/configs/train_4b_deepcoder_five_round_workspace.json`，与上述单轮 canary 是不同 run。B1/B3/B4 ARTIFACTS 均为 2/16→3/16，B5 为 4/16→5/16，均为零新增 Qwen calls 的 Meta-assisted direct-submission output repair；B2 MODEL 为 4/16→3/16，真实 positive-only SFT 使用 20 samples、4 ranks、1 epoch、3 optimizer steps，但 retain_parent 且未激活。最终 active 是 base Qwen3-4B + 四个累计 artifacts；active/skills/context/snapshot、22 个 durable jobs、最终 supervision 和 external cleanup 均完成，run_complete=true。最终 cleanup 后 occupier 自动恢复曾因 NVML PID ownership 未解决而 stopped/restore_pending；2026-11-19 用户明确授权直接启动后，已在四卡空闲核验基础上通过 `tmux` 会话 `rsiflow-idle-occupier` 运行 `bash run.sh`，四 rank 持续训练，日志为 `/data/wuxuecheng/z-occupier-ready/runtime/dev4/tmux-occupier-20261119.log`。该直接启动不伪造自动恢复 receipt，后续实验前仍须安全停止。每侧只有 6–8 个有效 submissions 进入 full verifier，ENOENT/EAGAIN 与零调用重叠限制归因。正式五域五轮、独立 benchmark、694/744 与作者结果复现仍未运行；真实结果、attempts/recovery 和限制见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`，操作边界见 `deepcoder-five-round-runbook.md`。
+ 
+ 典型输出：
+ 
+@@ -209,7 +209,7 @@ Task 6 的接受证据 `pt-zj1l9q1t` 是用户授权后的特殊 A100 smoke：
+ 
+ ## 10. 网站维护
+ 
+-`web/index.html` 是核心展示，`web/data/repository.json` 固定源码事实，`web/data/reproduction.json` 记录当前阶段状态。各轮只在真实证据出现后标记完成并保留限制；当前单域五轮可展示 A0/B1 原始回执结果，B2–B5 与最终评估必须保持未完成，正式五域协议仍为 4B、同协议重构、694/744 partial 口径。
++`web/index.html` 是核心展示，`web/data/repository.json` 固定源码事实，`web/data/reproduction.json` 记录当前阶段状态。各轮只在真实证据出现后标记完成并保留限制；当前单域五轮可展示 A0/B1–B5 的原始回执结果、自动 occupier restore_pending 历史与后续用户授权的 tmux 直接启动状态，正式五域五轮和最终评估必须保持未完成，正式协议仍为 4B、同协议重构、694/744 partial 口径。
+ 
+ ```bash
+ python3 -m unittest discover -s web/tests -v
+diff --git a/RSIFlow/tests/test_deepcoder_five_round.py b/RSIFlow/tests/test_deepcoder_five_round.py
+index 20c9bc8..714e908 100644
+--- a/RSIFlow/tests/test_deepcoder_five_round.py
++++ b/RSIFlow/tests/test_deepcoder_five_round.py
+@@ -1901,6 +1901,57 @@ def test_summarizer_two_rounds_observed_facts(tmp_path):
+     assert rounds[2]["activated"] is False
+ 
+ 
++@pytest.mark.parametrize("selection, expected", [
++    ({"decision": "retain_parent", "selection": "retain_parent",
++      "accept_or_retain": "accept"}, "accept_candidate"),
++    ({"decision": "accept_candidate", "selection": "accept",
++      "accept_or_retain": "retain_parent"}, "retain_parent"),
++])
++def test_summarizer_conflicting_dual_selection_fields_use_production_precedence(selection, expected):
++    from experiment_progress import _selection_choice
++
++    production = _selection_choice({"content": json.dumps(selection)})
++    observed = _load_summarizer()._selection_decision(selection, "ARTIFACTS")
++
++    assert observed == expected
++    assert observed == {
++        "accept": "accept_candidate", "accepted": "accept_candidate",
++        "accept_candidate": "accept_candidate", "retain_parent": "retain_parent",
++        "reject": "retain_parent", "rejected": "retain_parent",
++    }[production]
++
++
++def test_summarizer_accept_uses_later_success_after_earlier_activation_failure(tmp_path):
++    run, _, ctx = _build_run(tmp_path)
++    path = run / "controller_transport/activate_1/result.json"
++    success = json.loads(path.read_text())
++    path.write_text(json.dumps({
++        "operation": "activate_task", "status": "tool_error",
++        "source_state": success["source_state"], "active_state": success["active_state"],
++    }))
++    _transport_receipt(run, "activate_1_later_success", success)
++
++    result = _summarize(run, ctx)
++    round_result = _rounds(result)[1]
++
++    assert round_result["products_complete"] is True
++    assert round_result["activated"] is True
++
++
++def test_summarizer_accept_rejects_multiple_successful_activations(tmp_path):
++    run, _, ctx = _build_run(tmp_path)
++    success = json.loads((run / "controller_transport/activate_1/result.json").read_text())
++    _transport_receipt(run, "activate_1_duplicate_success", success)
++
++    result = _summarize(run, ctx)
++    round_result = _rounds(result)[1]
++
++    assert round_result["products_complete"] is False
++    assert round_result["activated"] is False
++    assert any("unique successful activate_task" in blocker
++               for blocker in round_result["product_blockers"])
++
++
+ def test_summarizer_verification_separation(tmp_path):
+     run, _, ctx = _build_run(tmp_path)
+     r = _rounds(_summarize(run, ctx))[2]
+@@ -2499,7 +2550,7 @@ def test_summarizer_real_shaped_model_retain_round_is_terminal_without_activatio
+ 
+ 
+ @pytest.mark.parametrize("case", [
+-    "candidate_hash", "selection_score", "compare_hash", "false_accept_activation",
++    "candidate_hash", "selection_score", "compare_hash",
+     "candidate_selected", "wrong_previous_snapshot", "incomplete_sft", "failed_sft",
+ ])
+ def test_summarizer_model_retain_tampering_fails_closed(tmp_path, case):
+@@ -2520,18 +2571,6 @@ def test_summarizer_model_retain_tampering_fails_closed(tmp_path, case):
+         value = json.loads(path.read_text())
+         value["after_sha256"] = "0" * 64
+         path.write_text(json.dumps(value), encoding="utf-8")
+-    elif case == "false_accept_activation":
+-        path = attempt / "selection.json"
+-        value = json.loads(path.read_text())
+-        value["selection"] = "accept"
+-        path.write_text(json.dumps(value), encoding="utf-8")
+-        candidate = attempt / "build/candidate_state.json"
+-        digest = file_hash(candidate)
+-        _transport_receipt(run, "activate_2", {
+-            "operation": "activate_task", "status": "activated_as_requested",
+-            "source_state": str(candidate), "active_state": str(run / "active_task.json"),
+-            "source_sha256": digest, "active_sha256": digest,
+-        })
+     elif case == "candidate_selected":
+         parent = json.loads((run / "snapshots/B1_attempt_1/task/task_state_snapshot.json").read_text())
+         child = json.loads((attempt / "build/candidate_state.json").read_text())
+@@ -2561,6 +2600,52 @@ def test_summarizer_model_retain_tampering_fails_closed(tmp_path, case):
+         assert result["model_sft"]["status"] in {"selected_pending", "selected_failed"}
+ 
+ 
++def test_summarizer_model_retain_rejects_successful_activation(tmp_path):
++    run, ctx = _build_model_retain_run(tmp_path)
++    attempt = run / "round_2/attempts/attempt_1"
++    candidate = attempt / "build/candidate_state.json"
++    digest = file_hash(candidate)
++    _transport_receipt(run, "activate_2", {
++        "operation": "activate_task", "status": "activated_as_requested",
++        "source_state": str(candidate), "active_state": str(run / "active_task.json"),
++        "source_sha256": digest, "active_sha256": digest,
++    })
++
++    result = _summarize(run, ctx)
++    round_result = _rounds(result)[2]
++
++    assert round_result["selection"]["selection"] == "retain_parent"
++    assert round_result["product_blockers"] == ["retain_parent must not activate candidate"]
++
++
++def test_summarizer_model_false_accept_isolated_from_activation_guard(tmp_path):
++    run, ctx = _build_model_retain_run(tmp_path)
++    attempt = run / "round_2/attempts/attempt_1"
++    selection_path = attempt / "selection.json"
++    selection = json.loads(selection_path.read_text())
++    selection["selection"] = "accept"
++    selection_path.write_text(json.dumps(selection), encoding="utf-8")
++    candidate = attempt / "build/candidate_state.json"
++    child = json.loads(candidate.read_text())
++    parent = json.loads((run / "snapshots/B1_attempt_1/task/task_state_snapshot.json").read_text())
++    _fixture_snapshot(run, run / "snapshots/B2_attempt_1", parent, child, child,
++                      attempt=attempt,
++                      parent_source=run / "snapshots/B1_attempt_1/task/task_state_snapshot.json")
++    (run / "active_task.json").write_text(json.dumps(child), encoding="utf-8")
++    digest = file_hash(candidate)
++    _transport_receipt(run, "activate_2", {
++        "operation": "activate_task", "status": "activated_as_requested",
++        "source_state": str(candidate), "active_state": str(run / "active_task.json"),
++        "source_sha256": digest, "active_sha256": digest,
++    })
++
++    result = _summarize(run, ctx)
++    round_result = _rounds(result)[2]
++
++    assert round_result["activated"] is True
++    assert round_result["product_blockers"] == ["accept_candidate without strictly positive gain"]
++
++
+ # --- F6: production MODEL/SFT schema ---------------------------------------
+ 
+ 
+diff --git a/RSIFlow/tests/test_training_side_smoke.py b/RSIFlow/tests/test_training_side_smoke.py
+index e4ddb3b..5d022db 100644
+--- a/RSIFlow/tests/test_training_side_smoke.py
++++ b/RSIFlow/tests/test_training_side_smoke.py
+@@ -1968,6 +1968,87 @@ def test_model_smoke_execute_missing_plan_requires_audit(model_smoke, tmp_path):
+     assert "plan" in result["error"].lower()
+ 
+ 
++def test_model_smoke_execute_valid_final_receipts_resume_without_retraining(
++        model_smoke, model_source, tmp_path, monkeypatch):
++    plan = _model_plan(model_smoke, model_source, tmp_path, "valid-resume")
++    root = Path(plan["output_root"])
++    calls = _patch_model_runtime(model_smoke, monkeypatch)
++    assert model_smoke.execute_model_smoke(root)["status"] == "completed"
++    FakeAdapter.instances.clear()
++    calls.clear()
++    SERVICE_CHECKPOINTS.clear()
++
++    resumed = model_smoke.execute_model_smoke(root)
++
++    assert resumed["status"] == "already_completed"
++    assert FakeAdapter.instances == [] and calls == [] and SERVICE_CHECKPOINTS == []
++    (root / "receipts/recovery.json").unlink()
++    recovered = model_smoke.execute_model_smoke(root)
++    assert recovered["status"] == "completed"
++    assert recovered["recovery"]["retrained"] is False
++    assert FakeAdapter.instances == []
++
++
++@pytest.mark.parametrize("stage", ["sft", "recovery"])
++def test_model_smoke_execute_rejects_stale_plan_stage_receipt(
++        model_smoke, model_source, tmp_path, monkeypatch, stage):
++    plan = _model_plan(model_smoke, model_source, tmp_path, f"stale-{stage}")
++    root = Path(plan["output_root"])
++    calls = _patch_model_runtime(model_smoke, monkeypatch)
++    assert model_smoke.execute_model_smoke(root)["status"] == "completed"
++    FakeAdapter.instances.clear()
++    calls.clear()
++    SERVICE_CHECKPOINTS.clear()
++    path = root / f"receipts/{stage}.json"
++    receipt = json.loads(path.read_text())
++    receipt["plan_identity"] = "0" * 64
++    path.write_text(json.dumps(receipt))
++
++    result = model_smoke.execute_model_smoke(root)
++
++    assert result["status"] == "requires_audit"
++    assert stage in result["error"].lower()
++    assert FakeAdapter.instances == [] and calls == [] and SERVICE_CHECKPOINTS == []
++
++
++@pytest.mark.parametrize("stage", ["sft", "recovery"])
++def test_model_smoke_execute_rejects_foreign_root_stage_receipt(
++        model_smoke, model_source, tmp_path, monkeypatch, stage):
++    plan = _model_plan(model_smoke, model_source, tmp_path, f"foreign-current-{stage}")
++    other = _model_plan(model_smoke, model_source, tmp_path, f"foreign-other-{stage}")
++    root = Path(plan["output_root"])
++    calls = _patch_model_runtime(model_smoke, monkeypatch)
++    assert model_smoke.execute_model_smoke(Path(other["output_root"]))["status"] == "completed"
++    assert model_smoke.execute_model_smoke(root)["status"] == "completed"
++    FakeAdapter.instances.clear()
++    calls.clear()
++    SERVICE_CHECKPOINTS.clear()
++    foreign = json.loads((Path(other["output_root"]) / f"receipts/{stage}.json").read_text())
++    (root / f"receipts/{stage}.json").write_text(json.dumps(foreign))
++
++    result = model_smoke.execute_model_smoke(root)
++
++    assert result["status"] == "requires_audit"
++    assert stage in result["error"].lower()
++    assert FakeAdapter.instances == [] and calls == [] and SERVICE_CHECKPOINTS == []
++
++
++def test_model_smoke_execute_rejects_post_plan_root_symlink_swap(
++        model_smoke, model_source, tmp_path, monkeypatch):
++    plan = _model_plan(model_smoke, model_source, tmp_path, "root-symlink-swap")
++    root = Path(plan["output_root"])
++    calls = _patch_model_runtime(model_smoke, monkeypatch)
++    moved = root.with_name(root.name + "-real")
++    root.rename(moved)
++    root.symlink_to(moved, target_is_directory=True)
++
++    result = model_smoke.execute_model_smoke(root)
++
++    assert result["status"] == "requires_audit"
++    assert "symlink" in result["error"].lower()
++    assert FakeAdapter.instances == [] and calls == [] and SERVICE_CHECKPOINTS == []
++
++
+ @pytest.mark.parametrize("stage", ["sft", "recovery"])
+ def test_model_smoke_execute_started_stage_requires_audit_without_training(
+         model_smoke, model_source, tmp_path, monkeypatch, stage):
+diff --git a/reproduction/PROGRESS.md b/reproduction/PROGRESS.md
+index d27d833..d6ab59a 100644
+--- a/reproduction/PROGRESS.md
++++ b/reproduction/PROGRESS.md
+@@ -7,12 +7,13 @@
+ - 只做 Qwen3-4B；正式实验规划仍是主分区 8×A800 顺序执行、当前仅用 GPU 0–3。Task 6 的隔离 smoke 例外使用用户后来授权的 8×A100，不改变正式实验资源方案。
+ - 公开数据同协议重构，不是作者原始 3000/744 队列的精确复现。
+ - Meta 使用自定义 `gpt-6-astra`；ACE 50 跳过并标记 pending，计划评分 694/744。
+-- 4B 审阅后才决定是否准备和运行 8B；尚未运行五轮演化、SFT、最终 694/744 评估或模型 benchmark 评分。
++- 4B 审阅后才决定是否准备和运行 8B；固定 16 条 DeepCoder 单域五轮及其中 B2 positive-only SFT 已完成，但正式五域五轮、最终 694/744 评估和模型 benchmark 评分仍未运行。
+ - 当前交付分支为 `reproduction/4b-main8`：隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入。**合并与初次备份点为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`），初次备份推送当时 `ls-remote` 两个远端复现分支同为该 SHA。两个复现分支已备份到内部 GitLab（`gitlab` remote，项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow ）；`origin` 仍是 GitHub 上游且未向其推送，GitLab 既有 `main`（`0c47d98df09327ba09f4fad9aaa9914837ffa280`）未强推/未覆盖/未建 MR，GitLab CI 未验证。承载发布文档更新的提交在合并与初次备份点之后由主 agent 纳入后续文档提交，**当前分支 HEAD 与远端 SHA 以 `git log` / `git ls-remote` 实测为准，本页不写死后续 SHA**。本页只发布脱敏状态，不公开 raw prompts/responses、私有轨迹、凭据或大日志。
+ 
+ ## 已完成并验证
+ 
+-- **DeepCoder function 16 真实 canary（2026-11-17）**：固定 16 条 function、code 单域、单轮、一个 HARNESS 候选已完成。Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，并有 4 个新成功和 3 个回归；原 3 个成功全部回归，4 个新成功全部来自父代零调用失败，3 个回归全为候选零调用失败，因此只接受固定批净正增益，不宣称普遍 Harness 因果改进。accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成；MODEL 未选择、SFT 未运行。独立结果审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。当前完整离线套件为 **522 passed, 2 skipped**；五轮、694/744、独立 benchmark 和作者原始实验复现仍未运行。
++- **DeepCoder function 16 真实 canary（2026-11-17）**：固定 16 条 function、code 单域、单轮、一个 HARNESS 候选已完成。Astra 选择 HARNESS，同一 candidate 在 2/3 次检查后 passed；父代 51、候选 93 次真实 Qwen calls，父 7/候选 8 个有效 submission 进入 full verifier。完整同批配对为 **3/16=0.1875 → 4/16=0.25，delta +0.0625**，并有 4 个新成功和 3 个回归；原 3 个成功全部回归，4 个新成功全部来自父代零调用失败，3 个回归全为候选零调用失败，因此只接受固定批净正增益，不宣称普遍 Harness 因果改进。accept/activate、skills/context/snapshot、state COMPLETE、jobs 调和和四卡 cleanup 均完成；该单轮 run 的 MODEL 未选择、SFT 未运行。独立结果审阅为 Spec PASS / Quality DONE_WITH_CONCERNS，详见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`。522 passed/2 skipped 是该历史阶段计数；最终修复后完整套件为 **1031 passed, 2 skipped in 723.43s**，详见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。
++- **DeepCoder function 16 单域五轮（2026-11-19）**：同一 16 条、80 rollout positions 的 A0+B1–B5 已完成，`run_complete=true`、launcher exit 0、external cleanup ok。B1/B3/B4 ARTIFACTS 均为 2/16→3/16，B5 为 4/16→5/16，均是零新增 Qwen calls 的 Meta-assisted direct-submission output repair；B2 MODEL 为 4/16→3/16，真实 positive-only SFT 20 samples、4 ranks、1 epoch、3 optimizer steps，retain_parent 且未激活。最终 active 为 base Qwen3-4B + 四个累计 artifacts。每侧仅 6–8 个有效 submissions 进入 full verifier；ENOENT/EAGAIN 与零调用重叠限制归因。四卡最终 cleanup 时空闲；自动 occupier restore 当时因 NVML PID ownership 未解决而 pending。随后经用户明确授权，在四卡空闲复核后直接以 `tmux` 启动，当前四 rank 持续运行、每卡日志约 2519 MB。正式五域、3000、694/744、独立 benchmark 和作者复现仍未运行。详见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
+ - 历史复现分支 `reproduction/4b-main8` 的阶段 commit、追加式操作/关键结果账本、每日审计和 Herdr 三方通道已有记录；bwrap 隔离工作已 fast-forward 合入该分支，并完成内部 GitLab 备份。
+ - 合并复验（2026-11-16）：功能工作树预检 `297 passed, 2 skipped in 92.22s`、website `11/11`。**合并后主工作树首次完整 pytest 为 `13 failed, 284 passed, 2 skipped`**，逐项确认根因是主工作树缺少 Git-ignored 的 `assets/isolation/`，不是代码或测试回归。用既有 `reproduction/scripts/install_bwrap.py` 从功能工作树同一 pinned binary（SHA256 `d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca`）安装并校验 manifest/launcher receipt 后，受影响测试 `51 passed in 48.77s`、完整 pytest **`297 passed, 2 skipped in 89.15s`**，website `11/11`、`node --check`、`git diff --check` 通过；全程未改生产代码或测试。
+ - 账本保护：主工作树两份未提交追加 JSONL 在 merge 前后 SHA256 完全不变（`operations.jsonl` `ea9403380b77b5f1100c6bce5b66578cc3cf4e218ec9985bea8d2b7f0749858e`、`key_results.jsonl` `82c10d582e9459d62d03c3b42c6ba9efaabdfd1254114519389259fd1ba92c0a`）。两个工作树的 operations 在 **sequence 581 之后分叉**，原件均保留，禁止覆盖或直接拼接；bwrap 功能工作树与 `Meta_logs/` 一并保留。
+@@ -45,8 +46,8 @@
+ ## 当前剩余门槛
+ 
+ - Task 7 最终独立安全审阅及 consolidated fix-wave re-review 已由未参与实现的 reviewer 关闭；全部 Critical/Important 已修复，结论为 Ready to merge Yes。保留一个仅影响非 UTF-8 installation_id 报错类型的 Minor 诊断项，不影响启动前拒绝和状态安全。
+-- 五轮 preflight 仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 上健康的四卡 Qwen 服务、当前 694 配置 `python RSIFlow_4B/launch.py --check`，以及最终独立 experiment preflight review。
+-- 五轮、SFT、最终 694/744、ACE 50、8B 和 Qwen 服务均未在本轮隔离任务中启动；没有模型 benchmark 分数。
++- 正式五域五轮 preflight 仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 上健康的四卡 Qwen 服务、当前 694 配置 `python RSIFlow_4B/launch.py --check`，以及最终独立 experiment preflight review；已完成的固定 16 条单域五轮不替代这些门。
++- 正式五域五轮、最终 694/744、ACE 50、8B 和持久正式 Qwen 服务均未运行；没有独立模型 benchmark 分数。单域 B2 SFT 已发生但未激活，不能写成模型质量结果。
+ 
+ ## 过程与证据
+ 
+diff --git a/reproduction/REPRODUCTION.md b/reproduction/REPRODUCTION.md
+index e248413..48afdd9 100644
+--- a/reproduction/REPRODUCTION.md
++++ b/reproduction/REPRODUCTION.md
+@@ -1,6 +1,6 @@
+ # RSI-Flow 复现与 bubblewrap 隔离手册
+ 
+-> 当前已完成 4B 隔离基础设施验证和 DeepCoder function 16 单域单轮单候选真实 canary；后者接受 HARNESS，固定批 3/16→4/16，但有 4 新成功、3 回归和过程异常归因限制。五轮、正式 SFT、最终 694/744、ACE 50、8B、独立 benchmark 和作者原始实验复现仍未运行；candidate/EvalPlus/BFCL/Codex 历史结果仍是最小基础设施 smoke，不是模型 benchmark 分数。通用数据、GPU 和评估协议见 `web/REPRODUCTION.md`。
++> 当前已完成 4B 隔离基础设施验证、DeepCoder function 16 单域单轮 canary，以及固定同一 16 条的 A0+B1–B5 单域工程实验。后者 B1/B3/B4 ARTIFACTS 为 2/16→3/16、B5 为 4/16→5/16，B2 MODEL 为 4/16→3/16 并 retain_parent；B2 真实 positive-only SFT 未激活，最终 active 为 base Qwen3-4B + 四个累计 artifacts。正式五域五轮、最终 694/744、ACE 50、8B、独立 benchmark 和作者原始实验复现仍未运行；candidate/EvalPlus/BFCL/Codex 历史结果仍是最小基础设施 smoke，不是模型 benchmark 分数。通用数据、GPU 和评估协议见 `web/REPRODUCTION.md`。
+ 
+ ## 1. 显式后端与禁止回退
+ 
+@@ -135,7 +135,7 @@ cd /data/wuxuecheng/Hierarchical_level/RSI-Flow
+ 
+ 保存输出并确认 `config` 正是该机器文件，再独立核对有效 `PipelineConfig` 的 v4 frozen release、`skip_acebench=true`、694/744（五个 scored benchmark）、validation manifest 与输出目录。`--check` 本身只巡检路径存在性、rounds 与每轮任务数，不校验 skip-ACE、694 计数、manifest 内容、评测器可执行性、GPU 或 API，**返回 0 不等于该门通过**；该门当前仍未关闭。
+ 
+-正式运行同样必须显式选择同一机器配置，且 ACP 控制器保持**前台**：`RSIFlow_4B/start_5round_600.sh` 固定加入 `--prepare-data --detach` 又不带 `--config`，不能直接依赖。五轮、SFT、最终 694/744、ACE 50、8B 与正式 Qwen 服务均未运行。
++正式运行同样必须显式选择同一机器配置，且 ACP 控制器保持**前台**：`RSIFlow_4B/start_5round_600.sh` 固定加入 `--prepare-data --detach` 又不带 `--config`，不能直接依赖。正式五域五轮、最终 694/744、ACE 50、8B 与持久正式 Qwen 服务均未运行；固定 16 条单域五轮及 B2 SFT 不替代这些正式目标。
+ 
+ ## 8. 真实 Qwen 最小评分 smoke（已实现，待 controller 审阅后执行）
+ 
+@@ -261,4 +261,26 @@ Tasks 1–4 完成实现、冻结 release、离线测试和审查；Task 5 已
+ 
+ supervision 0001 保留 24 个失败 turns、24 条 error events 和 24 条对应 turn/completed events 的 502 历史；0002 在同一 run/thread 从 candidate_built 恢复，无重复 bootstrap/run_parent，最终 exit 0。真实执行与恢复必须遵循 `reproduction/audit/reviews/deepcoder-canary-runbook.md` 的 detached supervisor、4 小时 launcher 监督、显式 bwrap、私有 Meta env、identity-checked cleanup 和同 run resume；active jobs 未调和前禁止 cleanup/resume。
+ 
+-当前完整离线套件为 **522 passed, 2 skipped**。MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行，ACEBench 是 skipped 而非 scored。
++该单轮 run 的 MODEL 未选择、SFT 未运行；522 passed/2 skipped 是此历史阶段计数，当前测试证据见 final-review fix report。后续固定 16 条单域五轮见下节；694/744、独立 validation/benchmark 和作者原始实验复现仍未运行，ACEBench 是 skipped 而非 scored。
++
++## 12. DeepCoder function 16 单域五轮（真实完成，有界工程结果）
++
++实际配置为 `reproduction/configs/train_4b_deepcoder_five_round_workspace.json`，与单轮 canary 是不同 run。五轮重复使用同一组 16 个唯一 function tasks，共 80 rollout positions；每轮一个 `attempt_1`，无独立 validation。接受汇总为 `reproduction/audit/evidence/five-round-final-summary-20261119.json`，完整脱敏结果见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
++
++| 轮次 | 组件 | Calls 父→候选 | full verifier 父→候选 | 成功数 父→候选 | new success / regression | 结果 |
++| --- | --- | ---: | ---: | ---: | ---: | --- |
++| B1 | ARTIFACTS | 87→0 | 7→7 | 2/16→3/16 | 1 / 0 | accept + activate |
++| B2 | MODEL | 40→118 | 6→7 | 4/16→3/16 | 2 / 3 | retain_parent |
++| B3 | ARTIFACTS | 61→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
++| B4 | ARTIFACTS | 59→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
++| B5 | ARTIFACTS | 63→0 | 8→8 | 4/16→5/16 | 1 / 0 | accept_candidate + activate |
++
++ARTIFACTS 均为 Meta-assisted direct-submission output repair，候选零新增 Qwen calls，每轮编辑一个 target、复用其余 15 个 baseline results，累计 artifacts 为 1/2/3/4。每侧只有 6–8 个有效 submissions 进入 full verifier，不声称全部 16 条收到完整测试。
++
++B2 positive-only SFT 使用 20 input/unique/sampled examples、4 ranks（每 rank 5 samples）、1 epoch、每 rank及全局 3 optimizer steps；LoRA rank 8、LR `2e-6`。merged candidate 未激活，B2 选择父代。最终 active generation=4，checkpoint 仍是 base Qwen3-4B，累计四个 artifacts；各轮 selected snapshot、skills、context 和 active hash 链均通过重算。
++
++真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止和 missing-key failure 保留，最终 0008 exit 0，22 个 durable jobs 终态完整。`run_complete=true`、protocol complete、launcher exited、external cleanup ok，四卡最终 cleanup 时空闲。Occupier 自动恢复当时因 NVML PID ownership 未解决而 stopped/restore_pending；之后用户明确授权直接启动，主 agent 复核四卡空闲后通过 `tmux` 会话 `rsiflow-idle-occupier` 执行 `bash run.sh --mem-mb 2500 --log-interval 20`，四个 rank 均持续训练。该操作是 cleanup 后的独立资源恢复，不改写自动恢复失败历史或实验证据。
++
++最终修复后的完整离线套件为 **1031 passed, 2 skipped in 723.43s**；21 个终审专项测试、真实最终汇总重算、独立 scoped re-review、网站 11/11 和合并前 10 个 HTTP 资源检查均通过，详见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。
++
++边界：没有正式五域 3000、held-out 或 694/744，没有作者复现或通用能力结论。ENOENT/EAGAIN 和零调用重叠限制归因；ARTIFACTS 分数是 Meta-assisted output repair，不是 Task policy 改进，B2 SFT 也不是模型质量提升。
+diff --git a/reproduction/audit/reviews/deepcoder-five-round-final-fix-report.md b/reproduction/audit/reviews/deepcoder-five-round-final-fix-report.md
+new file mode 100644
+index 0000000..ba247dc
+--- /dev/null
++++ b/reproduction/audit/reviews/deepcoder-five-round-final-fix-report.md
+@@ -0,0 +1,129 @@
++# Task 7 final review fix report
++
++## Status
++
++IMPLEMENTED; scoped verification passed. Repository-wide full suite, final website/JSON/static/secret/HTTP checks and main-checkout audit ledger remain with the main agent as assigned.
++
++Implemented all three Important areas at base `5071b705273975c5ee2657ed8c21595fd84e8465`, without subagents, commits, experiment launch/stop, real evidence mutation or GPU lease edits.
++
++- MODEL execute: `reproduction/scripts/deepcoder_model_smoke.py` now rejects noncanonical/symlink execute roots before resolution and rechecks inside the stage lock. Completed SFT/recovery receipts must match the loaded plan identity, expected stage/optional operation, canonical root/output paths and SFT output seals; recovery must match the bound SFT child. Existing v2 receipts without an `operation` field remain valid.
++- Selection/activation: `reproduction/scripts/summarize_deepcoder_five_round.py` delegates production-field parsing to `experiment_progress._selection_choice`, preserving `accept_or_retain` priority and its exact whitelist. Decision-only legacy evidence is accepted only when neither production field exists. Accept requires one unique, fully bound successful activation across the complete round inventory; earlier failures are permitted. Retain rejects any successful activation.
++- Docs/web: published the accepted bounded five-round result, actual per-round counts, B2 SFT, selected-state chain, attempts/recoveries, cleanup and occupier `stopped/restore_pending`; preserved formal five-domain/3000/694/744/held-out/author-reproduction boundaries. Corrected MODEL smoke v1 Retry 5 wording to `not executed again` while retaining Retry 4's executed failure.
++
++Files changed:
++
++- `reproduction/scripts/deepcoder_model_smoke.py`
++- `reproduction/scripts/summarize_deepcoder_five_round.py`
++- `RSIFlow/tests/test_training_side_smoke.py`
++- `RSIFlow/tests/test_deepcoder_five_round.py`
++- `reproduction/audit/reviews/deepcoder-five-round-real-results.md` (new)
++- `reproduction/audit/reviews/deepcoder-model-smoke-report.md`
++- `reproduction/audit/reviews/deepcoder-five-round-runbook.md`
++- `reproduction/PROGRESS.md`
++- `reproduction/REPRODUCTION.md`
++- `AGENTS.md`
++- `web/data/reproduction.json`
++- `web/RESULTS.md`
++- `web/OPERATIONS.md`
++- `web/tests/test_web.py`
++- `.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-7-final-review-fix-report.md` (this report)
++
++The four modified `RSIFlow/runtime/local_baseline/resource_leases/gpu_*.lock` files were pre-existing at task start and were not read, edited or staged by this wave.
++
++## Tests
++
++All commands ran from `/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow` unless noted. Python is `/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python`; pytest environment is `PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts"`.
++
++1. MODEL RED, before production fix:
++
++   ```bash
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_training_side_smoke.py -k 'valid_final_receipts_resume_without_retraining or stale_plan_stage_receipt or foreign_root_stage_receipt or post_plan_root_symlink_swap'
++   ```
++
++   Result: **5 failed, 1 passed, 151 deselected**. Both stale-plan cases and both foreign-root cases returned `already_completed`; the root symlink swap was followed into SFT. The valid resume control passed.
++
++2. MODEL GREEN and complete model-smoke regression:
++
++   ```bash
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_training_side_smoke.py -k 'valid_final_receipts_resume_without_retraining or stale_plan_stage_receipt or foreign_root_stage_receipt or post_plan_root_symlink_swap'
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_training_side_smoke.py -k 'model_smoke'
++   ```
++
++   Results: **6 passed, 151 deselected**, then **66 passed, 91 deselected**. An intermediate missing-plan diagnostic regression was caught by the 66-test run and fixed while preserving fail-closed root handling; the reported 66-test result is after that fix.
++
++3. Real v2 receipt compatibility control (read-only; no execute or evidence writes):
++
++   ```bash
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python - <<'PY'
++   # Load Rollout_logs/deepcoder_model_smoke_v2/receipts/{plan,sft,recovery}.json.
++   # Call _validate_completed_stage(root, plan, 'sft', sft), then
++   # _validate_completed_stage(root, plan, 'recovery', recovery, sft=sft).
++   # Assert both plan identities equal 8398911273705e2cbb1b812e01f27588f1daf8f9509dfa27b1ce59c768567865.
++   PY
++   ```
++
++   Result: `real v2 receipt rebinding controls: PASS`. The real root is a real directory; all canonical output paths and hashes passed.
++
++4. Selection/activation RED, before production fix:
++
++   ```bash
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_deepcoder_five_round.py -k 'conflicting_dual_selection_fields or later_success_after_earlier_activation_failure or multiple_successful_activations'
++   ```
++
++   Result: **4 failed, 200 deselected**. Conflicting fields used the wrong precedence, an earlier failed activation hid a later success, and duplicate successes were accepted.
++
++5. Selection/activation GREEN and isolated MODEL guards:
++
++   ```bash
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_deepcoder_five_round.py -k 'conflicting_dual_selection_fields or later_success_after_earlier_activation_failure or multiple_successful_activations or complete_run_is_legal_and_complete or real_shaped_model_retain_round'
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_deepcoder_five_round.py -k 'model_retain_rejects_successful_activation or model_false_accept_isolated or model_retain_tampering_fails_closed'
++   ```
++
++   Results: **6 passed, 198 deselected**, then **9 passed, 196 deselected**. False-accept now tests only the positive-gain guard with a valid activation; retain-with-activation independently tests only the no-activation guard.
++
++6. Legacy decision-only regression discovered and resolved:
++
++   ```bash
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_deepcoder_five_round.py
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_deepcoder_five_round.py -k 'i8_realistic_zero_call_overlap or real_single_run_observed_facts_readonly or conflicting_dual_selection_fields'
++   ```
++
++   Initial full-file result: **2 failed, 203 passed** (`test_i8_realistic_zero_call_overlap`, `test_real_single_run_observed_facts_readonly`) because both rewrite/read decision-only evidence. After restricting legacy fallback to receipts with neither production field, targeted result: **4 passed, 201 deselected**. The final two-file run below supersedes the intermediate full-file failure.
++
++7. Final complete affected-file run:
++
++   ```bash
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests/test_training_side_smoke.py tests/test_deepcoder_five_round.py
++   ```
++
++   Result: **362 passed in 138.29s**.
++
++8. Real accepted final-summary assertions (read-only, in-memory summary):
++
++   ```bash
++   PYTHONPATH="$PWD/runtime:$PWD:$PWD/../reproduction/scripts" /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python - <<'PY'
++   # summarize(run, config_path=config, cleanup_receipt_path=supervision/0008 cleanup receipt)
++   # Assert run_complete, completed_rounds=5, protocol_complete, launcher_exited,
++   # external_cleanup.ok, and exact per-round success/activation tuples.
++   PY
++   ```
++
++   Result: `real five-round final summary assertions: PASS`; B1–B5 respectively `ARTIFACTS 2/16->3/16 accept activated`, `MODEL 4/16->3/16 retain_parent not activated`, `ARTIFACTS 2/16->3/16 accept_candidate activated`, `ARTIFACTS 2/16->3/16 accept_candidate activated`, `ARTIFACTS 4/16->5/16 accept_candidate activated`.
++
++9. Documentation package syntax/static checks from worktree root:
++
++   ```bash
++   python3 -m json.tool web/data/reproduction.json >/dev/null
++   git diff --check
++   ```
++
++   Result: both exit 0. `git status --short` shows only the intended files above plus the four pre-existing GPU lease modifications; no test output files were created in the worktree.
++
++Not run by this wave, by explicit ownership boundary: repository-wide full suite, website unittest/Node/final JSON-schema/static/secret/HTTP checks, and main-checkout audit ledger updates. The accepted base full-suite evidence remains **1020 passed, 2 skipped** and is not presented as a post-fix full-suite result.
++
++## Concerns
++
++- Main agent must run/record the final repository-wide suite and final web/static/secret/HTTP checks, then update the main-checkout audit ledger. This report does not claim those checks.
++- Occupier remains **stopped/`restore_pending`** because NVML PID ownership is unresolved. Four GPUs were free at final cleanup; this does not prove occupier restoration. No bypass was attempted.
++- Public results remain bounded to the repeated 16-task single-domain cohort. Only 6–8 valid submissions per side entered full verifier; ARTIFACTS is zero-new-Qwen-call Meta-assisted output repair, B2's SFT candidate was not activated, and ENOENT/EAGAIN/zero-call overlaps limit attribution. No held-out, formal five-domain/3000/694/744, author reproduction or general capability claim is made.
++- Brief-listed nonblocking follow-ups were intentionally not expanded into this wave: numeric policy type consistency, real v4 scheduler/ToyModel mkdir coverage, unequal round-alias/changed-inherited-payload additions, cross-mount `st_dev`, legacy cosmetics, zero-call error-label wording and old-review trailing whitespace.
+diff --git a/reproduction/audit/reviews/deepcoder-five-round-final-re-review.md b/reproduction/audit/reviews/deepcoder-five-round-final-re-review.md
+new file mode 100644
+index 0000000..38d5d0e
+--- /dev/null
++++ b/reproduction/audit/reviews/deepcoder-five-round-final-re-review.md
+@@ -0,0 +1,58 @@
++# DeepCoder 五轮 Task 7 最终修复波次 scoped re-review
++
++- 日期：2026-11-19（UTC）
++- 基线：`5071b705273975c5ee2657ed8c21595fd84e8465`
++- 输入：`task-7-final-review-fix-brief.md`、`task-7-final-review-fix-report.md`、884 行 `task-7-final-review-fix-review.diff`
++- 范围：仅复审前次三个 Important 区域，以及 cleanup 后用户授权 tmux 直接占卡的表述；不重开全分支或其他 deferred 范围。
++
++## 总结 verdict
++
++**Ready: Yes。** 三个原 Important 区域均为 **ADDRESSED**。此 fix diff 新引入 **Critical=0、Important=0**。
++
++该 Ready 仅表示本次 scoped 修复波次可以进入主 agent 的最终交付检查，不冒充全量套件、网站/静态/secret/HTTP 检查或 merge/public 已完成；这些仍按 brief 由主 agent 执行。
++
++## 1. MODEL completed receipt 与 canonical root — ADDRESSED
++
++`reproduction/scripts/deepcoder_model_smoke.py:580-639` 新增完整的执行根和完成阶段绑定：
++
++- execute root 在解析前拒绝最终 symlink，并要求 strict resolve 后等于原 canonical absolute path、位于项目内且为真实目录。
++- `_validate_completed_stage()` 要求 completed 状态、精确 stage、兼容的 operation、当前 `plan_identity`；SFT 的 candidate state、metrics、GPU phase 路径与 hash 均重新绑定，recovery child 必须等于已绑定 SFT child。
++- `_bound_stage_output()` 同时拒绝绝对路径外、非 canonical、含 symlink alias、越出 stage/root 或不符合预期目的地的输出。
++
++`reproduction/scripts/deepcoder_model_smoke.py:813-856` 在读取 plan 前和 stage lock 内各重验一次 root，然后才允许 `already_completed` 或 recovery。覆盖的正是前次 stale/foreign final receipt 与 post-plan root symlink swap，而不是仅比较已解析路径。
++
++新增测试覆盖有效 resume/recovery、两个阶段的 stale plan、foreign root 和 post-plan symlink swap；实现者报告 MODEL 定向 6 passed、model-smoke 回归 66 passed，以及真实 v2 receipt rebinding control PASS。未重跑这些相同测试。实现保留真实 v2 receipt 无 `operation` 字段时的兼容路径，没有使已接受证据失效。
++
++## 2. Selection 优先级与完整 activation inventory — ADDRESSED
++
++`reproduction/scripts/summarize_deepcoder_five_round.py:488-499` 在存在生产字段时直接调用 `experiment_progress._selection_choice`，与 `RSIFlow/experiment_progress.py:192-205` 共用 `accept_or_retain` 优先级和字符串白名单。只有完全不存在 `accept_or_retain`/`selection` 时才使用 legacy decision-only fallback，避免新旧证据兼容分支重新引入优先级分叉。
++
++`reproduction/scripts/summarize_deepcoder_five_round.py:1307-1336` 不再取第一份 round-matched activation：
++
++- 收集该轮完整 activation inventory，并单独计算全部成功 activation。
++- accept 要求成功数恰好为 1，且该回执的 candidate source、active destination、source/active hash 全部正确；错误 destination 和重复成功均拒绝。
++- retain 遇到任何成功 activation 都拒绝；早期失败后的唯一后续成功仍可用于合法 accept。
++
++新增 conflicting dual-field、earlier failure/later success、duplicate success 测试，并将 false-accept 与 retain-with-activation 隔离。实现者报告相关 6 passed、隔离 guard 9 passed，以及最终两个受影响测试文件 362 passed；未重跑。实现者另报告真实最终汇总断言仍为五轮完成、B2 retain 且无 activation，与代码语义一致。
++
++## 3. 最终真实结果文档、网页和 Retry 5 措辞 — ADDRESSED
++
++`reproduction/audit/reviews/deepcoder-five-round-real-results.md:1-80` 已提供计划要求的独立结果报告。逐轮 calls、full verifier、成功数、transitions、selection/activation 与接受 summary 一致；B2 的 20 samples、4 ranks、1 epoch、3 optimizer steps、loss `0.06101469943920771` 与真实 `training_metrics.json` 一致。报告明确最终 active 是 base Qwen3-4B + 四个累计 artifacts，B2 merged candidate 未激活，并保留 16 unique/80 positions、6–8 full-verifier submissions、ENOENT/EAGAIN/零调用归因限制及非作者/非五域/非 694/744 边界。
++
++`AGENTS.md`、`reproduction/PROGRESS.md`、`reproduction/REPRODUCTION.md`、`web/RESULTS.md`、`web/OPERATIONS.md` 和 `web/data/reproduction.json:84-143` 已同步有界完成状态；`run_4b_five_rounds` 不再是 `not_run_pending_approval`，正式五域与独立评估仍保持未运行。`web/tests/test_web.py:145-158` 对状态、逐轮分数、B2 retain 和 SFT 样本数提供契约断言。基线 1020 passed/2 skipped 被明确标为 `5071b705` 的接受基线，不冒充本波次全量复验。
++
++`reproduction/audit/reviews/deepcoder-model-smoke-report.md:219` 已改为 Retry 5 **not executed again**，同时保留 Retry 4 已 execute 并失败的历史，原措辞问题关闭。
++
++## Cleanup 后 tmux 占卡表述核对 — 未篡改实验证据
++
++- 最终 accepted summary SHA256 仍为 `3675d1fa07892afd879838d84bf253787322fa30058f7b12cfea3e4ed134d671`。
++- 0008 external cleanup receipt SHA256 仍为 `2edb6da598746c0c2905af7bb901565669656b597c6d347ad41ce8f09c79c621`，与 `deepcoder-five-round-real-results.md:65` 一致；receipt 中自动 `restore_pending=true` 历史保持原样。
++- `deepcoder-five-round-real-results.md:63-68` 与 `deepcoder-five-round-runbook.md:262-268` 明确区分：cleanup 时四卡空闲、自动恢复因 NVML PID ownership 未解决而 pending；随后用户明确授权，才以独立 tmux 会话直接启动。文本没有把直接启动写成自动 restore receipt，也没有反改 cleanup 的空卡观测。
++- 只读查看 `/data/wuxuecheng/z-occupier-ready/runtime/dev4/tmux-occupier-20261119.log` 末尾，rank 0/1/2/3 均持续推进训练 step，脚本各报告约 2519 MB，与文档一致。
++- scoped diff 不包含 accepted summary、cleanup receipt 或其他真实实验证据的修改。
++
++## 审阅操作与剩余边界
++
++本次回源读取了完整 scoped diff、当前生产实现、相关测试、最终文档、真实 B2 metrics、accepted summary/cleanup hash 和 tmux 日志。未重复实现者已报告的相同测试，未启动实验，未读取或修改 GPU lease，未修改工作树。唯一写入是本主审计报告。
++
++前次列出的 numeric policy typing、v4/ToyModel 覆盖、额外 alias/artifact 测试、cross-mount `st_dev`、legacy cosmetics、zero-call label 和旧 review trailing whitespace 均为 nonblocking follow-up，本次未重开。主 agent 仍需完成最终全量套件、网站/JSON/静态/secret/HTTP 检查及主审计账本记录。
+diff --git a/reproduction/audit/reviews/deepcoder-five-round-final-review.md b/reproduction/audit/reviews/deepcoder-five-round-final-review.md
+new file mode 100644
+index 0000000..e705767
+--- /dev/null
++++ b/reproduction/audit/reviews/deepcoder-five-round-final-review.md
+@@ -0,0 +1,27 @@
++# DeepCoder five-round final whole-branch review
++
++Date: 2026-11-19 UTC
++Reviewer: agent-63
++Base/HEAD reviewed: `db92545..5071b70`
++
++## Evidence verdict
++
++The reviewer independently recomputed the final real summary and obtained an exact match: `completed_rounds=5`, `protocol_complete=true`, `launcher_exited=true`, `external_cleanup.ok=true`, `run_complete=true`, no blockers.
++
++This supports only the fixed repeated 16-task DeepCoder function five-round engineering loop. It does not support author-result reproduction, five-domain/3000-task completion, 694/744, held-out generalization, or general model/Meta improvement.
++
++## Merge blockers
++
++1. `deepcoder_model_smoke.py`: completed SFT/recovery receipts need current plan/root rebinding; execute must reapply canonical/no-symlink root policy after planning.
++2. `summarize_deepcoder_five_round.py`: selection aliases need production-compatible precedence, and activation validation must cover the complete inventory rather than the first match.
++3. Task 7 delivery documents/web artifacts must be produced and stale pre-five-round claims corrected, including the MODEL smoke `not executed again` wording.
++
++No Critical findings. A single final fix wave was assigned under `task-7-final-review-fix-brief.md`; scoped re-review and full verification are required before merge/backup/public acceptance.
++
++## Operational disclosure
++
++Occupier restore was refused because NVML PID ownership was unresolved. No bypass was attempted. This does not invalidate the final 0008 cleanup, but occupier remains stopped/restore_pending and must be disclosed.
++
++## Deferred items
++
++Numeric policy type consistency, v4 scheduler/ToyModel test coverage, extra alias/inherited-payload tests, cross-mount st_dev, legacy cosmetics and zero-call wording remain follow-ups unless the final fix wave changes their severity. Public text must distinguish direct-submission zero new Qwen calls from failures and disclose limited full-verifier coverage and causal confounds.
+diff --git a/reproduction/audit/reviews/deepcoder-five-round-final-verification.md b/reproduction/audit/reviews/deepcoder-five-round-final-verification.md
+new file mode 100644
+index 0000000..b623814
+--- /dev/null
++++ b/reproduction/audit/reviews/deepcoder-five-round-final-verification.md
+@@ -0,0 +1,44 @@
++# DeepCoder 五轮最终交付验证
++
++- 日期：2026-11-19（UTC）
++- 代码基线：`5071b705273975c5ee2657ed8c21595fd84e8465` 加 Task 7 最终修复工作树 diff。
++- 范围：离线测试、真实汇总重算、独立 scoped re-review、网站/静态/密钥形态和合并前 HTTP 检查。没有重跑真实五轮实验。
++
++## 1. 完整 Python 套件
++
++从 `.worktrees/five-round/RSIFlow` 执行：
++
++```bash
++PYTHONPATH="$PWD/runtime:$PWD" \
++  /data/wuxuecheng/miniforge3/envs/rsiflow/bin/python -m pytest -q tests
++```
++
++最终结果：**1031 passed, 2 skipped in 723.43s (0:12:03)，exit 0**。
++
++证据：`reproduction/audit/evidence/five-round-final-full-suite-20261119.log`，SHA256 `f8000a809872d55188f741ee255a60915b0d8d5ff54e910a11dbf684434eda61`。
++
++第一次主 agent 尝试被 300 秒执行上限在约 41% 处终止，不是测试失败；上述结果来自随后以 1800 秒上限执行的完整重跑。
++
++## 2. 专项与真实证据重算
++
++- MODEL execute root/receipt 反例和合法恢复控制：**6 passed, 151 deselected**。
++- selection 优先级、完整 activation inventory、retain/false-accept 独立反例及合法控制：**15 passed, 190 deselected**。
++- 使用绝对 run/config/0008 cleanup 路径重新生成最终汇总：`completed_rounds=5`、`protocol_complete=true`、`launcher_exited=true`、`external_cleanup.ok=true`、`run_complete=true`、blockers 为空，B1–B5 结果逐项匹配。
++- 新汇总与接受汇总 SHA256 均为 `3675d1fa07892afd879838d84bf253787322fa30058f7b12cfea3e4ed134d671`，没有改写真实实验证据。
++
++## 3. 独立 scoped re-review
++
++`deepcoder-five-round-final-re-review.md`：**Ready=Yes**；前次三个 Important 区域全部 ADDRESSED，本 fix diff 新引入 Critical=0、Important=0。复审同时确认后续用户授权的 tmux 占卡与 cleanup 时自动 restore pending/四卡空闲历史被明确区分。
++
++## 4. 网站与静态检查
++
++- `python3 -m unittest discover -s web/tests -v`：**11/11 PASS**。
++- `node --check web/app.js`、JSON 解析和 `git diff --check`：PASS。
++- 高置信密钥/私钥形态扫描：零命中；交付文件均小于 50 MiB。
++- 合并前临时 HTTP 服务：`/`、CSS、JS、两份 JSON、REPRODUCTION、RESULTS、README、OPERATIONS、process 共 **10 个资源全部 HTTP 200**；五轮完成和 tmux 状态语义断言通过。
++
++HTTP 证据：`reproduction/audit/evidence/five-round-premerge-http-20261119.json`。合并后的主工作树和公网复验另记主审计及 `web/OPERATIONS.md`。
++
++## 5. 交付边界
++
++固定同一批 16 个唯一 DeepCoder/TACO function 任务上的单域五轮工程跑通已经验证；五轮共 80 个 rollout positions，不是 80 个唯一任务。ARTIFACTS 是零新增 Qwen 调用的 Meta-assisted direct-submission 输出修复；B2 SFT 未激活，最终模型仍为基础 Qwen3-4B。每侧只有 6–8 个有效 submissions 进入 full verifier。没有正式五域 3000、held-out、694/744 或作者结果复现结论。
+diff --git a/reproduction/audit/reviews/deepcoder-five-round-real-results.md b/reproduction/audit/reviews/deepcoder-five-round-real-results.md
+new file mode 100644
+index 0000000..73ac071
+--- /dev/null
++++ b/reproduction/audit/reviews/deepcoder-five-round-real-results.md
+@@ -0,0 +1,80 @@
++# DeepCoder function 16 单域五轮真实结果
++
++> 日期：2026-11-19（UTC）
++> 状态：**A0+B1–B5 工程协议完成，launcher 正常退出，external cleanup 完成。**
++> 接受证据：`reproduction/audit/evidence/five-round-final-summary-20261119.json`（主 checkout 审计证据，只读引用）。
++> 范围边界：这是固定同一批 16 条 DeepCoder/TACO function 的五轮工程实验，不是正式五域五轮、独立 benchmark 或作者原始实验复现。
++
++## 1. 完成判定与协议范围
++
++- `run_complete=true`、`completed_rounds=5`、`protocol_complete=true`、`launcher_exited=true`；`external_cleanup.status=completed` 且 `ok=true`，无 run-complete blocker。
++- A0 与 B1–B5 的 required milestones、每轮 `attempt_1`、selection、active/skills/context/snapshot、B5 后 finish 均通过原始回执重建。state 为 `complete/completed`，workflow 为 `COMPLETE`，`finish_allowed=true`。
++- 五轮使用**同一组 16 个唯一 task、相同顺序**，共 80 个 rollout positions；不是 80 个唯一任务。每轮父子分母均为 16，task IDs/source hashes/manifest bindings 配对一致。
++- 每轮只有一个实验 attempt 和一个候选。ARTIFACTS 使用 `direct_submission_same_tasks_v1`，表示 **Meta-assisted direct-submission output repair**；候选不重新生成轨迹，新增 Qwen calls 为 0。
++
++## 2. 逐轮真实结果
++
++“Calls” 是父子两侧实际 Qwen trajectory calls；“full verifier” 仅计有有效 submission、实际进入完整官方验证的任务数，不能把分母 16 误写成 16 个完整测试。Transitions 列为 new success / new regression。
++
++| 轮次 | 组件 | Calls 父→候选 | full verifier 父→候选 | 成功数 父→候选 | Transitions | 决定与激活 |
++| --- | --- | ---: | ---: | ---: | ---: | --- |
++| B1 | ARTIFACTS | 87→0 | 7→7 | 2/16→3/16 | +1 / +0 | `accept`，已激活 |
++| B2 | MODEL | 40→118 | 6→7 | 4/16→3/16 | +2 / +3 | `retain_parent`，未激活 |
++| B3 | ARTIFACTS | 61→0 | 8→8 | 2/16→3/16 | +1 / +0 | `accept_candidate`，已激活 |
++| B4 | ARTIFACTS | 59→0 | 8→8 | 2/16→3/16 | +1 / +0 | `accept_candidate`，已激活 |
++| B5 | ARTIFACTS | 63→0 | 8→8 | 4/16→5/16 | +1 / +0 | `accept_candidate`，已激活 |
++
++各侧 full verifier 数量仅为 6–8；其余任务不伪称收到完整测试。B1/B3/B4/B5 每轮只编辑一个当前 artifact target，并复用其余 15 个 baseline results；B3/B4/B5 分别继承此前的 1/2/3 个 artifact records。四次 ARTIFACTS 接受均有严格 +0.0625 固定批净增益，B2 为 -0.0625 并保留父代。
++
++## 3. B2 MODEL positive-only SFT
++
++B2 真实执行了一次 positive-only LoRA SFT，训练证据由 `round_2/attempts/attempt_1/build/model_update/` 下的 request、selection、metrics、rank records、GPU phase 和 candidate state 共同绑定：
++
++- 输入 20 条正例、20 条 unique，最终 sampled training examples=20；四个 rank 各 5 条，rank/local_rank 为 0/1/2/3。
++- one epoch、`max_steps=-1`、learning rate `2e-6`、LoRA rank 8、batch size 1、gradient accumulation 8；world size=4。
++- 每 rank optimizer steps=3，全局 metrics optimizer steps=3，`num_train_epochs_completed=1.0`；training loss `0.06101469943920771`。
++- merged candidate 的 checkpoint/weights 与 base 不同，但配对结果为 4/16→3/16，因此**候选未激活，B2 snapshot 选择父代**。这次 SFT 只证明训练/merge/reload 工程链路真实发生，不证明模型质量提升。
++
++MODEL SFT 仅发生在 B2；`model_sft.status=completed`，无 pending/failed MODEL round。
++
++## 4. Active、model、artifacts 与 snapshot 链
++
++| 选择点 | selected generation | selected model | 累计 artifact records | snapshot 选择 |
++| --- | ---: | --- | ---: | --- |
++| A0 | 0 | base Qwen3-4B | 0 | A0 active |
++| B1 | 1 | base Qwen3-4B | 1 | candidate |
++| B2 | 1 | base Qwen3-4B | 1 | parent；拒绝 merged MODEL candidate |
++| B3 | 2 | base Qwen3-4B | 2 | candidate |
++| B4 | 3 | base Qwen3-4B | 3 | candidate |
++| B5 | 4 | base Qwen3-4B | 4 | candidate |
++
++- 最终 active checkpoint 仍是 base Qwen3-4B 及其原三权重分片 manifest，**不是 B2 merged child**；最终 active 为 base model + 四个累计 artifacts。B2 candidate 使用另一个 merged checkpoint，但未进入 selected/active 链。
++- 每轮 `snapshot_present=true`、`products_complete=true`，parent/candidate/selected state identity、checkpoint/weights、Harness bytes、artifact manifests、snapshot seals 和 previous-selected parent source 均通过汇总器重算。
++- 最终 `active_task.json` SHA256 为 `8f75bce87740567949ba50cba15cce2179e477f3c79fdacedaf1512c679abeb1`。
++- skills 与 context 均存在并沿五轮保存；最终 skills SHA256 `c07459e54602e8cc4e8dbca57bea681b21bdb9137d717275731270e703da2c19`，context SHA256 `5e7e763171036410f60a7e0dde5ab113bc56c0ecf3bd58f87c1861bf343ece51`，meta state SHA256 `eba1b18807f51b61c2e721fd9a8603556780c49075d8dac06d349f8d37a5d704`。
++
++## 5. Attempts、失败与恢复历史
++
++- 实验层每轮严格为 `attempt_1`；没有 rejected-candidate attempt_2。最终 22 个 durable jobs 均有终态，missing/invalid/required_failed 均为空。
++- supervision 真实 attempts 为 `0001`、`0003`、`0004`、`0005`、`0006`、`0007`、`0008`；`0002` 是已证明在任何 identity/process/product 前发生的 preflight rejection，不计作真实执行 attempt。
++- `0001/0003/0005/0006/0007` 保留受控停止 exit 143；`0004` 保留 missing-key exit 1；最终 `0008` exit 0。早期持续 Astra 502、provider/transport 异常、preflight/cleanup 问题均作为历史保留，没有改写成一次顺利运行。
++- 后续 supervision 在同一 run/config 下以 resume seals 和下一 milestone 恢复，不重复已完成的 A0/父代 rollout、候选或 SFT。所有真实 attempts 均已 accounted/reconciled；最终 identity binding、reconcile complete、exit zero 均为 true。
++
++## 6. Cleanup 与 occupier 交接
++
++- 最终 external cleanup receipt SHA256 为 `2edb6da598746c0c2905af7bb901565669656b597c6d347ad41ce8f09c79c621`，状态 completed/ok、blockers 为空。
++- owned registry 为 `services_stopped`，registry SHA256 `226253f371d29bf77287396105612f9671ecc93fb00bd61f97a34b2cedc82b95`；最终清理时四个 GPU 均空闲。
++- **自动恢复当时为 `restore_pending`**：由于 NVML PID ownership 未解决，自动恢复被 fail-closed 拒绝；最终 cleanup 证据仍保持四卡空闲，不改写该历史。
++- **后续直接启动已恢复（2026-11-19）**：用户明确授权后，主 agent 重新核实四卡空闲，在 `tmux` 会话 `rsiflow-idle-occupier` 中运行 `bash run.sh --mem-mb 2500 --log-interval 20`。四个 rank 均持续训练，脚本日志各约 2519 MB，`nvidia-smi` 各约 3085 MiB、46–48% 利用率。日志为 `/data/wuxuecheng/z-occupier-ready/runtime/dev4/tmux-occupier-20261119.log`；这是 cleanup 后的独立操作，不伪造自动恢复 receipt。
++
++## 7. 离线测试证据
++
++- 最终修复后的完整离线套件为 **1031 passed, 2 skipped in 723.43s**，exit 0；MODEL/selection 终审专项为 6+15 passed。
++- 独立 scoped re-review 为 Ready=Yes、Critical=0、Important=0；真实最终汇总重算与接受汇总 SHA256 完全一致。完整命令、网站 11/11、静态/密钥形态和合并前 HTTP 证据见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。
++
++## 8. 限制与归因
++
++- 没有 held-out evaluation、独立 validation/benchmark、最终 694/744、ACE 50 或 8B 结果；没有正式五域 3000-task 实验，也没有作者原始实验复现。
++- 四次 ARTIFACTS 接受只支持固定批上的 **Meta-assisted output repair**，零新增 Qwen calls；不能解释为 Task policy、Harness 或通用能力提升。B2 SFT 候选被保留父代，最终 model 未改变。
++- ENOENT/EAGAIN 错误提及与零调用失败叠加，限制因果归因。B1/B3/B4/B5 的新成功均与零调用历史重叠；B2 的 2 个新成功和 3 个回归均与零调用重叠。错误提及不是重新评分依据，逐 task transitions 以原始 verifier booleans 为准。
++- 固定 16 条重复队列的净变化不能外推到其他任务、领域或独立测试集。公开内容仅引用脱敏汇总，不包含 raw prompts/responses、私有轨迹、凭据、私钥或运行时 PID 清单。
+diff --git a/reproduction/audit/reviews/deepcoder-five-round-runbook.md b/reproduction/audit/reviews/deepcoder-five-round-runbook.md
+index de3dc27..1c15c15 100644
+--- a/reproduction/audit/reviews/deepcoder-five-round-runbook.md
++++ b/reproduction/audit/reviews/deepcoder-five-round-runbook.md
+@@ -262,3 +262,7 @@ NVML `--query-compute-apps` 的 compute PID 与容器内 rank PID **可能属不
+ ## 9. 完成判定与报告
+ 
+ 最终完成同时核验 SOP §9 各项（state complete/last_turn completed、A0+B1–B5 milestones、current_stage COMPLETE/finish_allowed、B5 前无提前 finish、每轮单 attempt、active 链、durable jobs 终态、supervision exit/reconcile、launcher/Codex PID 不存活、owned registry services_stopped、GPU 无计算进程）+ external cleanup completed。任何缺失只报告实得轮次与 blocker。报告逐轮表格、跨轮 active/skills 链、MODEL/SFT 实际发生轮次、过程异常限制；五轮工程完成不等于五域/3000/694/744/作者复现。
++
++**2026-11-19 实际终局**：该固定 16 条单域五轮已达到上述完成判定，`run_complete=true`、最终 supervision `0008` exit 0、external cleanup completed，四卡在 cleanup 时空闲。逐轮结果与 attempts/recovery 历史见 `deepcoder-five-round-real-results.md`。Occupier 自动恢复因 NVML PID ownership 未解决而 stopped/`restore_pending`，没有强行通过自动恢复门；后续不得再从 COMPLETE run 重放实验。最终汇总器会检查完整 activation inventory：retain 拒绝任何成功 activation，accept 只接受唯一且正确绑定的成功 activation；selection 的 `accept_or_retain` 优先于 `selection`，与生产 progress 一致。
++
++**2026-11-19 cleanup 后用户授权的直接启动**：用户明确要求可在占卡目录用 `tmux` 直接 `bash run.sh`。主 agent 先实测四卡均无 compute app、每卡仅 1 MiB，再启动独立会话 `rsiflow-idle-occupier`，参数为 `--mem-mb 2500 --log-interval 20`，日志写 `runtime/dev4/tmux-occupier-20261119.log`。实测四 rank 持续训练、每卡脚本显存约 2519 MB；这不属于上述自动 restore receipt，也不改写 cleanup 时的空卡观测。后续新实验必须先核对并停止该自有 tmux/torchrun 进程组，确认四卡满足空闲门，不能与之抢卡。
+diff --git a/reproduction/audit/reviews/deepcoder-model-smoke-report.md b/reproduction/audit/reviews/deepcoder-model-smoke-report.md
+index 0424de0..867cb12 100644
+--- a/reproduction/audit/reviews/deepcoder-model-smoke-report.md
++++ b/reproduction/audit/reviews/deepcoder-model-smoke-report.md
+@@ -216,7 +216,7 @@ Retry 5 brief 指定 Qwen4-Max scoped re-review PASS、主 Kimi 已复核 schedu
+ ## v1 保留与 v2 plan
+ 
+ - `00001353` 的首次只读 precheck 因操作员 Python 引号错误 NameError，未修改任何文件/进程；`00001354` 修正后确认 HEAD/clean diff、v1 SFT final 仍 `incomplete`、无 active training/service owner、source/input seals 仍 true、v2 root 不存在、occupier `24009` 四卡运行。
+-- 旧 `Rollout_logs/deepcoder_model_smoke_v1` 未 execute、未删除、未改写；后验 `00001360` 再次确认 v1 incomplete/seals 不变。
++- 旧 `Rollout_logs/deepcoder_model_smoke_v1` 在 Retry 5 **not executed again**、未删除、未改写；Retry 4 已真实 execute 并失败，后验 `00001360` 再次确认 v1 incomplete/seals 不变。
+ - `00001355`：occupier 运行中，新 `Rollout_logs/deepcoder_model_smoke_v2` public plan exit 0。Plan SHA256 `2466c2285cbf85a4f2596446a46b12c5921577e4949508516f2bb21df62daed7`，plan identity `8398911273705e2cbb1b812e01f27588f1daf8f9509dfa27b1ce59c768567865`。
+ - `00001356`：runner 自身 `_load_execute_plan()` 重算通过；16 tasks、51 source transport calls、3 unique positives、18 SFT samples（每个正例 6 个）、source hashes 相同、checkpoint seals 42、Harness seals 2、registry 隔离、无 stage started/final，v1 仍 incomplete。
+ 
+diff --git a/reproduction/scripts/deepcoder_model_smoke.py b/reproduction/scripts/deepcoder_model_smoke.py
+index 9e5136a..92b209a 100644
+--- a/reproduction/scripts/deepcoder_model_smoke.py
++++ b/reproduction/scripts/deepcoder_model_smoke.py
+@@ -577,6 +577,68 @@ def load_effective_config(root):
+     return PipelineConfig.model_validate(read(Path(root) / "plan/effective_config.json"))
+ 
+ 
++def _validate_execute_root(output_root):
++    candidate = Path(output_root)
++    if candidate.is_symlink():
++        raise SmokeBlocked(f"Output root must not be a symlink: {candidate}")
++    try:
++        resolved = candidate.resolve(strict=True)
++    except FileNotFoundError as exc:
++        raise SmokeBlocked(f"Output root or final plan receipt does not exist: {candidate}") from exc
++    if Path(os.path.abspath(candidate)) != resolved:
++        raise SmokeBlocked("Output root must be canonical and contain no symlink aliases")
++    project = Path(side.PROJECT).resolve()
++    if resolved == project or not resolved.is_relative_to(project):
++        raise SmokeBlocked(f"Output root must remain inside the project: {resolved}")
++    if not resolved.is_dir():
++        raise SmokeBlocked(f"Output root must be a real directory: {resolved}")
++    return resolved
++
++
++def _bound_stage_output(root, value, *, expected=None, parent=None):
++    if not isinstance(value, str) or not value:
++        raise SmokeBlocked("Stage output path is missing")
++    path = Path(value)
++    if not path.is_absolute() or path.is_symlink() or path.resolve(strict=True) != path:
++        raise SmokeBlocked(f"Stage output path is not canonical and symlink-free: {path}")
++    if expected is not None and path != expected:
++        raise SmokeBlocked(f"Stage output path does not match its canonical destination: {path}")
++    if parent is not None and not path.is_relative_to(parent):
++        raise SmokeBlocked(f"Stage output path escapes the stage root: {path}")
++    if not path.is_relative_to(root):
++        raise SmokeBlocked(f"Stage output path escapes the MODEL smoke root: {path}")
++    return path
++
++
++def _validate_completed_stage(root, plan, stage, receipt, sft=None):
++    receipt_path = root / f"receipts/{stage}.json"
++    if (not isinstance(receipt, dict) or receipt_path.is_symlink()
++            or receipt.get("status") != "completed" or receipt.get("stage") != stage
++            or receipt.get("operation", stage) != stage
++            or receipt.get("plan_identity") != plan["plan_identity"]):
++        raise SmokeBlocked(f"{stage} final receipt is not bound to the current plan and stage")
++    sft_root = root / "runs/deepcoder_model_smoke/sft"
++    child = _bound_stage_output(root, receipt.get("child_checkpoint"), parent=sft_root)
++    if stage == "recovery":
++        if sft is None:
++            raise SmokeBlocked("recovery final receipt requires a completed bound SFT receipt")
++        expected_child = _bound_stage_output(root, sft.get("child_checkpoint"), parent=sft_root)
++        if child != expected_child:
++            raise SmokeBlocked("recovery child checkpoint does not match the bound SFT output")
++        return
++    expected_paths = {
++        "candidate_state_path": sft_root / "candidate_state.json",
++        "training_metrics_path": sft_root / "model_update/training_metrics.json",
++        "gpu_phase_receipt_path": sft_root / "model_update/gpu_phase_receipt.json",
++    }
++    for key, expected in expected_paths.items():
++        path = _bound_stage_output(root, receipt.get(key), expected=expected)
++        if file_hash(path) != receipt.get(key.replace("_path", "_sha256")):
++            raise SmokeBlocked(f"sft final receipt has a changed or unbound output: {key}")
++    child_state = read(expected_paths["candidate_state_path"])
++    _bound_stage_output(root, child_state.get("checkpoint_path"), expected=child)
++
++
+ def _audit(stage, error, **extra):
+     return {"status": "requires_audit", "stage": stage, "error": error, **SMOKE_FLAGS, **extra}
+ 
+@@ -749,14 +811,15 @@ def _completed_summary(plan, sft, recovery, status):
+ 
+ 
+ def execute_model_smoke(output_root):
+-    root = Path(output_root).resolve()
+     try:
++        root = _validate_execute_root(output_root)
+         plan = _load_execute_plan(root)
+     except (OSError, ValueError, SmokeBlocked) as exc:
+         return _audit("plan", str(exc))
+     try:
+         with _stage_lock(root):
+             try:
++                root = _validate_execute_root(root)
+                 plan = _load_execute_plan(root)
+             except (OSError, ValueError, SmokeBlocked) as exc:
+                 return _audit("plan", str(exc))
+@@ -770,6 +833,11 @@ def execute_model_smoke(output_root):
+                 return _audit("sft", "Previous SFT final receipt is not completed; automatic rerun is forbidden")
+             if recovery_state == "final" and recovery.get("status") != "completed":
+                 return _audit("recovery", "Previous recovery final receipt is not completed; audit is required")
++            if sft_state == "final":
++                _validate_completed_stage(root, plan, "sft", sft)
++            if recovery_state == "final":
++                _validate_completed_stage(root, plan, "recovery", recovery,
++                                          sft=sft if sft_state == "final" else None)
+             if sft_state == "final" and recovery_state == "final":
+                 return _completed_summary(plan, sft, recovery, "already_completed")
+             if os.environ.get("RSIFLOW_SANDBOX_BACKEND") != "linux_bwrap_seccomp_v1":
+diff --git a/reproduction/scripts/summarize_deepcoder_five_round.py b/reproduction/scripts/summarize_deepcoder_five_round.py
+index cdb9a1b..86c4741 100644
+--- a/reproduction/scripts/summarize_deepcoder_five_round.py
++++ b/reproduction/scripts/summarize_deepcoder_five_round.py
+@@ -486,18 +486,17 @@ def _side_calls(rows, cache_root, round_n, state, manifest=None, protocol_hash=N
+ 
+ 
+ def _selection_decision(selection, component):
++    del component
+     if not isinstance(selection, dict):
+         return None
+-    value = selection.get("decision")
+-    if value in TERMINAL_DECISIONS:
+-        return value
+-    if component in {"ARTIFACTS", "MODEL"}:
+-        value = selection.get("selection", selection.get("accept_or_retain"))
+-        return {"accept": "accept_candidate", "accepted": "accept_candidate",
+-                "accept_candidate": "accept_candidate", "retain": "retain_parent",
+-                "retain_parent": "retain_parent", "reject": "retain_parent",
+-                "rejected": "retain_parent"}.get(value)
+-    return value
++    if not any(key in selection for key in ("accept_or_retain", "selection")):
++        value = selection.get("decision")
++        return value if value in TERMINAL_DECISIONS else None
++    from experiment_progress import _selection_choice
++    value = _selection_choice({"content": json.dumps(selection)})
++    return {"accept": "accept_candidate", "accepted": "accept_candidate",
++            "accept_candidate": "accept_candidate", "retain_parent": "retain_parent",
++            "reject": "retain_parent", "rejected": "retain_parent"}.get(value)
+ 
+ 
+ def _snapshot_dir(run_dir, number):
+@@ -1307,26 +1306,34 @@ def _round_summary(run_dir, number, trusted_manifest, protocol_hash=None) -> dic
+ 
+     activated = False
+     candidate_state_path = attempt / "build/candidate_state.json"
++    marker = f"round_{number}/"
++    activations = [
++        receipt for receipt in _find_transport_receipts(run_dir, "activate_task")
++        if any(isinstance(receipt.get(key), str) and marker in receipt[key]
++               for key in ("source_state", "active_state"))
++    ]
++    successful_activations = [receipt for receipt in activations
++                              if receipt.get("status") == "activated_as_requested"]
+     if decision_value == "accept_candidate":
+         if delta is None or delta <= 0:
+             blockers.append("accept_candidate without strictly positive gain")
+-        activate = _receipt_for_round(_find_transport_receipts(run_dir, "activate_task"),
+-                                      number, ("source_state", "active_state"))
+-        if not isinstance(activate, dict) or activate.get("active_state") != str(run_dir / "active_task.json"):
++        active_state = str(run_dir / "active_task.json")
++        if any(receipt.get("active_state") != active_state for receipt in successful_activations):
+             blockers.append("activate_task active_state != exact run_dir/active_task.json")
+-        if (isinstance(activate, dict) and activate.get("status") == "activated_as_requested"
+-                and activate.get("source_state") == str(candidate_state_path)
+-                and activate.get("source_sha256") == _sha256(candidate_state_path)
+-                and activate.get("active_sha256") == activate.get("source_sha256")
+-                and activate.get("source_sha256")):
++        bound = [
++            receipt for receipt in successful_activations
++            if receipt.get("source_state") == str(candidate_state_path)
++            and receipt.get("active_state") == active_state
++            and receipt.get("source_sha256") == _sha256(candidate_state_path)
++            and receipt.get("active_sha256") == receipt.get("source_sha256")
++            and receipt.get("source_sha256")
++        ]
++        if len(successful_activations) == 1 and len(bound) == 1:
+             activated = True
+         else:
+-            blockers.append("accept_candidate lacks bound activate_task receipt")
+-    elif decision_value == "retain_parent":
+-        activate = _receipt_for_round(_find_transport_receipts(run_dir, "activate_task"),
+-                                      number, ("source_state", "active_state"))
+-        if isinstance(activate, dict) and activate.get("status") == "activated_as_requested":
+-            blockers.append("retain_parent must not activate candidate")
++            blockers.append("accept_candidate lacks correctly bound unique successful activate_task receipt")
++    elif decision_value == "retain_parent" and successful_activations:
++        blockers.append("retain_parent must not activate candidate")
+ 
+     snapshot_receipt = _snapshot_dir(run_dir, number) / "snapshot_receipt.json"
+     snapshot_present = snapshot_receipt.is_file()
+diff --git a/web/OPERATIONS.md b/web/OPERATIONS.md
+index 17dc951..f50b57b 100644
+--- a/web/OPERATIONS.md
++++ b/web/OPERATIONS.md
+@@ -232,3 +232,18 @@
+ - 新 URL 已实测 `/`、`/RESULTS.md`、`/OPERATIONS.md`、`/data/reproduction.json` 四项全部 **HTTP 200**；`RESULTS.md` 包含 `3/16`、`4/16` 和 `HARNESS`。本地 `http://127.0.0.1:18000/` 也为 **200**。
+ - `reproduction/PROGRESS.md` 与 `web/RESULTS.md` 的当前首页/过程页入口已同步到新地址；旧地址仅留在历史操作记录中。
+ - 最终完整离线套件为 **522 passed, 2 skipped**。上文 2026-11-17 首次真实结果发布节的 517/2 是当时维护/发布历史，保留原记录并以本节最终 522/2 为准；未修改 2026-11-16 daily 历史账本。
++
++
++## 2026-11-19
++
++### DeepCoder function 16 单域五轮完成与真实结果发布
++
++- 接受证据为 `reproduction/audit/evidence/five-round-final-summary-20261119.json`：同一组 16 个唯一 function tasks、五轮共 80 rollout positions、每轮一个实验 attempt；`run_complete=true`、protocol complete、launcher exit 0、external cleanup ok。
++- B1/B3/B4 ARTIFACTS 均为 2/16→3/16，B5 为 4/16→5/16；都是零新增 Qwen calls 的 Meta-assisted direct-submission output repair。B2 MODEL 为 4/16→3/16，真实 positive-only SFT 使用 20 samples、4 ranks、1 epoch、3 optimizer steps，但 retain_parent 且未激活。
++- 父子 Calls 分别为：B1 87→0、B2 40→118、B3 61→0、B4 59→0、B5 63→0。full verifier 分别为 7→7、6→7、8→8、8→8、8→8；每侧只有 6–8 个有效 submissions 进入完整验证，不声称全部 16 条收到完整测试。
++- 最终 active 为 base Qwen3-4B + 四个累计 artifacts，B2 merged checkpoint 不在 active 链。active/model/artifacts/skills/context/snapshot 和 22 个 durable jobs 均通过最终重算。
++- 真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止、Astra/provider 异常和 missing-key failure 保留为历史，后续从下一 milestone 恢复，最终 0008 exit 0。未改写真实 run evidence。
++- 四卡最终 cleanup 时空闲；自动 occupier restore 当时因 NVML PID ownership 未解决而 pending，未强行通过身份恢复门。
++- 随后用户明确授权直接启动。主 agent 重新实测四卡无 compute app、每卡 1 MiB 后，在 `tmux` 会话 `rsiflow-idle-occupier` 中执行 `bash run.sh --mem-mb 2500 --log-interval 20`。四个 rank 均持续训练，日志各约 2519 MB，`nvidia-smi` 各约 3085 MiB、46–48% 利用率；日志为 `/data/wuxuecheng/z-occupier-ready/runtime/dev4/tmux-occupier-20261119.log`。这是 cleanup 后独立资源操作，不伪造自动恢复 receipt。
++- 限制：ENOENT/EAGAIN 与零调用重叠限制归因；ARTIFACTS 不是 Task policy 改进，B2 SFT 不是模型质量结果。没有正式五域 3000、held-out、694/744、独立 benchmark、作者复现或通用能力结论。
++- 新建 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`，同步 `AGENTS.md`、`reproduction/PROGRESS.md`、`reproduction/REPRODUCTION.md`、`web/data/reproduction.json` 和 `web/RESULTS.md`。最终修复后完整套件为 **1031 passed, 2 skipped in 723.43s**，exit 0；主 agent 另复核 21 个终审专项测试、真实最终汇总 SHA256 不变、网站 11/11、node/JSON/diff-check、密钥形态零命中和合并前 10 个 HTTP 资源全部 200。独立 scoped re-review 为 Ready=Yes、Critical/Important=0。详见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。
+diff --git a/web/RESULTS.md b/web/RESULTS.md
+index 6c2a754..2a37eac 100644
+--- a/web/RESULTS.md
++++ b/web/RESULTS.md
+@@ -6,7 +6,7 @@
+ - **已合并、已备份**：隔离分支 `reproduction/4b-bwrap` 已 fast-forward 合入 `reproduction/4b-main8`。**合并与初次备份点为 `3a66b655b764224acb21a108e59e7066f8503867`**（该点的复盘/审查提交为 `3a66b65`），推送当时 `ls-remote` 两个远端复现分支同为该 SHA。承载本次发布文档更新的提交在该点**之后**由主 agent 纳入后续文档提交，因此**当前分支 HEAD 与远端 SHA 一律以 `git log` / `git ls-remote` 实测为准**，本文不写死后续 SHA。**当前不再是"只本地 commit、未 push"状态。**
+ - 远程与备份边界：`origin` 仍是 GitHub 上游且未向其推送；`gitlab` 指向内部项目 https://gitlab.acerobotics.com/wuxuecheng/rsiflow 。GitLab 既有 `main` 仍为 `0c47d98df09327ba09f4fad9aaa9914837ffa280`，与本地历史无共同提交，**未强推、未覆盖、未建 MR**；GitLab CI 未验证。
+ - 当前范围：Qwen3-4B、公开数据同协议重构、Meta `OpenAI/gpt-6-astra`。正式实验规划仍为主分区 8×A800 仅用 GPU 0–3。
+-- **尚未运行五轮演化、SFT 或最终 694/744 评估，没有任何模型 benchmark 分数。ACE 50、8B 和正式 Qwen 服务也未在本轮启动。**
++- **固定同一 16 条 DeepCoder function 的单域五轮及 B2 positive-only SFT 已完成；正式五域五轮和最终 694/744 评估仍未运行，没有独立模型 benchmark 分数。ACE 50、8B 和持久正式 Qwen 服务也未启动。**
+ - **公网首页：** https://75f371f2.r61.cpolar.top
+ - **过程审计：** https://75f371f2.r61.cpolar.top/process.html
+ - **本地地址：** http://127.0.0.1:18000/ （由主工作树 `web/` 提供）
+@@ -31,7 +31,25 @@
+ - **配对结果**：**3/16=0.1875 → 4/16=0.25，delta +0.0625**。`compare_scores`、`compare_task_differences`、显式 `accept_candidate` 和 activate 均完成，candidate state 与 active state hash 一致。
+ - **必须同时公开的限制**：4 个新成功伴随 3 个回归，原 3 个成功全部回归；4 个新成功全来自父代零调用失败，3 个回归全为候选零调用失败。结果只支持固定批净正增益，过程异常使 Harness 因果归因受限。
+ - **终局与恢复**：skills/context/snapshot、state COMPLETE、finish、jobs 调和和四卡 cleanup 均完成。supervision 0001 有 24 个失败 turns、24 条 error events 及 24 条对应 turn/completed events；0002 在同一 thread 从 candidate_built 恢复，无重复 A0/父代，最终 exit 0。
+-- **边界**：MODEL 未选择，SFT 未运行；五轮、694/744、独立 validation/benchmark 和作者原始实验复现均未运行。当前完整离线套件 **522 passed, 2 skipped**。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。
++- **边界**：该单轮 run 的 MODEL 未选择、SFT 未运行；522 passed/2 skipped 是此历史阶段计数。独立审阅为 **Spec PASS / Quality DONE_WITH_CONCERNS**；脱敏证据与哈希见 `reproduction/audit/reviews/deepcoder-canary-real-results.md`，公开页不链接私有轨迹。后续单域五轮见下节；694/744、独立 validation/benchmark 和作者原始实验复现仍未运行。
++
++## DeepCoder function 16 单域五轮（2026-11-19，真实完成）
++
++- **有界协议**：A0+B1–B5 使用同一组 16 个唯一 function tasks，共 80 rollout positions，每轮一个实验 attempt；`run_complete=true`、protocol complete、launcher exit 0、external cleanup ok。它不是正式五域 3000-task 实验或 held-out evaluation。
++- **逐轮实测**：下表 Calls 为真实 Qwen calls，full verifier 仅计实际进入完整验证的有效 submissions；并非全部 16 条都收到完整测试。
++
++| 轮次 | 组件 | Calls 父→候选 | full verifier 父→候选 | 成功数 父→候选 | new success / regression | 决定 |
++| --- | --- | ---: | ---: | ---: | ---: | --- |
++| B1 | ARTIFACTS | 87→0 | 7→7 | 2/16→3/16 | 1 / 0 | accept + activate |
++| B2 | MODEL | 40→118 | 6→7 | 4/16→3/16 | 2 / 3 | retain_parent |
++| B3 | ARTIFACTS | 61→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
++| B4 | ARTIFACTS | 59→0 | 8→8 | 2/16→3/16 | 1 / 0 | accept_candidate + activate |
++| B5 | ARTIFACTS | 63→0 | 8→8 | 4/16→5/16 | 1 / 0 | accept_candidate + activate |
++
++- **ARTIFACTS 归因**：四轮都是 Meta-assisted direct-submission output repair，零新增 Qwen calls；每轮编辑一个 target、复用其余 15 个 baseline results。最终 active 是 base Qwen3-4B + 四个累计 artifacts，不能宣称 Task policy 或通用能力提升。
++- **MODEL SFT**：B2 真实 positive-only SFT 为 20 samples、4 ranks、1 epoch、3 optimizer steps；merged candidate 因 4/16→3/16 未激活，最终 model 仍是 base。
++- **状态与恢复**：active/model/artifact/skills/context/snapshot 链完整，22 个 durable jobs 终态有效。真实 supervision 为 0001/0003–0008，0002 为 preflight rejected；早期受控停止和 missing-key failure 保留，最终 0008 exit 0。四卡最终 cleanup 时空闲；自动 occupier restore 当时因 NVML PID ownership 未解决而 pending。随后经用户明确授权，在复核四卡空闲后直接通过 **tmux** 启动，当前四 rank 持续运行、每卡日志约 2519 MB；这不改写自动恢复失败历史。
++- **限制与测试**：ENOENT/EAGAIN 和零调用重叠限制归因。正式五域、3000、694/744、独立 benchmark 和作者复现仍未运行。最终修复后完整套件为 **1031 passed, 2 skipped in 723.43s**；独立 scoped re-review 为 Ready=Yes、Critical/Important=0。完整验证见 `reproduction/audit/reviews/deepcoder-five-round-final-verification.md`。完整结果见 `reproduction/audit/reviews/deepcoder-five-round-real-results.md`。
+ 
+ ## 合并、备份与本次复验（2026-11-16）
+ 
+@@ -51,7 +69,7 @@
+ - 真实 `OPENAI_API_KEY` 仅在 host `ResponsesTransport`；sandbox 只有 dummy relay key。公开页不包含 raw prompts/responses、私有轨迹、凭据或大输出。
+ - Codex native-shell descendant hygiene 未执行；legacy Landlock 不可用且 nested vendor bwrap 与 anti-escape seccomp 冲突。当前仅验证 `shell_tool=false` 的 construction-level hygiene，未放宽 seccomp。
+ - 最终独立 re-review 已完成：三项生产修复与两项发布修复均为 ADDRESSED，无新增 Critical/Important，Ready to merge Yes。combined `pt-v6m10c4t` 仍不得写成 SUCCEEDED。
+-- 五轮前仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review。
++- 正式五域五轮前仍需五类 benchmark 最小 smoke、逻辑 GPU 0–3 的健康四卡 Qwen 服务、当前 694 `python RSIFlow_4B/launch.py --check` 和独立 experiment preflight review；固定 16 条单域五轮不替代这些门。
+ 
+ ## 独立审阅与公开原则
+ 
+diff --git a/web/data/reproduction.json b/web/data/reproduction.json
+index 04f6465..2f0808c 100644
+--- a/web/data/reproduction.json
++++ b/web/data/reproduction.json
+@@ -1,7 +1,7 @@
+ {
+   "schema_version": 1,
+   "research_status": "completed_source_research",
+-  "experiment_status": "deepcoder_function_16_canary_complete_preflight_in_progress",
++  "experiment_status": "deepcoder_function_16_five_round_complete",
+   "source_commit": "496d3cfb9ff39997d107d0ff29e746b07e638180",
+   "isolation_branch": "reproduction/4b-bwrap",
+   "user_boundary": "4B 公开数据同协议重构、Meta 使用 gpt-6-astra、ACE 跳过；五轮须等独立安全审阅、五类 benchmark 最小 smoke、健康四卡 Qwen 服务、当前 694 --check 与 experiment preflight",
+@@ -27,8 +27,8 @@
+     "verified": false
+   },
+   "current_execution": {
+-    "status": "deepcoder_function_16_canary_complete_and_independently_reviewed",
+-    "phase": "single_domain_canary_complete_formal_five_round_preflight_pending",
++    "status": "deepcoder_function_16_five_round_run_complete",
++    "phase": "single_domain_five_round_complete_formal_five_domain_and_independent_evaluation_not_run",
+     "backbone": "Qwen3-4B",
+     "gpu_profile": "main_partition_8xA800_sequential_gpu_0_to_3",
+     "gpu_profile_display": "主分区 8×A800，仅 GPU 0–3（正式实验规划；canary 为 dev4 四卡）",
+@@ -38,9 +38,10 @@
+     "sandbox_backend": "linux_bwrap_seccomp_v1"
+   },
+   "current_offline_suite": {
+-    "test_counts": "522 passed, 2 skipped",
++    "test_counts": "1020 passed, 2 skipped",
+     "skipped_counted_as_passed": false,
+-    "scope": "current_full_offline_suite_not_real_canary_substitute"
++    "scope": "accepted_base_5071b705_full_suite_not_final_fix_wave_rerun",
++    "evidence": ".superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-7-final-review-fix-report.md"
+   },
+   "deepcoder_canary": {
+     "status": "completed_accepted_with_concerns",
+@@ -80,6 +81,67 @@
+     "five_rounds_run": false,
+     "author_original_experiment_reproduced": false
+   },
++  "deepcoder_five_round": {
++    "status": "run_complete",
++    "run_complete": true,
++    "completed_rounds": 5,
++    "protocol_complete": true,
++    "launcher_exited": true,
++    "external_cleanup_ok": true,
++    "evidence": "reproduction/audit/reviews/deepcoder-five-round-real-results.md",
++    "accepted_summary": "reproduction/audit/evidence/five-round-final-summary-20261119.json",
++    "config": "reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
++    "task_source": "DeepCoder/TACO",
++    "interface": "function",
++    "domain": "code",
++    "unique_tasks": 16,
++    "rollout_positions": 80,
++    "repeated_same_cohort": true,
++    "experiment_attempts_per_round": 1,
++    "rounds": [
++      {"round": 1, "component": "ARTIFACTS", "parent_calls": 87, "candidate_calls": 0, "parent_full_verifier": 7, "candidate_full_verifier": 7, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept", "activated": true},
++      {"round": 2, "component": "MODEL", "parent_calls": 40, "candidate_calls": 118, "parent_full_verifier": 6, "candidate_full_verifier": 7, "parent_successes": 4, "candidate_successes": 3, "new_success": 2, "new_regression": 3, "decision": "retain_parent", "activated": false},
++      {"round": 3, "component": "ARTIFACTS", "parent_calls": 61, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true},
++      {"round": 4, "component": "ARTIFACTS", "parent_calls": 59, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 2, "candidate_successes": 3, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true},
++      {"round": 5, "component": "ARTIFACTS", "parent_calls": 63, "candidate_calls": 0, "parent_full_verifier": 8, "candidate_full_verifier": 8, "parent_successes": 4, "candidate_successes": 5, "new_success": 1, "new_regression": 0, "decision": "accept_candidate", "activated": true}
++    ],
++    "artifacts_attribution": "meta_assisted_direct_submission_output_repair_zero_new_qwen_calls",
++    "model_sft": {
++      "round": 2,
++      "positive_only": true,
++      "input_samples": 20,
++      "unique_samples": 20,
++      "sampled_training_examples": 20,
++      "ranks": 4,
++      "epochs": 1,
++      "optimizer_steps": 3,
++      "candidate_activated": false
++    },
++    "final_active": {
++      "generation": 4,
++      "checkpoint": "base_Qwen3_4B",
++      "b2_merged_candidate_active": false,
++      "cumulative_artifact_records": 4,
++      "skills_context_snapshots_complete": true
++    },
++    "durable_jobs": {"total": 22, "missing_or_invalid": 0},
++    "supervision": {
++      "real_attempts": ["0001", "0003", "0004", "0005", "0006", "0007", "0008"],
++      "preflight_rejected": ["0002"],
++      "final_attempt": "0008",
++      "final_exit_code": 0,
++      "all_reconciled": true
++    },
++    "cleanup": "completed_services_stopped_four_gpus_free",
++    "occupier": "running_tmux_after_user_authorized_direct_start_auto_restore_pending_history_preserved",
++    "full_verifier_submissions_per_side": "6_to_8_not_all_16",
++    "limitations": [
++      "enoent_eagain_and_zero_call_overlaps_limit_attribution",
++      "no_held_out_or_independent_validation_or_benchmark",
++      "no_formal_five_domain_3000_or_694_of_744_result",
++      "no_author_original_experiment_reproduction_or_general_capability_claim"
++    ]
++  },
+   "compatibility_fixes": {
+     "skip_ace_744": {
+       "status": "focused_and_full_suite_passed",
+@@ -339,8 +401,14 @@
+     },
+     {
+       "id": "run_4b_five_rounds",
+-      "status": "not_run_pending_approval",
+-      "evidence": null
++      "status": "completed_single_domain_16_task_engineering_canary",
++      "evidence": "reproduction/audit/reviews/deepcoder-five-round-real-results.md",
++      "run_complete": true,
++      "unique_tasks": 16,
++      "rollout_positions": 80,
++      "final_active": "base_Qwen3_4B_plus_four_cumulative_artifacts",
++      "occupier": "running_tmux_after_user_authorized_direct_start",
++      "scope": "not_formal_five_domain_held_out_benchmark_or_author_reproduction"
+     },
+     {
+       "id": "evaluate_4b_694",
+@@ -366,7 +434,7 @@
+     "current_694_python_RSIFlow_4B_launch.py_--check",
+     "final_independent_experiment_preflight_review"
+   ],
+-  "not_run": ["five_rounds", "formal_SFT", "final_694_of_744", "ACE_50", "8B", "independent_validation_or_benchmark", "author_original_experiment_reproduction", "persistent_formal_Qwen_services"],
++  "not_run": ["formal_five_domain_five_rounds", "formal_SFT", "final_694_of_744", "ACE_50", "8B", "independent_validation_or_benchmark", "author_original_experiment_reproduction", "persistent_formal_Qwen_services"],
+   "blocking_decisions": [
+     "original_3000_744_source_manifests_availability",
+     "exact_reproduction_or_protocol_reconstruction",
+diff --git a/web/tests/test_web.py b/web/tests/test_web.py
+index e8e117e..dbac59f 100644
+--- a/web/tests/test_web.py
++++ b/web/tests/test_web.py
+@@ -142,8 +142,20 @@ class WebsiteTests(unittest.TestCase):
+         self.assertFalse(frozen["clean_independence_audited"])
+         self.assertEqual("exposure_unknown", frozen["exposure"])
+         self.assertEqual("694_of_744_ace_pending_audit", by_id["evaluate_4b_694"]["evaluation_scope"])
+-        for identifier in ("run_4b_five_rounds", "evaluate_4b_694", "run_8b_five_rounds", "evaluate_8b_694"):
++        five = by_id["run_4b_five_rounds"]
++        self.assertEqual("completed_single_domain_16_task_engineering_canary", five["status"])
++        self.assertTrue(five["run_complete"])
++        self.assertEqual(16, five["unique_tasks"])
++        self.assertEqual(80, five["rollout_positions"])
++        self.assertEqual("running_tmux_after_user_authorized_direct_start", five["occupier"])
++        for identifier in ("evaluate_4b_694", "run_8b_five_rounds", "evaluate_8b_694"):
+             self.assertEqual("not_run_pending_approval", by_id[identifier]["status"])
++        rounds = self.reproduction["deepcoder_five_round"]["rounds"]
++        self.assertEqual([2, 4, 2, 2, 4], [r["parent_successes"] for r in rounds])
++        self.assertEqual([3, 3, 3, 3, 5], [r["candidate_successes"] for r in rounds])
++        self.assertEqual("retain_parent", rounds[1]["decision"])
++        self.assertFalse(rounds[1]["activated"])
++        self.assertEqual(20, self.reproduction["deepcoder_five_round"]["model_sft"]["sampled_training_examples"])
+         self.assertIn("主分区 8×A800", self.reproduction["current_execution"]["gpu_profile_display"])
+         self.assertEqual("main_partition_8xA800_sequential_gpu_0_to_3", self.reproduction["current_execution"]["gpu_profile"])
+         meta = self.reproduction["bwrap_isolation"]["persistent_meta"]

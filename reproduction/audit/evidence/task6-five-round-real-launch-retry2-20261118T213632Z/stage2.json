@@ -1,0 +1,60 @@
+{
+  "stage": "stage2",
+  "status": "success",
+  "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+  "config_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+  "config_hash": "e12bf4f156dc7c755d573cb67501ee5f7f8617cc01fcc3063a0a310aec1c37a5",
+  "host": "app-91ba3954af664589900a5228c33cf6f9-695d6797bc-2lk76",
+  "boot_id": "a61829b3-3e4b-4b99-b7fb-4c0a7102c9f5",
+  "pid_namespace": "pid:[4026541459]",
+  "mount_namespace": "mnt:[4026541460]",
+  "backend": "linux_bwrap_seccomp_v1",
+  "gpus": [
+    {
+      "gpu": 0,
+      "uuid": "GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69"
+    },
+    {
+      "gpu": 1,
+      "uuid": "GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3"
+    },
+    {
+      "gpu": 2,
+      "uuid": "GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9"
+    },
+    {
+      "gpu": 3,
+      "uuid": "GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1"
+    }
+  ],
+  "provider": "gpt-6-astra",
+  "ports": [
+    8271,
+    8272,
+    8273,
+    8274
+  ],
+  "provider_response": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/provider-probe.json",
+    "sha256": "0653cbc97f16d317f11ab3750477afba7849bd10c7f5c2ac42228835cb870908"
+  },
+  "gpu_observation": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage2.gpu.json",
+    "sha256": "c253c16c0b00d371fd35a1ea1cd874c3fad408bf5b83cd203f3344a16b3db2ed"
+  },
+  "ports_observation": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage2.ports.json",
+    "sha256": "b46dee4c16e4d481212a6d880d4e119f6ba16c1b0482dc5c2d7a576c73582ff5"
+  },
+  "occupier_identity": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/stage2.occupier.json",
+    "sha256": "96404add1ffbf49b7ba035aac3d8139ee81a95dd49f9782ecaf97c10e1b625b1"
+  },
+  "occupier_running": false,
+  "occupier_stopped": true,
+  "stage1_receipt_hash": "b0f43bb65f657e3a3f3ca0b7fbf15304ffa767e815b010257746139c9e0e8702",
+  "occupier_stop": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-retry2-20261118T213632Z/handoff.json",
+    "sha256": "739d61d397d9014b2383f85c6f495a0d473d230a29900b970d1f3a7b0714fc84"
+  }
+}

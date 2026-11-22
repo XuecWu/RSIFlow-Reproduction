@@ -1,0 +1,192 @@
+{
+  "state": {
+    "transport": "app_server",
+    "status": "running",
+    "launcher_pid": 335307,
+    "workspace_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+    "capability_revision": "native_coding_v1",
+    "interactive_chat": true,
+    "sandbox_backend": "linux_bwrap_seccomp_v1",
+    "chat_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/chat",
+    "codex_pid": 335392,
+    "thread_id": "01a1f0a9-7c28-7730-8fb1-8d767d6cf1e5",
+    "updated_at": 1795039175.588286,
+    "last_turn_id": "01a1f0ab-db31-75c0-9aba-a0e02aafc631",
+    "last_turn_status": "completed"
+  },
+  "turns": [
+    {
+      "turn": "0000",
+      "request": {
+        "operation": "bootstrap(config_path=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json,state_path=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/active_task.json)"
+      },
+      "receipt": {
+        "operation": "bootstrap(config_path=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json,state_path=/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/active_task.json)",
+        "status": "unknown_operation",
+        "available_operations": [
+          "activate_task",
+          "append_skills",
+          "apply_patch",
+          "artifacts",
+          "bootstrap",
+          "compare_scores",
+          "compare_task_differences",
+          "compose_task",
+          "deploy_candidate",
+          "evaluate",
+          "maintain_skills",
+          "materialize_harness",
+          "prepare_evaluation",
+          "prepare_meta_evidence",
+          "prepare_validation_snapshot",
+          "read_json",
+          "read_skill",
+          "read_text",
+          "rebuild_skills_index",
+          "record_skill_use",
+          "retrieve_skills",
+          "rollout",
+          "rsiflow",
+          "run_candidate",
+          "run_command",
+          "run_parent",
+          "sft",
+          "skill_usage_report",
+          "snapshot",
+          "snapshot_task_meta",
+          "write_text"
+        ]
+      }
+    },
+    {
+      "turn": "0001",
+      "request": {
+        "operation": "bootstrap"
+      },
+      "receipt": {
+        "operation": "bootstrap",
+        "status": "stage_error",
+        "stage": "bootstrap",
+        "error_type": "KeyError",
+        "error": "'config_path'",
+        "elapsed_seconds": 0.6808978207409382,
+        "output_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/controller_receipts/round_00/bootstrap"
+      }
+    },
+    {
+      "turn": "0002",
+      "request": {
+        "operation": "job_status"
+      },
+      "receipt": {
+        "status": "read",
+        "jobs": [],
+        "operation": "job_status"
+      }
+    },
+    {
+      "turn": "0003",
+      "request": {
+        "operation": "bootstrap"
+      },
+      "receipt": {
+        "operation": "bootstrap",
+        "status": "stage_error",
+        "stage": "bootstrap",
+        "error_type": "KeyError",
+        "error": "'config_path'",
+        "elapsed_seconds": 0.7171529717743397,
+        "output_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/controller_receipts/round_00/bootstrap"
+      }
+    },
+    {
+      "turn": "0004",
+      "request": {
+        "operation": "job_status"
+      },
+      "receipt": {
+        "status": "read",
+        "jobs": [],
+        "operation": "job_status"
+      }
+    },
+    {
+      "turn": "0005",
+      "request": {
+        "operation": "job_status"
+      },
+      "receipt": {
+        "status": "read",
+        "jobs": [],
+        "operation": "job_status"
+      }
+    },
+    {
+      "turn": "0006",
+      "request": {
+        "operation": "job_status"
+      },
+      "receipt": {
+        "status": "read",
+        "jobs": [],
+        "operation": "job_status"
+      }
+    },
+    {
+      "turn": "0007",
+      "request": {
+        "operation": "job_status"
+      },
+      "receipt": {
+        "status": "read",
+        "jobs": [],
+        "operation": "job_status"
+      }
+    },
+    {
+      "turn": "0008",
+      "request": {
+        "operation": "job_status"
+      },
+      "receipt": {
+        "status": "read",
+        "jobs": [],
+        "operation": "job_status"
+      }
+    },
+    {
+      "turn": "0009",
+      "request": {
+        "operation": "job_status"
+      },
+      "receipt": {
+        "status": "read",
+        "jobs": [],
+        "operation": "job_status"
+      }
+    },
+    {
+      "turn": "0010",
+      "request": {
+        "operation": "job_status"
+      },
+      "receipt": {
+        "status": "read",
+        "jobs": [],
+        "operation": "job_status"
+      }
+    }
+  ],
+  "jobs": [],
+  "phases": [],
+  "registry_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/services/four_gpu_services.json",
+  "registry_exists": false,
+  "central_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/Meta_logs/deepcoder_function_16_five_round_workspace_v1",
+  "central_exists": false,
+  "supervision": {
+    "identity.json": "b0e137b93b0a5d06073891ef218ee8b68e2645c9e266c746cd197ad4d9546176",
+    "launch.json": "728791cfc8207fe8213dff3802263e138f66ee5bdc17c943d1504cc37eb4ef91",
+    "post-launch-identity.json": "b8f1ea69f46a55b44566963bf0e5e9d58ac2e60bce2e136fbf57d5a37e547742",
+    "launch-final.json": "8c1a2ebfa4acc6298823bcce202f1e61d186c03640acd54f7b8d26381b40c2a7"
+  }
+}

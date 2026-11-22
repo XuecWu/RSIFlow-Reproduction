@@ -1,0 +1,32 @@
+{
+  "attempt": "0001",
+  "identity": {
+    "pid": 335304,
+    "pgid": 335304,
+    "start_ticks": "2831557005",
+    "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+    "attempt_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001",
+    "argv": [
+      "-c",
+      "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001",
+      "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+      "4h",
+      "5m",
+      "30.0",
+      "3",
+      "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
+      "-u",
+      "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow_4B/launch.py",
+      "--config",
+      "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+      "--run-dir",
+      "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1"
+    ]
+  },
+  "exit": "143",
+  "reconcile_status": "complete",
+  "alive": false,
+  "owner_state": "exited",
+  "protocol_status": "running",
+  "stop_requested": true
+}

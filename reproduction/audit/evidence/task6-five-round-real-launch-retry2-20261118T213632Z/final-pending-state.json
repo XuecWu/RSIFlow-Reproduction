@@ -1,0 +1,106 @@
+{
+  "observed_at": 1795039590.5109873,
+  "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+  "state": {
+    "transport": "app_server",
+    "status": "running",
+    "launcher_pid": 335307,
+    "workspace_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+    "capability_revision": "native_coding_v1",
+    "interactive_chat": true,
+    "sandbox_backend": "linux_bwrap_seccomp_v1",
+    "chat_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/chat",
+    "codex_pid": 335392,
+    "thread_id": "01a1f0a9-7c28-7730-8fb1-8d767d6cf1e5",
+    "updated_at": 1795039237.7225995,
+    "last_turn_id": "01a1f0ac-cdf7-7ad2-94b4-83ec33072f52",
+    "last_turn_status": "completed"
+  },
+  "cleanup_receipt_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001/external-cleanup/obs-abe4e967d4da/receipt.json",
+  "cleanup_receipt_sha256": "ce9a4e7a1738cbfeaa98aa53c99a9ffab4d0c4980d2a449ca7124d1c8756898b",
+  "cleanup_status": "pending",
+  "cleanup_blockers": [
+    "job_binding:<no job inventory>",
+    "service_inventory_incomplete",
+    "stop_services_gates_not_passed",
+    "registry_not_stopped"
+  ],
+  "cleanup_errors": [],
+  "cleanup_owners": {
+    "launcher": {
+      "identity": {
+        "pid": 335307,
+        "pgid": 335304,
+        "start_ticks": "2831557075"
+      },
+      "source_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001/launch.json",
+      "state": "exited",
+      "evidence_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001/external-cleanup/obs-abe4e967d4da/launcher.json",
+      "evidence_sha256": "55c1c4bbd3eb641bb82f5903d1f1e5f5fd996568e1d7d05d7dab2206b05f1075"
+    },
+    "app_server": {
+      "identity": {
+        "pid": 335392,
+        "pgid": 335392,
+        "start_ticks": "2831557844"
+      },
+      "source_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001/launch.json",
+      "state": "exited",
+      "evidence_path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001/external-cleanup/obs-abe4e967d4da/app_server.json",
+      "evidence_sha256": "00f01d9f42f4466aa992e40f01e659efab132b60666b33feca324e933156d38a"
+    },
+    "jobs": [],
+    "training_phases": [],
+    "inference_services": []
+  },
+  "cleanup_registry": {
+    "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/services/four_gpu_services.json",
+    "before_path": null,
+    "before_hash": null,
+    "after_hash": null,
+    "phase": null,
+    "checkpoint": null,
+    "weights": null,
+    "stop_action_skipped_or_executed": "skipped",
+    "command_result": null
+  },
+  "supervision": {
+    "attempt": "0001",
+    "identity": {
+      "pid": 335304,
+      "pgid": 335304,
+      "start_ticks": "2831557005",
+      "run_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+      "attempt_dir": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001",
+      "argv": [
+        "-c",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1/meta_session/supervision/0001",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+        "4h",
+        "5m",
+        "30.0",
+        "3",
+        "/data/wuxuecheng/miniforge3/envs/rsiflow/bin/python",
+        "-u",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow_4B/launch.py",
+        "--config",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+        "--run-dir",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1"
+      ]
+    },
+    "exit": "143",
+    "reconcile_status": "complete",
+    "alive": false,
+    "owner_state": "exited",
+    "protocol_status": "running",
+    "stop_requested": true
+  },
+  "jobs": [],
+  "training_phases": [],
+  "registry_exists": false,
+  "compute_apps_csv": "",
+  "gpu_csv": "0, GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69, NVIDIA A800-SXM4-80GB, 81920, 81222, 1, 0\n1, GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3, NVIDIA A800-SXM4-80GB, 81920, 81222, 1, 0\n2, GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9, NVIDIA A800-SXM4-80GB, 81920, 81222, 1, 0\n3, GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1, NVIDIA A800-SXM4-80GB, 81920, 81222, 1, 0\n",
+  "occupier_identity_exists": true,
+  "restore_performed": false
+}

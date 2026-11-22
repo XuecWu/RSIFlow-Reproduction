@@ -1,0 +1,200 @@
+{
+  "status": "blocked_preflight",
+  "observed_at": 1795031375.0926182,
+  "host_identity": {
+    "host": "app-91ba3954af664589900a5228c33cf6f9-695d6797bc-2lk76",
+    "boot_id": "a61829b3-3e4b-4b99-b7fb-4c0a7102c9f5",
+    "pid_namespace": "pid:[4026541459]",
+    "mount_namespace": "mnt:[4026541460]"
+  },
+  "head": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+  "worktree_status": "",
+  "assets": {
+    "config": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/configs/train_4b_deepcoder_five_round_workspace.json",
+      "sha256": "e12bf4f156dc7c755d573cb67501ee5f7f8617cc01fcc3063a0a310aec1c37a5"
+    },
+    "base": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/configs/base_4b.json",
+      "sha256": "54a78b56782d0663627b833e9b3473a3f074ed4239199d13f612fc0e2ad832b2"
+    },
+    "READY": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/READY.json",
+      "sha256": "916d984bfa416ee55f72e682442191f4e5578968cf417b778ca9df6d07c88583"
+    },
+    "protocol": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/protocol.json",
+      "sha256": "ac7db9ca631d6cdf6f9c049cf37d2349abebea642b77f7382c7e31df1cbf05ad"
+    },
+    "seed_harness": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/seed_harness/rsiflow_base_manifest.json",
+      "sha256": "e41b5c326602cb3f256196294aefc74c1a784c30ff1a178108ad9e4b90f49cab"
+    },
+    "codex_binary": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/codex/codex-x86_64-unknown-linux-musl",
+      "sha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da"
+    },
+    "codex_provenance": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/third_party/codex-provenance.json",
+      "sha256": "7a2e46625844bc3f93be2d8f2571c97ea82c4af9ab0a888d2b01a0ca39d42ce3"
+    },
+    "bwrap_install": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/assets/isolation/install-receipt.json",
+      "sha256": "7ba72acbb91da8b88342dbf4cb83fbef8eb4f446d7b8d415ac5bcee62d9838c4"
+    },
+    "bwrap_binary": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/assets/isolation/bin/bwrap",
+      "sha256": "d78807229d616606e339c5988392b9e0ab4a6a6998fa51e4590837f426a12fca"
+    },
+    "bwrap_manifest": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/configs/bwrap_isolation.json",
+      "sha256": "58fe2672fd78c12025ce60a84b525019e68979b9860734e4d5cccc63e78e78f1"
+    },
+    "bwrap_launcher": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/RSIFlow/runtime/rsiflow/task_meta/bwrap_launcher.py",
+      "sha256": "08f9904f80110b8459637925a897d5eb7cb4943313707429aea3df5b972a48d0"
+    },
+    "task5_model_evidence": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-5-real-review-codex.md",
+      "sha256": "d2055b7bd26f8cf97f6597fdd7c40f70cab458105743416ccb455598c0f583e2"
+    },
+    "manifest_B1": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B1/manifest.json",
+      "sha256": "5a20b47d379d6d1908b56c9a957ac1f28bb167e5bc4a4d731f9642f1e8823bee"
+    },
+    "payload_B1": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B1/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B2": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B2/manifest.json",
+      "sha256": "51775fd8ee07c2de4f40cd2866a0014916e34c6df36ce2f3ec6a00cd1a9aec33"
+    },
+    "payload_B2": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B2/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B3": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B3/manifest.json",
+      "sha256": "f918edf584041b9737f11e00737b332a4f9865daaddfc21d98d42bc39aa33aeb"
+    },
+    "payload_B3": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B3/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B4": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B4/manifest.json",
+      "sha256": "b216e85b3874f8ab0298966900981d4b8d67fcf39af548de96023e1b4520bd4a"
+    },
+    "payload_B4": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B4/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "manifest_B5": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B5/manifest.json",
+      "sha256": "d809a182e61e0e5d6f11de5794f12e5feb7669a341feaa06f97f5709c0bdd5f1"
+    },
+    "payload_B5": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/logs/deepcoder-five-round-16-v1/release/B5/deepcoder_taco.jsonl",
+      "sha256": "3db34ee5eee60911cf09d4277b2b9c14575df4727ad9683b59a36e2fcaf33672"
+    },
+    "weights:model-00001-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00001-of-00003.safetensors",
+      "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+    },
+    "weights:model-00002-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00002-of-00003.safetensors",
+      "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+    },
+    "weights:model-00003-of-00003.safetensors": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/assets/models/Qwen3-4B/model-00003-of-00003.safetensors",
+      "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+    }
+  },
+  "private_relays": [
+    {
+      "path": "/tmp/rsiflow-meta-relay-jcrxqq2v/transport.sock",
+      "proc_net_unix": [],
+      "owners": []
+    },
+    {
+      "path": "/tmp/rsiflow-meta-relay-c9rxccf4/transport.sock",
+      "proc_net_unix": [],
+      "owners": []
+    }
+  ],
+  "occupier_record": {
+    "pid": 24825,
+    "pgid": 24825,
+    "start_ticks": "2827137154",
+    "owner": "dev4-rsiflow-idle-occupier",
+    "gpus": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "occupier_actual": {
+    "pid": 24825,
+    "pgid": 24825,
+    "start_ticks": "2827137154",
+    "argv": [
+      "/data/wuxuecheng/miniforge3/bin/python3.13",
+      "/data/wuxuecheng/miniforge3/bin/torchrun",
+      "--nproc_per_node=4",
+      "train.py",
+      "--mem-mb",
+      "2500",
+      "--log-interval",
+      "20"
+    ]
+  },
+  "occupier_observation": {
+    "state": "alive",
+    "group_members": [
+      {
+        "pid": 24825,
+        "start_ticks": "2827137154"
+      }
+    ],
+    "read_errors": [],
+    "snapshots": {
+      "before": [
+        {
+          "pid": 24825,
+          "start_ticks": "2827137154"
+        }
+      ],
+      "after": [
+        {
+          "pid": 24825,
+          "start_ticks": "2827137154"
+        }
+      ]
+    }
+  },
+  "occupier_identity_sha256": "96404add1ffbf49b7ba035aac3d8139ee81a95dd49f9782ecaf97c10e1b625b1",
+  "paths": {
+    "output_root": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1",
+      "exists": false,
+      "is_symlink": false
+    },
+    "run_dir": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Rollout_logs/deepcoder_five_round_16_v1/runs/deepcoder_function_16_five_round_workspace_v1",
+      "exists": false,
+      "is_symlink": false
+    },
+    "central": {
+      "path": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/Meta_logs/deepcoder_function_16_five_round_workspace_v1",
+      "exists": false,
+      "is_symlink": false
+    }
+  },
+  "gpu_csv": "0, GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 52\n1, GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 52\n2, GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 55\n3, GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1, NVIDIA A800-SXM4-80GB, 81920, 78137, 3085, 50\n",
+  "compute_apps_csv": "3842480, GPU-4a338b91-bee6-5379-e68c-9dcc42c55f69\n3842481, GPU-5bab8d1b-b2a3-d8e1-fcbc-542a7acdd4a3\n3842482, GPU-5b0c8de9-071a-8e62-9c60-17a227178ad9\n3842484, GPU-91aa7bdc-5525-9e95-75b0-b85b000157d1\n",
+  "provider_probe_performed": false,
+  "handoff_performed": false,
+  "launch_performed": false
+}

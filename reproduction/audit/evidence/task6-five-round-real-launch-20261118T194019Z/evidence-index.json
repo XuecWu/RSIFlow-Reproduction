@@ -1,0 +1,362 @@
+{
+  "phase": "task6-five-round-real-launch",
+  "created_at": "2026-11-18T19:56:13.960448+00:00",
+  "audit_root": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit",
+  "ledger_preservation": {
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/operations.jsonl": {
+      "original_prefix_preserved": true,
+      "current_bytes": 1438631,
+      "original_bytes": 1430627
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/key_results.jsonl": {
+      "original_prefix_preserved": true,
+      "current_bytes": 90491,
+      "original_bytes": 90491
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/daily/2026-11-16.md": {
+      "original_prefix_preserved": true,
+      "current_bytes": 14232,
+      "original_bytes": 14232
+    }
+  },
+  "operations": [
+    {
+      "sequence": 1367,
+      "start_timestamp": "2026-11-18T19:41:31.478526Z",
+      "end_timestamp": "2026-11-18T19:41:35.413196Z",
+      "actor": "codex",
+      "tool_kind": "bash",
+      "phase": "task6-five-round-real-launch",
+      "action": "ssh",
+      "sanitized_input": "ssh -i /root/.ssh/id_ed25519_gpu4090 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -p 11356 root@1.tcp.vip.cpolar.top bash -s",
+      "cwd": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+      "status": "success",
+      "exit_code": 0,
+      "duration_seconds": 3.933956665918231,
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001367-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001367-stderr.log"
+      ],
+      "evidence_sha256": [
+        "9fc3869d4e90a1464d02769263b84307de64432df6998b991c77e3f97b720740",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ],
+      "git_commit": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+      "sco_job_id": null
+    },
+    {
+      "sequence": 1368,
+      "start_timestamp": "2026-11-18T19:43:22.052544Z",
+      "end_timestamp": "2026-11-18T19:44:16.419758Z",
+      "actor": "codex",
+      "tool_kind": "bash",
+      "phase": "task6-five-round-real-launch",
+      "action": "ssh",
+      "sanitized_input": "ssh -i /root/.ssh/id_ed25519_gpu4090 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -p 11356 root@1.tcp.vip.cpolar.top bash -s",
+      "cwd": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+      "status": "failed",
+      "exit_code": 1,
+      "duration_seconds": 54.366533728316426,
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001368-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001368-stderr.log"
+      ],
+      "evidence_sha256": [
+        "a2d8baf33f03ce9274a9f491a5bb9d11afcb0025b087eafa77b40a2db1821307",
+        "bd7ab7d3341b7f926757003dd369f0e422a36f80b689e09a25c67acb3efc12c4"
+      ],
+      "git_commit": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+      "sco_job_id": null
+    },
+    {
+      "sequence": 1369,
+      "start_timestamp": "2026-11-18T19:45:11.080643Z",
+      "end_timestamp": "2026-11-18T19:45:11.934671Z",
+      "actor": "codex",
+      "tool_kind": "bash",
+      "phase": "task6-five-round-real-launch",
+      "action": "ssh",
+      "sanitized_input": "ssh -i /root/.ssh/id_ed25519_gpu4090 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -p 11356 root@1.tcp.vip.cpolar.top bash -s",
+      "cwd": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+      "status": "success",
+      "exit_code": 0,
+      "duration_seconds": 0.8533292878419161,
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001369-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001369-stderr.log"
+      ],
+      "evidence_sha256": [
+        "05a525aa5dd4651d08af3eece1b7e9c177b6bd47efd9f67c5e4abc3f3393b70b",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ],
+      "git_commit": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+      "sco_job_id": null
+    },
+    {
+      "sequence": 1370,
+      "start_timestamp": "2026-11-18T19:46:36.016428Z",
+      "end_timestamp": "2026-11-18T19:47:29.541350Z",
+      "actor": "codex",
+      "tool_kind": "bash",
+      "phase": "task6-five-round-real-launch",
+      "action": "ssh",
+      "sanitized_input": "ssh -i /root/.ssh/id_ed25519_gpu4090 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -p 11356 root@1.tcp.vip.cpolar.top bash -s",
+      "cwd": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+      "status": "failed",
+      "exit_code": 1,
+      "duration_seconds": 53.52430950850248,
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001370-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001370-stderr.log"
+      ],
+      "evidence_sha256": [
+        "a2d8baf33f03ce9274a9f491a5bb9d11afcb0025b087eafa77b40a2db1821307",
+        "4e1bf6f41accd9dbd896d10d7006e4a323b777b6d93317537eb6193ff0c76c0d"
+      ],
+      "git_commit": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+      "sco_job_id": null
+    },
+    {
+      "sequence": 1371,
+      "start_timestamp": "2026-11-18T19:48:38.966028Z",
+      "end_timestamp": "2026-11-18T19:49:37.446804Z",
+      "actor": "codex",
+      "tool_kind": "bash",
+      "phase": "task6-five-round-real-launch",
+      "action": "ssh",
+      "sanitized_input": "ssh -i /root/.ssh/id_ed25519_gpu4090 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -p 11356 root@1.tcp.vip.cpolar.top bash -s",
+      "cwd": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+      "status": "success",
+      "exit_code": 0,
+      "duration_seconds": 58.48011477664113,
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001371-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001371-stderr.log"
+      ],
+      "evidence_sha256": [
+        "c96f7096f69879ed428c855fbccbcfa95d08876a79acbc78fc533dabb417b42a",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ],
+      "git_commit": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+      "sco_job_id": null
+    },
+    {
+      "sequence": 1372,
+      "start_timestamp": "2026-11-18T19:50:51.736134Z",
+      "end_timestamp": "2026-11-18T19:50:59.551318Z",
+      "actor": "codex",
+      "tool_kind": "bash",
+      "phase": "task6-five-round-real-launch",
+      "action": "ssh",
+      "sanitized_input": "ssh -i /root/.ssh/id_ed25519_gpu4090 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -p 11356 root@1.tcp.vip.cpolar.top bash -s",
+      "cwd": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+      "status": "success",
+      "exit_code": 0,
+      "duration_seconds": 7.814520012587309,
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001372-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001372-stderr.log"
+      ],
+      "evidence_sha256": [
+        "261c7e6605d8e8769ac0526a9e87e0eb62ee2aeb07c34370a7c323fd3db0c3e6",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ],
+      "git_commit": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+      "sco_job_id": null
+    },
+    {
+      "sequence": 1373,
+      "start_timestamp": "2026-11-18T19:52:04.409252Z",
+      "end_timestamp": "2026-11-18T19:52:05.606933Z",
+      "actor": "codex",
+      "tool_kind": "bash",
+      "phase": "task6-five-round-real-launch",
+      "action": "ssh",
+      "sanitized_input": "ssh -i /root/.ssh/id_ed25519_gpu4090 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -p 11356 root@1.tcp.vip.cpolar.top bash -s",
+      "cwd": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+      "status": "failed",
+      "exit_code": 1,
+      "duration_seconds": 1.1969385370612144,
+      "error_type": "command_failed",
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001373-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001373-stderr.log"
+      ],
+      "evidence_sha256": [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "4d1b4548a52672801e152ac70be781f8c179842510267f0f40e27820e982d830"
+      ],
+      "git_commit": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+      "sco_job_id": null
+    },
+    {
+      "sequence": 1374,
+      "start_timestamp": "2026-11-18T19:53:09.164692Z",
+      "end_timestamp": "2026-11-18T19:53:17.124736Z",
+      "actor": "codex",
+      "tool_kind": "bash",
+      "phase": "task6-five-round-real-launch",
+      "action": "ssh",
+      "sanitized_input": "ssh -i /root/.ssh/id_ed25519_gpu4090 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -p 11356 root@1.tcp.vip.cpolar.top bash -s",
+      "cwd": "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round",
+      "status": "success",
+      "exit_code": 0,
+      "duration_seconds": 7.959387376904488,
+      "error_type": null,
+      "evidence_paths": [
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001374-stdout.log",
+        "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001374-stderr.log"
+      ],
+      "evidence_sha256": [
+        "c554d6deb30e4224d8dad5f2400ba3926d4eac74f9cd5859edab94e1158510bd",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ],
+      "git_commit": "6c253f98f350f843f746d89a336e18751e8b7a6a",
+      "sco_job_id": null
+    }
+  ],
+  "files": {
+    "/data/wuxuecheng/CPOLAR_TCP_SOP.md": {
+      "sha256": "c9750fc754fe762aaabb68eb8791d00cded1391cd47f1435678aafadb2f3f3f0",
+      "bytes": 7242
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-5-real-review-codex.md": {
+      "sha256": "d2055b7bd26f8cf97f6597fdd7c40f70cab458105743416ccb455598c0f583e2",
+      "bytes": 14472
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/.superpowers/sdd/2026-11-18-deepcoder-five-round-canary/task-6-launch-hardening-fix4-review-qwen.md": {
+      "sha256": "c83fb3915242e6150a4fb290776e04aecc69412b064cfeb52f09a1ff4ec0b877",
+      "bytes": 10695
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/AGENTS.md": {
+      "sha256": "c2a5d13a3a7bbe1e0daf7fe882267dc99c201e1a0c3955e1779a74c9f4130dd4",
+      "bytes": 25209
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/audit/reviews/deepcoder-five-round-runbook.md": {
+      "sha256": "b22f62768a0707e0971986551711723d70e1c7e89ed41167d898649d44cb0682",
+      "bytes": 18373
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/.worktrees/five-round/reproduction/audit/reviews/dev-four-a800-access.md": {
+      "sha256": "34d30d56bbbdbc5dde9acc98f0bcd18aa08d37aecfcbcb0f0cfccaa0480ba559",
+      "bytes": 4163
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001367-stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001367-stdout.log": {
+      "sha256": "9fc3869d4e90a1464d02769263b84307de64432df6998b991c77e3f97b720740",
+      "bytes": 2674
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001368-stderr.log": {
+      "sha256": "bd7ab7d3341b7f926757003dd369f0e422a36f80b689e09a25c67acb3efc12c4",
+      "bytes": 142
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001368-stdout.log": {
+      "sha256": "a2d8baf33f03ce9274a9f491a5bb9d11afcb0025b087eafa77b40a2db1821307",
+      "bytes": 29
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001369-stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001369-stdout.log": {
+      "sha256": "05a525aa5dd4651d08af3eece1b7e9c177b6bd47efd9f67c5e4abc3f3393b70b",
+      "bytes": 2975
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001370-stderr.log": {
+      "sha256": "4e1bf6f41accd9dbd896d10d7006e4a323b777b6d93317537eb6193ff0c76c0d",
+      "bytes": 193
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001370-stdout.log": {
+      "sha256": "a2d8baf33f03ce9274a9f491a5bb9d11afcb0025b087eafa77b40a2db1821307",
+      "bytes": 29
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001371-stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001371-stdout.log": {
+      "sha256": "c96f7096f69879ed428c855fbccbcfa95d08876a79acbc78fc533dabb417b42a",
+      "bytes": 3195
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001372-stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001372-stdout.log": {
+      "sha256": "261c7e6605d8e8769ac0526a9e87e0eb62ee2aeb07c34370a7c323fd3db0c3e6",
+      "bytes": 724
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001373-stderr.log": {
+      "sha256": "4d1b4548a52672801e152ac70be781f8c179842510267f0f40e27820e982d830",
+      "bytes": 1373
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001373-stdout.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001374-stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/00001374-stdout.log": {
+      "sha256": "c554d6deb30e4224d8dad5f2400ba3926d4eac74f9cd5859edab94e1158510bd",
+      "bytes": 2911
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/01-host-precheck.sh": {
+      "sha256": "07c0c02c74108cf8bffba3ae769f63e27c63deecd4216f773d6c1e359b80241d",
+      "bytes": 2347
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/02-assets-precheck.sh": {
+      "sha256": "1b6ceee1f1f66e796c3132497ae9e95221aadb96092cf1c63a3d039fe9e9d83d",
+      "bytes": 3964
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/03-owner-diagnostic.sh": {
+      "sha256": "e7277f635d74d0fd51f7bf4bde26a954952287e770fec5427a00d1f010d89a08",
+      "bytes": 1466
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/04-assets-precheck-corrected.sh": {
+      "sha256": "0a40a1e19a196899db7702b9197f34defb86e062a289e23c64d17e873ef42138",
+      "bytes": 4390
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/05-socket-final-inspect.sh": {
+      "sha256": "f74c8119191c7540fbc4a653ae6330ae22c62089b45769598f9321611bb8bb67",
+      "bytes": 3816
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/06-provider-probe.sh": {
+      "sha256": "ef769af41813cc42a7c1a487340d5a30b386bc7d58abaa0780037c0627bf79ef",
+      "bytes": 1336
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/07-stage1-observe.sh": {
+      "sha256": "b10d4e66dd7c2abe2b8599d2249781db3caa3ce0baaff3f1d1be7290ad6b2201",
+      "bytes": 1187
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/08-blocked-final-state.sh": {
+      "sha256": "881a23b922d3d39fd7e5a7f248570dd84199cc4a4c8c397089091cbf859fe2aa",
+      "bytes": 2638
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/audit-initial.json": {
+      "sha256": "5ff4b72da646dd0194a4d9512dd7ce1c5ce6ae4f96422f425502b93119c12f11",
+      "bytes": 911
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/blocked-final-state.json": {
+      "sha256": "b38e864e056e14bd83f3147d56a4f654726566cd7beda190eda186b74e49584c",
+      "bytes": 2826
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/final-inspection.json": {
+      "sha256": "3f88f6867c6910f243868296cc087b93556df68ec5b597714a424604065648c0",
+      "bytes": 9436
+    },
+    "/data/wuxuecheng/Hierarchical_level/RSI-Flow/reproduction/audit/evidence/task6-five-round-real-launch-20261118T194019Z/provider-probe.json": {
+      "sha256": "9a0ea6e5d96c0cab4771131da419a8b17b5e762838a334d3610595fd0b93e42a",
+      "bytes": 25963
+    }
+  }
+}

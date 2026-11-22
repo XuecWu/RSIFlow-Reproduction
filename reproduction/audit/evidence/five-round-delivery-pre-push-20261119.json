@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-19",
+  "feature_branch": "reproduction/4b-five-round",
+  "feature_commit": "9dd6b1dd68ed2e0bd190c491b256313a1721a641",
+  "delivery_branch": "reproduction/4b-main8",
+  "delivery_commit": "9dd6b1dd68ed2e0bd190c491b256313a1721a641",
+  "gitlab_main_local_branch": "reproduction/4b-gitlab-main",
+  "gitlab_main_local_merge_commit": "16e75f5529fdd3e9a950096ef5f26d7ce9cf2087",
+  "gitlab_main_tree_matches_delivery_commit": true,
+  "new_commits_from_remote_main8": 52,
+  "new_history_secret_shape_scan": "zero_matches",
+  "new_history_blobs_over_50_mib": 0,
+  "public_url": "https://75f371f2.r61.cpolar.top",
+  "public_http_evidence": "reproduction/audit/evidence/five-round-merged-public-http-20261119.json",
+  "worktree_cleanup": "preserved intentionally because authoritative real run evidence, SDD ledger, and runtime GPU leases remain there",
+  "gpu_leases_committed": false,
+  "origin_push_authorized": false,
+  "gitlab_ci_verified": false
+}
